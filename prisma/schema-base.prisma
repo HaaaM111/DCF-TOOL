@@ -1,0 +1,52 @@
+// Prisma Schema — DCF 预期差挖掘工具（基准数据库，只读）
+// 本库存放基准公司档案（Company）：基础行情、净现金资产、财务数据、行业与估值参数
+// 用户使用数据（假设/报告/时间线等）位于 schema.prisma 对应的 user.db
+// 只读保护：baseline.db 文件属性只读 + SQLite 以 mode=ro 打开；基准维护走 scripts/manage-baseline.ts
+// 切换方式：将 datasource db.provider 改为 "postgresql"，并更新 BASELINE_DATABASE_URL
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma-base"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("BASELINE_DATABASE_URL")
+}
+
+// ============================================================
+// 标的公司基准档案（只读）
+// ============================================================
+model Company {
+  id            String   @id @default(cuid())
+  name          String   // 标的简称
+  ticker        String   @unique // 股票代码，如 600104.SH
+  currentPrice  Float    // 最新市价（元）
+  shares        Float    // 总股本（亿股）
+  marketCap     Float    // 当前市值（亿元）= price * shares
+
+  // —— 基础行情与净现金资产 ——
+  cash          Float    // 货币资金（亿元）
+  debt          Float    // 有息负债（亿元）
+  netCashAdj    Float    @default(0) // 净现金调整项（亿元）
+  netCash       Float    // 净现金合计（亿元）= cash - debt + netCashAdj
+
+  // —— 财务数据（来自 iFinD）——
+  e0            Float    // E0 归母净利润（亿元）
+  revenue       Float    @default(0) // 营业收入 S0（亿元）— PS 分母
+  bookValue     Float    @default(0) // 归母净资产 B0（亿元）— PB 分母
+  cfo           Float    // 经营现金流净额 CFO（亿元）
+  capex         Float    // 资本开支 Capex（亿元）
+  da            Float    // 折旧摊销 D&A（亿元）
+  industry      String   @default("") // 行业（用于同行匹配）
+  fxRate        Float    @default(1) // 港币/人民币汇率
+  kd            Float    @default(0.036) // 有息债务成本 Kd
+  taxRate       Float    @default(0.2) // 企业所得税率
+
+  // —— iFinD 数据落库时间戳（用于判断是否需要刷新）——
+  quoteUpdatedAt     DateTime? // 行情数据更新时间
+  financialUpdatedAt DateTime? // 财务数据更新时间
+
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}

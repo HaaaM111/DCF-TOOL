@@ -1,0 +1,260 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================
+   配色规范（专业金融终端）
+   ============================================================ */
+:root {
+  /* 主色 */
+  --brand-deep: #1E3A5F;      /* 深蓝，专业稳重 */
+  --brand-indigo: #4F46E5;    /* 靛蓝，强调色 */
+  /* 涨跌色（绿涨红跌） */
+  --pos-green: #10B981;       /* 翠绿，正向/低估 */
+  --neg-red: #EF4444;         /* 玫红，负向/高估 */
+  --warn-amber: #F59E0B;      /* 琥珀，警示/中性 */
+  /* 背景与卡片 */
+  --bg: #F8FAFC;              /* 浅灰背景 */
+  --card-bg: #FFFFFF;         /* 卡片白底 */
+  --border: #E2E8F0;          /* 边框 */
+  --text-primary: #0F172A;    /* 主文字 */
+  --text-secondary: #64748B;  /* 次要文字 */
+  --text-muted: #94A3B8;      /* 弱化文字 */
+}
+
+/* 深色模式 */
+.dark {
+  --bg: #0F172A;
+  --card-bg: #1E293B;
+  --border: #334155;
+  --text-primary: #F1F5F9;
+  --text-secondary: #94A3B8;
+  --text-muted: #64748B;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Microsoft YaHei", sans-serif;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* ============================================================
+   等宽字体（金融数字对齐）
+   ============================================================ */
+.font-mono-num {
+  font-family: "JetBrains Mono", "SF Mono", "Cascadia Code", Consolas, "Courier New", monospace !important;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+/* 确保表格内数字等宽字体不被 antd 覆盖 */
+.ant-table .font-mono-num {
+  font-family: "JetBrains Mono", "SF Mono", "Cascadia Code", Consolas, "Courier New", monospace !important;
+}
+
+/* ============================================================
+   涨跌色辅助类
+   ============================================================ */
+.txt-pos { color: var(--pos-green); font-weight: 600; }
+.txt-neg { color: var(--neg-red); font-weight: 600; }
+.txt-mid { color: var(--brand-indigo); font-weight: 500; }
+.txt-muted { color: var(--text-muted); }
+
+/* ============================================================
+   卡片样式（圆角 12px、边框、轻阴影）
+   ============================================================ */
+.fin-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.04);
+  transition: box-shadow 0.15s ease, border-color 0.15s ease;
+}
+.fin-card:hover {
+  box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.08);
+}
+
+/* ============================================================
+   表格样式（斑马纹 + 悬浮高亮）
+   ============================================================ */
+.fin-table .ant-table-tbody > tr:nth-child(odd) > td {
+  background: rgba(148, 163, 184, 0.05);
+}
+.fin-table .ant-table-tbody > tr:hover > td {
+  background: rgba(79, 70, 229, 0.06) !important;
+}
+.fin-table .ant-table-thead > tr > th {
+  background: var(--bg);
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* ============================================================
+   冻结列（左/右）不透明背景 —— 横向滚动时遮盖后方内容，避免文字重叠
+   ============================================================ */
+.fin-table .ant-table-cell-fix-start,
+.fin-table .ant-table-cell-fix-end {
+  background: var(--card-bg) !important;
+}
+/* 冻结列斑马纹（实色，与非冻结列视觉一致但不透明） */
+.fin-table .ant-table-tbody > tr:nth-child(odd) > td.ant-table-cell-fix-start,
+.fin-table .ant-table-tbody > tr:nth-child(odd) > td.ant-table-cell-fix-end {
+  background: #f1f5f9 !important;
+}
+/* 冻结列悬浮高亮（实色） */
+.fin-table .ant-table-tbody > tr:hover > td.ant-table-cell-fix-start,
+.fin-table .ant-table-tbody > tr:hover > td.ant-table-cell-fix-end {
+  background: #eef2ff !important;
+}
+/* 深色模式：冻结列实色背景 */
+.dark .fin-table .ant-table-cell-fix-start,
+.dark .fin-table .ant-table-cell-fix-end {
+  background: #1e293b !important;
+}
+.dark .fin-table .ant-table-tbody > tr:nth-child(odd) > td.ant-table-cell-fix-start,
+.dark .fin-table .ant-table-tbody > tr:nth-child(odd) > td.ant-table-cell-fix-end {
+  background: #334155 !important;
+}
+.dark .fin-table .ant-table-tbody > tr:hover > td.ant-table-cell-fix-start,
+.dark .fin-table .ant-table-tbody > tr:hover > td.ant-table-cell-fix-end {
+  background: #312e81 !important;
+}
+
+/* ============================================================
+   顶部品牌栏
+   ============================================================ */
+.brand-header {
+  background: linear-gradient(135deg, var(--brand-deep) 0%, var(--brand-indigo) 100%);
+  color: #fff;
+}
+
+/* ============================================================
+   冻结列阴影
+   ============================================================ */
+.frozen-col {
+  position: sticky;
+  background: var(--card-bg);
+  z-index: 2;
+  box-shadow: 2px 0 4px -2px rgba(0, 0, 0, 0.12);
+}
+
+/* ============================================================
+   滚动条
+   ============================================================ */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* 深色模式下 antd 组件适配 */
+.dark .ant-card {
+  background: var(--card-bg);
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+.dark .ant-statistic-title {
+  color: var(--text-secondary);
+}
+.dark .ant-table {
+  background: var(--card-bg);
+  color: var(--text-primary);
+}
+.dark .ant-table-thead > tr > th {
+  background: #0f172a !important;
+  color: var(--text-secondary) !important;
+  border-color: var(--border) !important;
+}
+.dark .ant-table-tbody > tr > td {
+  border-color: var(--border) !important;
+  background: var(--card-bg) !important;
+}
+.dark .ant-table-tbody > tr:nth-child(odd) > td {
+  background: rgba(148, 163, 184, 0.08) !important;
+}
+.dark .ant-table-tbody > tr:hover > td {
+  background: rgba(79, 70, 229, 0.12) !important;
+}
+
+/* ============================================================
+   涨跌渐变文字（关键数据强调）
+   ============================================================ */
+.upside-pos {
+  background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  font-weight: 700;
+}
+.upside-neg {
+  background: linear-gradient(135deg, #EF4444 0%, #DC2626 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  font-weight: 700;
+}
+
+/* ============================================================
+   推荐起点方案卡片
+   ============================================================ */
+.scheme-card {
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.scheme-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px -4px rgba(0, 0, 0, 0.12);
+}
+.dark .scheme-card {
+  background: rgba(30, 41, 59, 0.6);
+}
+.dark .scheme-card.bg-\[\#F0FDF4\] {
+  background: rgba(16, 185, 129, 0.12) !important;
+  border-color: #10B981 !important;
+}
+
+/* ============================================================
+   冻结列阴影增强（横向滚动时的视觉分隔）
+   ============================================================ */
+.fin-table .ant-table-cell-fix-start-last {
+  box-shadow: 4px 0 6px -4px rgba(0, 0, 0, 0.15);
+}
+.fin-table .ant-table-cell-fix-end-first {
+  box-shadow: -4px 0 6px -4px rgba(0, 0, 0, 0.15);
+}
+
+/* ============================================================
+   表头 sticky 时的背景固定
+   ============================================================ */
+.fin-table .ant-table-thead > tr > th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+}
+.dark .fin-table .ant-table-thead > tr > th {
+  background: #0f172a !important;
+}
+
+/* ============================================================
+   卡片统一阴影（专业终端感）
+   ============================================================ */
+.fin-card {
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.06), 0 1px 2px -1px rgba(0, 0, 0, 0.04);
+}
+.fin-card:hover {
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+}

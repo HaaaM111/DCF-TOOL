@@ -1,0 +1,246 @@
+// Prisma Schema — DCF 预期差挖掘工具（用户数据库）
+// 本库存放用户使用产生的数据：假设、估值报告、价格快照、时间线、同行对比、历史估值、验证结果、评估快照
+// 基准公司档案（Company）位于 schema-base.prisma 对应的 baseline.db（只读）
+// companyId 均为普通字符串字段（跨库引用，无外键约束），引用一致性由应用层保证
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// 0. 评估快照（每次保存模型时刷新，供排行榜直接读取，避免全表重算）
+//    原 Company 快照字段迁至此处；companyId 唯一（一公司一快照）
+// ============================================================
+model CompanySnapshot {
+  id            String   @id @default(cuid())
+  companyId     String   @unique // 引用基准库 Company.id（跨库，无外键）
+
+  quadrant      String   @default("") // 四象限：绿灯双低/绿灯预期已装满/红灯退出倍数高/红灯预期落空
+  diagnosis     String   @default("") // 叙事分级诊断
+  targetPrice   Float    @default(0) // 目标价
+  upside        Float    @default(0) // 调整后潜在空间（%）
+  originalUpside Float   @default(0) // 正向 DCF 原版空间（%）
+  impliedKe     Float    @default(0) // 隐含 Ke
+  forwardKe     Float    @default(0) // 正向 Ke
+  wacc          Float    @default(0) // WACC
+  terminalProfitY20 Float @default(0) // DCF 正向终局利润 Y20
+  terminalFcfE3 Float    @default(0) // 终局 FCF/E3
+  impliedL      Float    @default(0) // 市场隐含终局利润 L
+  impliedLE3    Float    @default(0) // L/E3
+  impliedCagr   Float    @default(0) // 隐含终局 CAGR(20y)
+  terminalProfitEst Float @default(0) // 终局利润估计（用户设定）
+  transitionG   Float    @default(0) // 过渡期年化 g
+
+  lastEvalDate  DateTime? // 前次评估日期
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+// ============================================================
+// 1. 估值模型假设（与 Company 一对一，companyId 跨库引用）
+// ============================================================
+model Assumption {
+  id        String  @id @default(cuid())
+  companyId String  @unique // 引用基准库 Company.id（跨库，无外键）
+
+  // 起始自由现金流
+  baseFcf       Float // 起始 FCF（亿元）
+
+  // 20 年自由现金流推演增速
+  g1            Float // 前 5 年复合增速
+  g2            Float // 6-10 年复合增速
+  g3            Float // 11-20 年复合增速
+  perpetualG    Float // 第 20 年永续增长率 g
+
+  // 折现率
+  ke            Float // 股权要求回报率 Ke
+  wacc          Float @default(0) // WACC（可由 Ke/Kd/税率/负债比推导，简化时 = Ke）
+
+  // 派现率
+  payoutRate1   Float @default(0.5) // 前 10 年预测派现率
+  payoutRate2   Float @default(0.7) // 10 年后预测派现率
+
+  // 逆向财务穿透参数
+  e1            Float // E1 当年预期利润
+  e2            Float // E2 次年预期利润
+  e3            Float // E3 第三年预期利润
+  reverseR      Float // 逆向反算折现率 r
+  exitPe        Float // 终局退出乘数 Exit PE
+  transitionG   Float // 过渡期年化增速 g（E3→终局）
+  terminalProfitEst Float // 我的终局利润估计
+
+  // CRP 调整
+  crpName       String @default("") // CRP 名称
+  crpBps        Float  @default(0) // CRP 幅度（bps）
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ============================================================
+// 2. 估值报告（每次触发计算时留痕，含蒙特卡洛置信区间）
+// ============================================================
+model ValuationReport {
+  id         String   @id @default(cuid())
+  companyId  String // 引用基准库 Company.id（跨库，无外键）
+
+  // —— DCF 核心结果 ——
+  targetPrice         Float // 目标价
+  upside              Float // 调整后上涨空间 %
+  originalUpside      Float // 原版上涨空间 %
+  dcfEntityValue      Float // DCF 实体价值（亿元）
+  impliedL            Float // 市场隐含终局利润 L
+  impliedLE3          Float // L/E3 倍数
+  impliedKe           Float // 隐含 Ke
+  forwardKe           Float // 正向 Ke
+  wacc                Float // WACC
+  terminalProfitY20   Float // DCF 正向终局利润 Y20
+  terminalFcfE3       Float // 终局 FCF/E3
+  impliedCagr         Float // 隐含终局 CAGR(20y) %
+
+  // —— 蒙特卡洛置信区间（目标价分布）——
+  mcP5        Float? // P5 分位目标价
+  mcP25       Float? // P25 分位目标价
+  mcMedian    Float? // 中位数目标价
+  mcP75       Float? // P75 分位目标价
+  mcP95       Float? // P95 分位目标价
+  mcSamples   Int?   // 蒙特卡洛采样次数
+
+  // —— 敏感性矩阵（JSON）——
+  sensitivityMatrix Json? // 三变量敏感性矩阵 { r:[], exitPe:[], g:[] }
+
+  // —— 完整快照（便于复盘）——
+  snapshot    Json   // 完整参数与结果 JSON
+
+  createdAt   DateTime @default(now())
+
+  validationResult ValidationResult?
+
+  @@index([companyId, createdAt])
+}
+
+// ============================================================
+// 3. 股价历史快照（用于走势分析与双轴折线图）
+// ============================================================
+model PriceSnapshot {
+  id         String   @id @default(cuid())
+  ticker     String   // 股票代码（冗余存储，便于按代码查询历史）
+  date       DateTime // 交易日期
+  close      Float    // 收盘价（元）
+  volume     Float    // 成交量（股）
+  companyId  String? // 引用基准库 Company.id（跨库，无外键，可空）
+
+  // 同一股票同一交易日只存一条
+  @@unique([ticker, date])
+  @@index([ticker, date])
+}
+
+// ============================================================
+// 4. 人文画像与复盘时间线
+// ============================================================
+model TimelineEntry {
+  id        String   @id @default(cuid())
+  companyId String // 引用基准库 Company.id（跨库，无外键）
+  date      DateTime // 标注日期
+  content   String   // 内容（后端做长度与 XSS 校验）
+  tags      String   @default("") // 标签，逗号分隔，如 "买入,财报"
+  createdAt DateTime @default(now())
+
+  @@index([companyId, date])
+}
+
+// ============================================================
+// 5. 同行对比数据（用于横向估值验证）
+// ============================================================
+model PeerValuation {
+  id         String   @id @default(cuid())
+  companyId  String // 引用基准库 Company.id（跨库，无外键）
+
+  peerTicker String   // 同行股票代码
+  peerName   String   // 同行简称
+  marketCap  Float    // 同行市值（亿元）
+  e0         Float    // 同行归母净利润（亿元）
+  revenue    Float    // 同行营收（亿元）
+  bookValue  Float    // 同行归母净资产（亿元）
+  pe         Float    // PE = 市值 / E0
+  pb         Float    // PB = 市值 / B0
+  ps         Float    // PS = 市值 / S0
+  evEbitda   Float?   // EV/EBITDA（可选）
+
+  fetchedAt  DateTime @default(now())
+
+  @@index([companyId])
+}
+
+// ============================================================
+// 6. 历史估值数据（用于纵向分位验证）
+// ============================================================
+model HistoricalValuation {
+  id        String   @id @default(cuid())
+  companyId String // 引用基准库 Company.id（跨库，无外键）
+
+  year      Int      // 财报年份
+  pe        Float?   // 当年 PE
+  pb        Float?   // 当年 PB
+  ps        Float?   // 当年 PS
+
+  @@unique([companyId, year])
+  @@index([companyId])
+}
+
+// ============================================================
+// 7. 估值验证结果（绝对 × 相对 交叉验证 + AI 归因）
+// ============================================================
+model ValidationResult {
+  id               String   @id @default(cuid())
+  reportId         String   @unique
+  report           ValuationReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  companyId        String // 引用基准库 Company.id（跨库，无外键）
+
+  // 绝对估值（DCF，亿元）
+  absoluteValue    Float    // DCF 股权价值 = targetPrice × shares
+
+  // 相对估值（亿元）
+  peValue          Float    // 行业 PE 均值 × E0
+  pbValue          Float    // 行业 PB 均值 × B0
+  psValue          Float    // 行业 PS 均值 × S0
+  relativeValue    Float    // 三者中位数
+
+  // 当前估值倍数
+  currentPe        Float
+  currentPb        Float
+  currentPs        Float
+
+  // 行业中枢
+  industryPeMean   Float
+  industryPeMedian Float
+  industryPbMean   Float
+  industryPsMean   Float
+
+  // 历史分位(0~100)
+  pePercentile     Float
+  pbPercentile     Float
+  psPercentile     Float
+
+  // 溢价/折价率 %
+  premiumDiscount  Float
+
+  // 交叉验证
+  diffRate         Float    // |绝对 - 相对| / 相对 × 100%
+  conclusion       String   // 一致 / 偏离
+  aiAttribution    String?  // AI 归因文本（XSS 过滤后存储）
+
+  // 2D 敏感性矩阵（WACC × 永续g）
+  sensitivityHeatmap Json?
+
+  createdAt        DateTime @default(now())
+
+  @@index([companyId])
+}
