@@ -28,13 +28,17 @@ import {
   importSchema,
 } from "../src/lib/validation";
 
-const BASE_FILE = "D:/DCF-TOOL/prisma/baseline.db";
-const USER_FILE = "D:/DCF-TOOL/prisma/user.db";
+// 基于脚本位置动态解析项目根目录（兼容本地与服务器任意部署位置）
+const ROOT = path.resolve(__dirname, "..");
+const dbPath = (...segments: string[]) =>
+  path.join(ROOT, ...segments).replace(/\\/g, "/");
+const BASE_FILE = dbPath("prisma", "baseline.db");
+const USER_FILE = dbPath("prisma", "user.db");
 
 // 手动加载 .env.local（iFinD refresh_token 等），不依赖 dotenv 包
 function loadEnvLocal() {
   try {
-    const text = fs.readFileSync("D:/DCF-TOOL/.env.local", "utf-8");
+    const text = fs.readFileSync(dbPath(".env.local"), "utf-8");
     for (const line of text.split("\n")) {
       const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.+)\s*$/);
       if (m && !process.env[m[1]]) {

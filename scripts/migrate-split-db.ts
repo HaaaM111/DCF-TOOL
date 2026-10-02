@@ -3,12 +3,17 @@
  * 保留所有记录 id，保证跨库引用（companyId）一致。
  * 用法：npx tsx scripts/migrate-split-db.ts
  */
+import path from "node:path";
 import { PrismaClient } from "../src/generated/prisma/client";
 import { PrismaClient as BaseClient } from "../src/generated/prisma-base/client";
 
-const OLD_DB = "file:D:/DCF-TOOL/prisma/dev.db";
-const USER_DB = "file:D:/DCF-TOOL/prisma/user.db";
-const BASE_DB = "file:D:/DCF-TOOL/prisma/baseline.db";
+// 基于脚本位置动态解析项目根目录（兼容本地与服务器任意部署位置）
+const ROOT = path.resolve(__dirname, "..");
+const dbUrl = (...segments: string[]) =>
+  `file:${path.join(ROOT, ...segments).replace(/\\/g, "/")}`;
+const OLD_DB = dbUrl("prisma", "dev.db");
+const USER_DB = dbUrl("prisma", "user.db");
+const BASE_DB = dbUrl("prisma", "baseline.db");
 
 /** 从 raw 结果中抽取指定字段，并把日期/JSON 列转换为可写类型 */
 function pick(

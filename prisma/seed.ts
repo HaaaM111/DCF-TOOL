@@ -9,16 +9,22 @@
  * 运行：npx tsx prisma/seed.ts
  */
 import * as fs from "fs";
+import * as path from "path";
 import { PrismaClient } from "../src/generated/prisma/client";
 import { PrismaClient as BaseClient } from "../src/generated/prisma-base/client";
 import { calcDcf, classifyQuadrant, diagnoseNarrative } from "../src/lib/dcf";
 import { fetchCompanyData, hasIfindCredentials } from "../src/lib/ifind-client";
 
+// 基于脚本位置动态解析项目根目录（兼容本地与服务器任意部署位置）
+const ROOT = path.resolve(__dirname, "..");
+const dbPath = (...segments: string[]) =>
+  path.join(ROOT, ...segments).replace(/\\/g, "/");
+
 // 加载 .env 与 .env.local（tsx 不会自动加载）
 // 手动解析 .env.local 并强制覆盖，确保真实 token 覆盖 .env 中的空占位
-process.loadEnvFile(".env");
+process.loadEnvFile(path.join(ROOT, ".env"));
 try {
-  const content = fs.readFileSync(".env.local", "utf8");
+  const content = fs.readFileSync(dbPath(".env.local"), "utf8");
   for (const line of content.split(/\r?\n/)) {
     const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*)$/);
     if (m) process.env[m[1]] = m[2].replace(/^["']|["']$/g, "");
@@ -27,8 +33,8 @@ try {
   /* .env.local 不存在时忽略 */
 }
 
-const BASE_FILE = "D:/DCF-TOOL/prisma/baseline.db";
-const USER_FILE = "D:/DCF-TOOL/prisma/user.db";
+const BASE_FILE = dbPath("prisma", "baseline.db");
+const USER_FILE = dbPath("prisma", "user.db");
 
 process.env.BASELINE_DATABASE_URL = `file:${BASE_FILE}`; // 可写连接
 process.env.DATABASE_URL = `file:${USER_FILE}`;
