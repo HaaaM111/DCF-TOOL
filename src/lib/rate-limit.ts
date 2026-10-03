@@ -14,11 +14,15 @@ const DEFAULT_LIMIT = 60; // 次/分钟
 
 /**
  * 获取客户端 IP（支持代理）
+ * 优先取 X-Real-IP（nginx 设置为 $remote_addr，客户端无法伪造）；
+ * 无 nginx 直连时退回 X-Forwarded-For 最后一个值（最后追加的通常是真实来源）。
  */
 export function getClientIp(req: NextRequest): string {
+  const real = req.headers.get("x-real-ip");
+  if (real) return real.trim();
   const forwarded = req.headers.get("x-forwarded-for");
-  if (forwarded) return forwarded.split(",")[0].trim();
-  return req.headers.get("x-real-ip") ?? "unknown";
+  if (forwarded) return forwarded.split(",").pop()?.trim() ?? "unknown";
+  return "unknown";
 }
 
 /**

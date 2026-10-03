@@ -15,16 +15,6 @@ function companyIdParam(req: NextRequest) {
   return req.nextUrl.pathname.split("/")[3];
 }
 
-/** 简易 XSS 转义：把 < > & " ' 转为实体，防止存储型 XSS */
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
 export async function GET(req: NextRequest) {
   const guard = guardRequest(req);
   if (guard) return guard;
@@ -65,7 +55,8 @@ export async function POST(req: NextRequest) {
     data: {
       companyId,
       date: new Date(parsed.data.date),
-      content: escapeHtml(parsed.data.content), // 入库前转义，杜绝存储型 XSS
+      // 原样存储；前端以 React 文本节点渲染（{n.content}）时会自动转义，防 XSS 且显示原文
+      content: parsed.data.content,
       tags: parsed.data.tags ?? "",
     },
   });

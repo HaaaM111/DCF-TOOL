@@ -87,8 +87,9 @@ export async function GET(req: NextRequest) {
         return jsonError(`未知操作: ${action}`, 404, "UNKNOWN_ACTION");
     }
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "iFinD 请求失败";
-    return jsonError(msg, 502, "IFIND_ERROR");
+    // 不向前端透出内部错误细节（可能含接口地址/凭据信息），仅记录服务端日志
+    console.error("[ifind] 请求失败:", err);
+    return jsonError("iFinD 数据服务暂不可用，请稍后重试", 502, "IFIND_ERROR");
   }
 }
 

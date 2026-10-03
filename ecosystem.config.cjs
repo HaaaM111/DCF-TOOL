@@ -14,7 +14,8 @@ module.exports = {
       env: {
         NODE_ENV: "production",
         PORT: 3000,
-        HOSTNAME: "0.0.0.0",
+        // 只监听本机回环：仅允许 nginx 反代访问，公网无法直连 3000 端口
+        HOSTNAME: "127.0.0.1",
       },
       // 日志输出
       error_file: "/var/www/valueinsight/logs/error.log",
