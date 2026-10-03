@@ -61,6 +61,28 @@ interface Company {
   lastEvalDate: string | null;
 }
 
+/** 基准库档案行类型（只读对照） */
+interface BaselineCompany {
+  id: string;
+  name: string;
+  ticker: string;
+  currentPrice: number;
+  shares: number;
+  marketCap: number;
+  cash: number;
+  debt: number;
+  netCash: number;
+  e0: number;
+  revenue: number;
+  bookValue: number;
+  cfo: number;
+  capex: number;
+  da: number;
+  industry: string;
+  quoteUpdatedAt: string | null;
+  financialUpdatedAt: string | null;
+}
+
 /** 四象限标签与配色 */
 const QUADRANTS = [
   { key: "绿灯双低·容错增厚", color: "green" },
@@ -77,6 +99,8 @@ const fmtPct = (n: number, d = 1) =>
 export default function DashboardPage() {
   const router = useRouter();
   const [companies, setCompanies] = useState<Company[]>([]);
+  const [baselineCompanies, setBaselineCompanies] = useState<BaselineCompany[]>([]);
+  const [baselineLoading, setBaselineLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [quadrantFilter, setQuadrantFilter] = useState<string>("");
   const [keyword, setKeyword] = useState("");
@@ -100,6 +124,22 @@ export default function DashboardPage() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // 加载基准库档案（只读对照）
+  useEffect(() => {
+    (async () => {
+      setBaselineLoading(true);
+      try {
+        const res = await fetch("/api/baseline", { cache: "no-store" });
+        const json = await res.json();
+        setBaselineCompanies(json.companies ?? []);
+      } catch {
+        setBaselineCompanies([]);
+      } finally {
+        setBaselineLoading(false);
+      }
+    })();
+  }, []);
 
   const filtered = companies.filter((c) => {
     if (quadrantFilter && c.quadrant !== quadrantFilter) return false;
@@ -348,6 +388,114 @@ export default function DashboardPage() {
     },
   ];
 
+  // 基准库档案对照表列（只读参考）
+  const baselineColumns: ColumnsType<BaselineCompany> = [
+    {
+      title: "标的",
+      dataIndex: "name",
+      fixed: "left",
+      width: 150,
+      render: (_, r) => (
+        <div>
+          <div className="font-semibold text-slate-800">{r.name}</div>
+          <div className="text-xs text-slate-400">{r.ticker}</div>
+        </div>
+      ),
+    },
+    {
+      title: "最新市价",
+      dataIndex: "currentPrice",
+      width: 90,
+      className: "font-mono-num",
+      render: (v: number) => <span>¥{fmt(v, 2)}</span>,
+    },
+    {
+      title: "总股本(亿股)",
+      dataIndex: "shares",
+      width: 100,
+      className: "font-mono-num",
+      render: (v: number) => <span>{fmt(v, 2)}</span>,
+    },
+    {
+      title: "市值(亿)",
+      dataIndex: "marketCap",
+      width: 100,
+      className: "font-mono-num",
+      render: (v: number) => <span>{fmt(v, 1)}</span>,
+    },
+    {
+      title: "货币资金(亿)",
+      dataIndex: "cash",
+      width: 100,
+      className: "font-mono-num",
+      render: (v: number) => <span>{fmt(v, 1)}</span>,
+    },
+    {
+      title: "有息负债(亿)",
+      dataIndex: "debt",
+      width: 100,
+      className: "font-mono-num",
+      render: (v: number) => <span>{fmt(v, 1)}</span>,
+    },
+    {
+      title: "净现金(亿)",
+      dataIndex: "netCash",
+      width: 100,
+      className: "font-mono-num",
+      render: (v: number) => (
+        <span className={v >= 0 ? "txt-pos" : "txt-neg"}>{fmt(v, 1)}</span>
+      ),
+    },
+    {
+      title: "E0净利(亿)",
+      dataIndex: "e0",
+      width: 90,
+      className: "font-mono-num",
+      render: (v: number) => <span>{fmt(v, 1)}</span>,
+    },
+    {
+      title: "营收S0(亿)",
+      dataIndex: "revenue",
+      width: 100,
+      className: "font-mono-num",
+      render: (v: number) => <span>{fmt(v, 1)}</span>,
+    },
+    {
+      title: "净资产B0(亿)",
+      dataIndex: "bookValue",
+      width: 100,
+      className: "font-mono-num",
+      render: (v: number) => <span>{fmt(v, 1)}</span>,
+    },
+    {
+      title: "CFO(亿)",
+      dataIndex: "cfo",
+      width: 90,
+      className: "font-mono-num",
+      render: (v: number) => <span>{fmt(v, 1)}</span>,
+    },
+    {
+      title: "Capex(亿)",
+      dataIndex: "capex",
+      width: 90,
+      className: "font-mono-num",
+      render: (v: number) => <span>{fmt(v, 1)}</span>,
+    },
+    {
+      title: "D&A(亿)",
+      dataIndex: "da",
+      width: 90,
+      className: "font-mono-num",
+      render: (v: number) => <span>{fmt(v, 1)}</span>,
+    },
+    {
+      title: "行业",
+      dataIndex: "industry",
+      width: 110,
+      render: (v: string) => v || "-",
+    },
+  ];
+
   return (
     <div className="min-h-screen">
       {/* 顶部品牌栏 */}
@@ -480,6 +628,30 @@ export default function DashboardPage() {
             size="middle"
             className="fin-table"
             pagination={{ pageSize: 20, showSizeChanger: true }}
+          />
+        </Card>
+
+        {/* 基准库档案对照（只读参考） */}
+        <Card
+          className="mt-4"
+          title={
+            <span>
+              🏛 基准库档案对照
+              <span className="text-xs text-slate-400 ml-2 font-normal">
+                （只读参考 · 上方排行榜为你的用户库数据，此处为基准库原始档案，便于对照差异）
+              </span>
+            </span>
+          }
+        >
+          <Table
+            rowKey="id"
+            columns={baselineColumns}
+            dataSource={baselineCompanies}
+            loading={baselineLoading}
+            scroll={{ x: 1400 }}
+            size="small"
+            className="fin-table"
+            pagination={false}
           />
         </Card>
       </div>

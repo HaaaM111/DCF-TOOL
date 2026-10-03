@@ -9,7 +9,7 @@
  */
 import { NextRequest } from "next/server";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
-import { prisma, prismaBase } from "@/lib/prisma";
+import { prisma } from "@/lib/prisma";
 import {
   fetchQuote,
   fetchFinancials,
@@ -102,8 +102,8 @@ async function saveHistory(
 ) {
   if (!bars.length) return;
 
-  // 查找对应 companyId（若存在，基准库）
-  const company = await prismaBase.company.findUnique({
+  // 查找对应 companyId（用户库）
+  const company = await prisma.company.findUnique({
     where: { ticker },
     select: { id: true },
   });

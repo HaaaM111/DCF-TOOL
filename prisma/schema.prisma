@@ -1,6 +1,6 @@
 // Prisma Schema — DCF 预期差挖掘工具（用户数据库）
-// 本库存放用户使用产生的数据：假设、估值报告、价格快照、时间线、同行对比、历史估值、验证结果、评估快照
-// 基准公司档案（Company）位于 schema-base.prisma 对应的 baseline.db（只读）
+// 本库存放用户使用产生的数据：公司档案、假设、估值报告、价格快照、时间线、同行对比、历史估值、验证结果、评估快照
+// 初始股由 scripts/sync-initial-companies.ts 从基准库复制；基准库仅作为内部种子数据源，不在界面体现
 // companyId 均为普通字符串字段（跨库引用，无外键约束），引用一致性由应用层保证
 
 generator client {
@@ -14,7 +14,43 @@ datasource db {
 }
 
 // ============================================================
-// 0. 评估快照（每次保存模型时刷新，供排行榜直接读取，避免全表重算）
+// 0. 公司档案（用户库；界面唯一数据源）
+//    部署时由 scripts/sync-initial-companies.ts 从基准库复制初始股，
+//    用户可自由新增、修改、删除（删除时由应用层级联清理快照/假设/报告等）
+// ============================================================
+model Company {
+  id            String   @id @default(cuid())
+  name          String   // 标的简称
+  ticker        String   @unique // 股票代码，如 600104.SH
+  currentPrice  Float    // 最新市价（元）
+  shares        Float    // 总股本（亿股）
+  marketCap     Float    // 当前市值（亿元）= price × shares
+
+  cash          Float    // 货币资金（亿元）
+  debt          Float    // 有息负债（亿元）
+  netCashAdj    Float    @default(0) // 净现金调整项（亿元）
+  netCash       Float    // 净现金合计（亿元）= cash - debt + netCashAdj
+
+  e0            Float    // E0 归母净利润（亿元）
+  revenue       Float    @default(0) // 营业收入 S0（亿元）— PS 分母
+  bookValue     Float    @default(0) // 归母净资产 B0（亿元）— PB 分母
+  cfo           Float    // 经营现金流净额 CFO（亿元）
+  capex         Float    // 资本开支 Capex（亿元）
+  da            Float    // 折旧摊销 D&A（亿元）
+  industry      String   @default("") // 行业（用于同行匹配）
+  fxRate        Float    @default(1) // 港币/人民币汇率
+  kd            Float    @default(0.036) // 有息债务成本 Kd
+  taxRate       Float    @default(0.2) // 企业所得税率
+
+  quoteUpdatedAt     DateTime? // 行情数据更新时间
+  financialUpdatedAt DateTime? // 财务数据更新时间
+
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+// ============================================================
+// 0a. 评估快照（每次保存模型时刷新，供排行榜直接读取，避免全表重算）
 //    原 Company 快照字段迁至此处；companyId 唯一（一公司一快照）
 // ============================================================
 model CompanySnapshot {

@@ -15,7 +15,7 @@
 import { NextRequest } from "next/server";
 import { Prisma } from "@/generated/prisma/client";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
-import { prisma, prismaBase } from "@/lib/prisma";
+import { prisma } from "@/lib/prisma";
 import { calcDcf } from "@/lib/dcf";
 import {
   calcRelativeValuation,
@@ -48,8 +48,8 @@ export async function POST(req: NextRequest) {
     return jsonError("缺少 companyId", 400, "MISSING_COMPANY_ID");
   }
 
-  // 1. 取公司（基准库）+ 假设（用户库）
-  const baseCompany = await prismaBase.company.findUnique({
+  // 1. 取公司（用户库）+ 假设（用户库）
+  const baseCompany = await prisma.company.findUnique({
     where: { id: companyId },
   });
   if (!baseCompany) {

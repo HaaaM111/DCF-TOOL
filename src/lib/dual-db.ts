@@ -1,7 +1,7 @@
-import { prisma, prismaBase } from "./prisma";
+import { prisma } from "./prisma";
 
-/** 基准库 Company 行类型 */
-type BaseCompany = {
+/** 用户库 Company 行类型（界面唯一数据源） */
+type CompanyRow = {
   id: string;
   name: string;
   ticker: string;
@@ -9,18 +9,18 @@ type BaseCompany = {
 };
 
 /**
- * 把基准公司 + 用户库评估快照 + 假设合并为与旧单库结构一致的 company 对象。
+ * 把公司档案 + 评估快照 + 假设合并为与旧单库结构一致的 company 对象。
  * 快照字段（targetPrice/upside/quadrant 等）直接展开到 company 顶层。
  */
 export async function mergeCompanySnapshot(
-  base: BaseCompany,
+  company: CompanyRow,
 ): Promise<Record<string, unknown>> {
   const [assumption, snapshot] = await Promise.all([
-    prisma.assumption.findUnique({ where: { companyId: base.id } }),
-    prisma.companySnapshot.findUnique({ where: { companyId: base.id } }),
+    prisma.assumption.findUnique({ where: { companyId: company.id } }),
+    prisma.companySnapshot.findUnique({ where: { companyId: company.id } }),
   ]);
 
-  const out: Record<string, unknown> = { ...base };
+  const out: Record<string, unknown> = { ...company };
 
   if (snapshot) {
     const snapFields: Record<string, unknown> = {};
@@ -36,9 +36,9 @@ export async function mergeCompanySnapshot(
   return out;
 }
 
-/** 全部标的（含快照与假设），供排行榜使用，按基准库 updatedAt 倒序 */
+/** 全部标的（含快照与假设），供排行榜使用，按更新时间倒序 */
 export async function getAllCompaniesMerged() {
-  const companies = await prismaBase.company.findMany({
+  const companies = await prisma.company.findMany({
     orderBy: { updatedAt: "desc" },
   });
   return Promise.all(companies.map((c) => mergeCompanySnapshot(c)));
@@ -46,11 +46,11 @@ export async function getAllCompaniesMerged() {
 
 /** 单个标的（含快照、假设、时间线），供模型编辑/报告页使用 */
 export async function getCompanyMerged(id: string) {
-  const base = await prismaBase.company.findUnique({ where: { id } });
-  if (!base) return null;
+  const company = await prisma.company.findUnique({ where: { id } });
+  if (!company) return null;
 
   const [merged, timeline] = await Promise.all([
-    mergeCompanySnapshot(base),
+    mergeCompanySnapshot(company),
     prisma.timelineEntry.findMany({
       where: { companyId: id },
       orderBy: { date: "desc" },

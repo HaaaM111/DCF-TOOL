@@ -1,6 +1,6 @@
 /**
  * GET /api/export —— 导出全部标的（公司 + 假设 + 评估快照）为 JSON
- * 用于备份与跨设备迁移（可通过 scripts/manage-baseline.ts import 恢复到基准库）。
+ * 用于备份与跨设备迁移。
  */
 import { NextRequest } from "next/server";
 import { guardRequest } from "@/lib/api";
