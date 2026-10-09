@@ -270,7 +270,16 @@ function ModelEditContent() {
       }));
       // 采用"当年实际值"方案
       setAdoptedScheme("actual");
-      message.success(json.mock ? "已抓取基础数据（模拟模式）" : "已从 iFinD 抓取基础数据");
+      const sourceMsg =
+        json.source === "eastmoney"
+          ? "已从东方财富抓取基础数据（免费源）"
+          : json.mock
+            ? "已抓取基础数据（模拟模式）"
+            : "已从 iFinD 抓取基础数据";
+      message.success(sourceMsg);
+      if (json.incomplete) {
+        message.warning("东财兜底数据部分字段缺失（Capex/有息负债等），请手动核对后使用");
+      }
     } catch (err) {
       message.error(err instanceof Error ? err.message : "抓取失败，请检查股票代码或网络");
     } finally {

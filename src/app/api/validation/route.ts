@@ -26,7 +26,8 @@ import {
   DIFF_THRESHOLD,
   type PeerData,
 } from "@/lib/valuation-validation";
-import { getIndustryPeers, getMockCompanyData, hasIfindCredentials, fetchCompanyData } from "@/lib/ifind-client";
+import { getIndustryPeers } from "@/lib/ifind-client";
+import { resolveCompanyData } from "@/lib/data-source";
 import { chatWithDeepSeek, hasDeepSeekCredentials, sanitizeAiText } from "@/lib/ai-client";
 
 export const runtime = "nodejs";
@@ -75,16 +76,13 @@ export async function POST(req: NextRequest) {
   const output = calcDcf(a, b);
   const absoluteValue = output.forward.adjustedTargetPrice * company.shares; // 亿元
 
-  // 3. 同行数据（本地股票池按行业匹配）
+  // 3. 同行数据（本地股票池按行业匹配；行情走东财分流、财务走 iFinD→东财兜底）
   const peerTickers = getIndustryPeers(company.industry, company.ticker);
   const peers: PeerData[] = [];
-  const useMock = !hasIfindCredentials();
 
   for (const peer of peerTickers.slice(0, 10)) {
     try {
-      const data = useMock
-        ? getMockCompanyData(peer.ticker)
-        : await fetchCompanyData(peer.ticker);
+      const { data } = await resolveCompanyData(peer.ticker);
       const marketCap = data.marketCap || data.currentPrice * data.shares;
       peers.push({
         ticker: peer.ticker,

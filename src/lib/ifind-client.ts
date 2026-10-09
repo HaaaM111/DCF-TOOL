@@ -14,16 +14,21 @@
  *   基础数据:  POST /api/v1/basic_data_service  header: access_token
  *   历史行情:  POST /api/v1/cmd_history_quotation  header: access_token
  *
- * 已验证可用指标（上汽集团 600104.SH，2024 年报）：
+ * 已验证可用指标（上汽集团 600104.SH，2025 年报，与东方财富逐项核对一致）：
  *   ths_stock_short_name_stock     证券简称
- *   ths_close_price_stock          收盘价
+ *   ths_close_price_stock          收盘价（盘中取最近交易日收盘）
  *   ths_total_shares_stock         总股本
  *   ths_total_assets_stock         总资产
  *   ths_interest_bearing_debt_stock 有息负债
- *   ths_np_stock                   净利润（≈归母净利润）
+ *   ths_np_stock                   净利润（含少数股东，PIT 归母缺失时兜底）
  *   ths_ncf_from_oa_stock          经营活动现金流净额（CFO）
  *   ths_cash_paid_for_assets_stock 资本开支（Capex）
- *   ths_depreciation_etc_stock     折旧与摊销（D&A）
+ *   ths_depreciation_etc_stock     固定资产折旧/油气折耗/生物折旧（不含无形/长摊摊销）
+ *   ths_np_atoopc_pit_stock        归母净利润（PIT，参数 [今天,报告期,1]）
+ *   ths_total_equity_atoopc_pit_stock 归母净资产（PIT，参数 [今天,报告期,1]）
+ *
+ * 历史行情 functionpara 必须用 Currency:"RMB"（MHB=美元会把 A 股价格错算成美元）；
+ * 历史行情默认不复权（与东方财富 fqt=0 一致）。
  */
 
 // ============================================================
@@ -341,24 +346,38 @@ export async function fetchFinancials(ticker: string) {
   const now = new Date();
   const year = now.getMonth() >= 6 ? now.getFullYear() - 1 : now.getFullYear() - 2;
   const reportDate = `${year}1231`;
+  const today = new Date().toISOString().slice(0, 10).replace(/-/g, "");
 
+  // 普通指标（参数 [报告期,100,报告期]）
   const indicators = [
     "ths_stock_short_name_stock", // 名称
-    "ths_np_stock", // 净利润（≈归母净利润）
+    "ths_np_stock", // 净利润（含少数股东，PIT 归母缺失时兜底）
     "ths_revenue_stock", // 营业收入
-    "ths_np_ats_stock", // 归母净利润（更精确的归母口径，兜底）
     "ths_ncf_from_oa_stock", // CFO
     "ths_cash_paid_for_assets_stock", // Capex
     "ths_depreciation_etc_stock", // D&A
     "ths_total_shares_stock", // 总股本
     "ths_interest_bearing_debt_stock", // 有息负债
     "ths_total_assets_stock", // 总资产
-    "ths_total_equity_stock", // 归母净资产（B0）
+  ];
+  // PIT 时点指标（归母口径，参数 [查询日期(今天),报告期,1]，自带 PIT 防未来函数）
+  const pitIndicators = [
+    "ths_np_atoopc_pit_stock", // 归母净利润
+    "ths_total_equity_atoopc_pit_stock", // 归母净资产
   ];
 
   const body = {
     codes: ticker,
-    indipara: buildIndipara(indicators, reportDate),
+    indipara: [
+      ...indicators.map((indicator) => ({
+        indicator,
+        indiparams: [reportDate, "100", reportDate],
+      })),
+      ...pitIndicators.map((indicator) => ({
+        indicator,
+        indiparams: [today, reportDate, "1"],
+      })),
+    ],
   };
 
   const resp = await ifindPost<IFindResponse>("/api/v1/basic_data_service", body);
@@ -370,7 +389,7 @@ export async function fetchFinancials(ticker: string) {
   const tbl = resp.tables?.[0]?.table;
   const name = tbl?.["ths_stock_short_name_stock"]?.[0] as string | undefined;
   const np = extractValue(resp, "ths_np_stock") ?? 0;
-  const npAts = extractValue(resp, "ths_np_ats_stock"); // 归母净利润，优先
+  const npParent = extractValue(resp, "ths_np_atoopc_pit_stock"); // PIT 归母净利润，优先
   const revenue = extractValue(resp, "ths_revenue_stock") ?? 0;
   const cfo = extractValue(resp, "ths_ncf_from_oa_stock") ?? 0;
   const capex = extractValue(resp, "ths_cash_paid_for_assets_stock") ?? 0;
@@ -378,7 +397,7 @@ export async function fetchFinancials(ticker: string) {
   const shares = extractValue(resp, "ths_total_shares_stock") ?? 0;
   const debt = extractValue(resp, "ths_interest_bearing_debt_stock") ?? 0;
   const totalAssets = extractValue(resp, "ths_total_assets_stock") ?? 0;
-  const totalEquity = extractValue(resp, "ths_total_equity_stock") ?? 0;
+  const totalParentEquity = extractValue(resp, "ths_total_equity_atoopc_pit_stock"); // PIT 归母净资产
 
   // 单位转换：元 → 亿元
   const YI = 1e8;
@@ -391,9 +410,9 @@ export async function fetchFinancials(ticker: string) {
     cfo: Number((cfo / YI).toFixed(2)),
     capex: Number((capex / YI).toFixed(2)),
     da: Number((da / YI).toFixed(2)),
-    e0: Number(((npAts ?? np) / YI).toFixed(2)), // 优先归母净利润，兜底净利润
+    e0: Number(((npParent ?? np) / YI).toFixed(2)), // 优先 PIT 归母净利润，兜底净利润
     revenue: Number((revenue / YI).toFixed(2)),
-    bookValue: Number((totalEquity / YI).toFixed(2)),
+    bookValue: Number(((totalParentEquity ?? 0) / YI).toFixed(2)),
     totalAssets: Number((totalAssets / YI).toFixed(2)),
     reportDate: `${year}-12-31`,
   };
@@ -413,7 +432,7 @@ export async function fetchPriceHistory(
     indicators: "open,high,low,close,volume",
     startdate: startDate,
     enddate: endDate,
-    functionpara: { Currency: "MHB", Fill: "Omit" },
+    functionpara: { Currency: "RMB", Fill: "Omit" },
   };
 
   const resp = await ifindPost<{

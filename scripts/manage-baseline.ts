@@ -384,16 +384,17 @@ async function deleteCompany(key: string) {
   });
 }
 
-/** 行情同步：写 PriceSnapshot（用户库）+ 刷新 Company.currentPrice（基准库） */
+/** 行情同步：写 PriceSnapshot（用户库）+ 刷新 Company.currentPrice（基准库）
+ *  数据链路：东财（免费）→ iFinD → mock；--mock 强制使用模拟数据 */
 async function syncMarket(forceMock: boolean) {
-  const { fetchQuote, getMockCompanyData, hasIfindCredentials } = await import(
-    "../src/lib/ifind-client"
-  );
+  const { resolveQuote } = await import("../src/lib/data-source");
+  const { getMockCompanyData } = await import("../src/lib/ifind-client");
 
-  const useMock = forceMock || !hasIfindCredentials();
+  const useMock = forceMock;
   let total = 0;
   let success = 0;
   let failed = 0;
+  const sourceCount = { eastmoney: 0, ifind: 0, mock: 0 };
   const errors: string[] = [];
 
   await withWritable(async () => {
@@ -410,9 +411,11 @@ async function syncMarket(forceMock: boolean) {
           let close: number;
           if (useMock) {
             close = getMockCompanyData(company.ticker).currentPrice;
+            sourceCount.mock++;
           } else {
-            const quote = await fetchQuote(company.ticker);
-            close = quote.close;
+            const { data, source } = await resolveQuote(company.ticker);
+            close = data.close;
+            sourceCount[source]++;
           }
 
           const today = new Date();
@@ -449,7 +452,8 @@ async function syncMarket(forceMock: boolean) {
   });
 
   console.log(
-    `行情同步完成：total=${total} success=${success} failed=${failed} mock=${useMock}`,
+    `行情同步完成：total=${total} success=${success} failed=${failed} mock=${useMock} ` +
+      `来源：东财=${sourceCount.eastmoney} iFinD=${sourceCount.ifind} mock=${sourceCount.mock}`,
   );
   if (errors.length) console.error("错误明细：\n" + errors.join("\n"));
 }

@@ -1,8 +1,8 @@
 /**
  * 种子脚本：初始化示例公司（上汽集团、宇通客车、福耀玻璃）
- * 财务数据（现价、E0、CFO、Capex、D&A、总股本、有息负债）从 iFinD 实时拉取；
+ * 财务数据（现价、E0、CFO、Capex、D&A、总股本、有息负债）按分流模式实时拉取：
+ * 行情走东财（免费），财务走 iFinD（权威）→ 东财兜底；全部失败才回退硬编码 mock。
  * 估值假设（增速、Ke、退出倍数等）保留分析师设定值。
- * 若未配置 IFIND_REFRESH_TOKEN，则回退到硬编码 mock 财务数据。
  *
  * 双库结构：Company 写基准库（baseline.db，脚本运行期间临时解除只读属性），
  * 假设/快照/报告/行情写用户库（user.db）。
@@ -13,7 +13,7 @@ import * as path from "path";
 import { PrismaClient } from "../src/generated/prisma/client";
 import { PrismaClient as BaseClient } from "../src/generated/prisma-base/client";
 import { calcDcf, classifyQuadrant, diagnoseNarrative } from "../src/lib/dcf";
-import { fetchCompanyData, hasIfindCredentials } from "../src/lib/ifind-client";
+import { resolveCompanyData } from "../src/lib/data-source";
 
 // 基于脚本位置动态解析项目根目录（兼容本地与服务器任意部署位置）
 const ROOT = path.resolve(__dirname, "..");
@@ -191,23 +191,22 @@ function genHistory(basePrice: number, seed: number, days = 180) {
 async function main() {
   chmodWritable(); // 写基准库前解除只读
   try {
-    const useReal = hasIfindCredentials();
-    if (!useReal) {
-      console.warn(
-        "⚠️  未检测到 IFIND_REFRESH_TOKEN，将使用硬编码 mock 财务数据。",
-      );
-    }
-
     for (const s of samples) {
-      // 从 iFinD 拉取真实财务数据，覆盖硬编码 mock
+      // 分流模式拉取：行情走东财（免费），财务走 iFinD → 东财兜底；全部失败回退硬编码 mock
       let real = null;
-      if (useReal) {
-        try {
-          real = await fetchCompanyData(s.ticker);
-          console.log(`  ↳ ${s.ticker} 真实数据：现价 ¥${real.currentPrice}，E0=${real.e0}亿，CFO=${real.cfo}亿，Capex=${real.capex}亿`);
-        } catch (e) {
-          console.warn(`  ⚠️  ${s.ticker} iFinD 拉取失败，回退 mock：${(e as Error).message}`);
+      try {
+        const { data, source } = await resolveCompanyData(s.ticker);
+        real = data;
+        console.log(
+          `  ↳ ${s.ticker} 真实数据（来源：${source}）：现价 ¥${real.currentPrice}，E0=${real.e0}亿，CFO=${real.cfo}亿，Capex=${real.capex}亿`,
+        );
+        if (real.incomplete) {
+          console.warn(`  ⚠️  ${s.ticker} 东财兜底数据部分字段缺失，请核对`);
         }
+      } catch (e) {
+        console.warn(
+          `  ⚠️  ${s.ticker} 数据拉取失败，回退 mock：${(e as Error).message}`,
+        );
       }
 
       // 合并真实数据（财务字段用真实值，分析师假设保留 seed 中的设定）
