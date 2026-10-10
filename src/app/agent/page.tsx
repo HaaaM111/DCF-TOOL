@@ -29,7 +29,6 @@ import {
   SendOutlined,
   SettingOutlined,
   RobotOutlined,
-  SyncOutlined,
 } from "@ant-design/icons";
 import { useRouter } from "next/navigation";
 
@@ -79,7 +78,6 @@ export default function AgentPage() {
   ]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
-  const [syncing, setSyncing] = useState(false);
 
   const [cfg, setCfg] = useState<CfgState | null>(null);
   const [configOpen, setConfigOpen] = useState(false);
@@ -230,33 +228,7 @@ export default function AgentPage() {
     }
   };
 
-  /** 快捷按钮：直接触发同步（不经模型），完成后追加一条说明 */
-  const handleQuickSync = async () => {
-    if (!companyId) {
-      message.warning("请先选择标的");
-      return;
-    }
-    setSyncing(true);
-    try {
-      const res = await fetch(`/api/announcements/${companyId}/sync?days=30`, {
-        method: "POST",
-      });
-      const json = await res.json();
-      if (!res.ok) {
-        message.error(json.error ?? "同步失败");
-        return;
-      }
-      const note = `已重新拉取公告：共 ${json.fetched} 条，新增 ${json.added} 条（失败 ${json.failed?.length ?? 0} 条）。需要我分析这些公告吗？`;
-      setMessages((prev) => [...prev, { role: "assistant", content: note }]);
-      saveConversations([{ role: "assistant", content: note }]);
-      message.success("公告同步完成");
-    } catch {
-      message.error("同步请求失败");
-    } finally {
-      setSyncing(false);
-    }
-  };
-
+  /** 快捷按钮：拉取公告（仅采集）→ 分析未分析公告，串联完成后追加一条汇总说明 */
   const openConfig = () => {
     form.setFieldsValue({
       baseUrl: cfg?.baseUrl || "",
@@ -331,27 +303,18 @@ export default function AgentPage() {
 
       <div className="p-6">
         <Card className="mb-4">
-          <Space wrap>
-            <Select
-              showSearch
-              placeholder="选择标的（对话上下文将绑定该公司）"
-              style={{ width: 300 }}
-              value={companyId}
-              onChange={onCompanyChange}
-              optionFilterProp="label"
-              options={companies.map((c) => ({
-                value: c.id,
-                label: `${c.name}（${c.ticker}）`,
-              }))}
-            />
-            <Button
-              icon={<SyncOutlined />}
-              loading={syncing}
-              onClick={handleQuickSync}
-            >
-              重新拉取近 30 天公告
-            </Button>
-          </Space>
+          <Select
+            showSearch
+            placeholder="选择标的（对话上下文将绑定该公司）"
+            style={{ width: 300 }}
+            value={companyId}
+            onChange={onCompanyChange}
+            optionFilterProp="label"
+            options={companies.map((c) => ({
+              value: c.id,
+              label: `${c.name}（${c.ticker}）`,
+            }))}
+          />
         </Card>
 
         {cfg && !cfg.hasKey && (

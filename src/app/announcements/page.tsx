@@ -1,9 +1,11 @@
 "use client";
 
 /**
- * 公告中心 —— 公告智能体前端
- * 功能：选择标的 → 按需拉取近 N 天公告并分析 → 公告列表 + 预期差信号卡片
- * LLM 未配置时：只展示公告采集结果，信号分析自动跳过（页面有提示）。
+ * 公告中心 —— 公告采集与信号展示
+ * ------------------------------------------------------------------
+ * 工作流：选择标的 → 「拉取公告」拉取候选（不入库）→ 勾选 → 「存储选中」正式入库
+ *        已入库公告可勾选「删除选中」（关联信号级联删除）。
+ * 预期差分析在「智能体对话」页完成；信号入库后在本页展示。
  */
 import { useEffect, useState, useCallback } from "react";
 import {
@@ -14,11 +16,17 @@ import {
   Table,
   Tag,
   App,
-  Alert,
   Typography,
   Empty,
 } from "antd";
-import { ReloadOutlined, FileSearchOutlined, ArrowLeftOutlined, RobotOutlined } from "@ant-design/icons";
+import {
+  ReloadOutlined,
+  CloudDownloadOutlined,
+  SaveOutlined,
+  DeleteOutlined,
+  ArrowLeftOutlined,
+  RobotOutlined,
+} from "@ant-design/icons";
 import { useRouter } from "next/navigation";
 import type { ColumnsType } from "antd/es/table";
 
@@ -47,7 +55,7 @@ interface Signal {
   }[];
 }
 
-/** 公告（Announcement + signals） */
+/** 公告（Announcement + signals，已入库） */
 interface AnnouncementItem {
   id: string;
   companyId: string;
@@ -61,10 +69,30 @@ interface AnnouncementItem {
   signals: Signal[];
 }
 
-interface SyncResult {
+/** 候选公告（拉取后未入库，待用户选择） */
+interface CandidateItem {
+  code: string;
+  title: string;
+  publishAt: string;
+  category: string;
+  pdfUrl: string;
+  adjunctSizeKb: number;
+}
+
+interface FetchResult {
   fetched: number;
-  added: number;
+  candidates: CandidateItem[];
+  cached: boolean;
+}
+
+interface StoreResult {
+  stored: number;
+  skipped: number;
   failed: { code: string; title: string; reason: string }[];
+}
+
+interface DeleteResult {
+  deleted: number;
 }
 
 const CATEGORIES = [
@@ -112,13 +140,20 @@ export default function AnnouncementsPage() {
   const [category, setCategory] = useState<string>();
   const [days, setDays] = useState(30);
 
+  // 已入库公告列表
   const [items, setItems] = useState<AnnouncementItem[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [loading, setLoading] = useState(false);
-  const [syncing, setSyncing] = useState(false);
-  const [lastSync, setLastSync] = useState<SyncResult | null>(null);
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
+
+  // 拉取候选（未入库）
+  const [candidates, setCandidates] = useState<CandidateItem[]>([]);
+  const [candidateKeys, setCandidateKeys] = useState<React.Key[]>([]);
+  const [fetchLoading, setFetchLoading] = useState(false);
+  const [storeLoading, setStoreLoading] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   // 加载标的列表
   useEffect(() => {
@@ -150,6 +185,7 @@ export default function AnnouncementsPage() {
         setItems(json.items ?? []);
         setTotal(json.total ?? 0);
         setPage(json.page ?? 1);
+        setSelectedRowKeys([]);
       } catch {
         message.error("加载公告列表失败");
       } finally {
@@ -163,33 +199,144 @@ export default function AnnouncementsPage() {
     if (companyId) loadAnnouncements(page);
   }, [companyId, category, days, pageSize, page, loadAnnouncements]);
 
-  const handleSync = async () => {
+  /** 拉取候选公告（不入库） */
+  const handleFetch = async () => {
     if (!companyId) {
       message.warning("请先选择标的");
       return;
     }
-    setSyncing(true);
+    setFetchLoading(true);
     try {
-      const res = await fetch(
-        `/api/announcements/${companyId}/sync?days=${days}`,
-        { method: "POST", cache: "no-store" },
-      );
+      const res = await fetch(`/api/announcements/${companyId}/sync?days=${days}`, {
+        method: "POST",
+        cache: "no-store",
+      });
       const json = await res.json();
       if (!res.ok) {
-        message.error(json.error ?? "同步失败");
+        message.error(json.error ?? "拉取失败");
         return;
       }
-      setLastSync(json as SyncResult);
-      message.success(`同步完成：新增 ${json.added} 条公告`);
-      loadAnnouncements(1);
+      const result = json as FetchResult;
+      setCandidates(result.candidates ?? []);
+      setCandidateKeys([]);
+      if (result.candidates.length) {
+        message.success(
+          result.cached
+            ? `命中缓存：候选 ${result.fetched} 条（10 分钟内拉取过）`
+            : `拉取到 ${result.fetched} 条候选公告，勾选后点「存储选中」入库`,
+        );
+      } else {
+        message.info("该时间段内没有新公告");
+      }
     } catch {
-      message.error("同步请求失败，请稍后重试");
+      message.error("拉取请求失败，请稍后重试");
     } finally {
-      setSyncing(false);
+      setFetchLoading(false);
     }
   };
 
-  const columns: ColumnsType<AnnouncementItem> = [
+  /** 存储选中的候选公告（正式入库） */
+  const handleStore = async () => {
+    if (!companyId || !candidateKeys.length) {
+      message.warning("请先勾选要存储的候选公告");
+      return;
+    }
+    setStoreLoading(true);
+    try {
+      const res = await fetch(`/api/announcements/${companyId}/store`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ codes: candidateKeys }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        message.error(json.error ?? "存储失败");
+        return;
+      }
+      const result = json as StoreResult;
+      // 移除已存储的候选
+      const storedSet = new Set(candidateKeys.map((k) => String(k)));
+      setCandidates((prev) => prev.filter((c) => !storedSet.has(c.code)));
+      setCandidateKeys([]);
+      message.success(
+        `已存储 ${result.stored} 条，跳过 ${result.skipped} 条（已存在/无正文）` +
+          (result.failed.length ? `，失败 ${result.failed.length} 条` : ""),
+      );
+      loadAnnouncements(1);
+    } catch {
+      message.error("存储请求失败");
+    } finally {
+      setStoreLoading(false);
+    }
+  };
+
+  /** 丢弃选中的候选（不入库） */
+  const handleDiscard = () => {
+    if (!candidateKeys.length) {
+      setCandidates([]);
+      return;
+    }
+    const dropSet = new Set(candidateKeys.map((k) => String(k)));
+    setCandidates((prev) => prev.filter((c) => !dropSet.has(c.code)));
+    setCandidateKeys([]);
+  };
+
+  /** 删除已入库的选中公告（关联信号级联删除） */
+  const handleDelete = async () => {
+    if (!companyId || !selectedRowKeys.length) {
+      message.warning("请先勾选要删除的公告");
+      return;
+    }
+    setDeleteLoading(true);
+    try {
+      const res = await fetch(`/api/announcements/${companyId}/delete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: selectedRowKeys }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        message.error(json.error ?? "删除失败");
+        return;
+      }
+      const result = json as DeleteResult;
+      message.success(`已删除 ${result.deleted} 条公告（关联信号一并删除）`);
+      loadAnnouncements(1);
+    } catch {
+      message.error("删除请求失败");
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
+  /** 候选表格列 */
+  const candidateColumns: ColumnsType<CandidateItem> = [
+    {
+      title: "发布时间",
+      dataIndex: "publishAt",
+      width: 150,
+      render: (v: string) => <span className="text-slate-500">{fmtTime(v)}</span>,
+    },
+    {
+      title: "公告标题",
+      dataIndex: "title",
+      width: 420,
+      render: (v: string, r) => (
+        <a href={r.pdfUrl} target="_blank" rel="noreferrer" className="text-blue-600">
+          {v}
+        </a>
+      ),
+    },
+    {
+      title: "分类",
+      dataIndex: "category",
+      width: 100,
+      render: (v: string) => <Tag color={CATEGORY_COLORS[v] ?? "default"}>{v}</Tag>,
+    },
+  ];
+
+  /** 已入库表格列 */
+  const savedColumns: ColumnsType<AnnouncementItem> = [
     {
       title: "发布时间",
       dataIndex: "publishAt",
@@ -341,7 +488,7 @@ export default function AnnouncementsPage() {
             公告中心
           </Title>
           <div className="text-xs text-blue-100">
-            巨潮资讯 A 股公告按需采集 · 预期差分析在「智能体对话」页完成
+            拉取候选 → 勾选存储入库 · 预期差分析在「智能体对话」页完成
           </div>
         </div>
         <Space>
@@ -372,6 +519,8 @@ export default function AnnouncementsPage() {
               onChange={(v) => {
                 setCompanyId(v);
                 setPage(1);
+                setCandidates([]);
+                setCandidateKeys([]);
               }}
               optionFilterProp="label"
               options={companies.map((c) => ({
@@ -405,9 +554,9 @@ export default function AnnouncementsPage() {
             />
             <Button
               type="primary"
-              icon={<FileSearchOutlined />}
-              loading={syncing}
-              onClick={handleSync}
+              icon={<CloudDownloadOutlined />}
+              loading={fetchLoading}
+              onClick={handleFetch}
             >
               拉取公告
             </Button>
@@ -418,35 +567,78 @@ export default function AnnouncementsPage() {
               刷新列表
             </Button>
           </Space>
-
-          {lastSync && (
-            <Alert
-              className="mt-3"
-              type={lastSync.failed.length ? "warning" : "success"}
-              showIcon
-              message={`同步完成：拉取 ${lastSync.fetched} 条 · 新增 ${lastSync.added} 条 · 失败 ${lastSync.failed.length} 条`}
-              description={
-                lastSync.failed.length
-                  ? `部分公告处理失败：${lastSync.failed.map((f) => f.title).join("；")}`
-                  : "公告已采集入库。预期差分析请前往「智能体对话」页，要求智能体分析公告即可生成信号。"
-              }
-            />
-          )}
         </Card>
 
-        <Card>
+        {candidates.length > 0 && (
+          <Card
+            className="mb-4"
+            title={`拉取结果 · 待存储（${candidates.length} 条，勾选后点「存储选中」入库；刷新页面候选将丢失）`}
+            extra={
+              <Space>
+                <Button
+                  type="primary"
+                  icon={<SaveOutlined />}
+                  loading={storeLoading}
+                  disabled={!candidateKeys.length}
+                  onClick={handleStore}
+                >
+                  存储选中（{candidateKeys.length}）
+                </Button>
+                <Button
+                  icon={<DeleteOutlined />}
+                  disabled={!candidateKeys.length}
+                  onClick={handleDiscard}
+                >
+                  丢弃选中
+                </Button>
+              </Space>
+            }
+          >
+            <Table
+              rowKey="code"
+              size="small"
+              columns={candidateColumns}
+              dataSource={candidates}
+              pagination={false}
+              scroll={{ x: 700 }}
+              rowSelection={{
+                selectedRowKeys: candidateKeys,
+                onChange: setCandidateKeys,
+              }}
+            />
+          </Card>
+        )}
+
+        <Card
+          title={`已入库公告（${total} 条）`}
+          extra={
+            <Button
+              danger
+              icon={<DeleteOutlined />}
+              loading={deleteLoading}
+              disabled={!selectedRowKeys.length}
+              onClick={handleDelete}
+            >
+              删除选中（{selectedRowKeys.length}）
+            </Button>
+          }
+        >
           {items.length === 0 && !loading ? (
-            <Empty description="暂无公告。选择标的并点击「拉取公告」采集，或前往智能体对话页让智能体拉取。" />
+            <Empty description="暂无已入库公告。选择标的并点「拉取公告」，勾选后「存储选中」入库。" />
           ) : (
             <Table
               rowKey="id"
-              columns={columns}
+              columns={savedColumns}
               dataSource={items}
               loading={loading}
               expandable={{ expandedRowRender: expandableRender }}
               scroll={{ x: 900 }}
               size="middle"
               className="fin-table"
+              rowSelection={{
+                selectedRowKeys,
+                onChange: setSelectedRowKeys,
+              }}
               pagination={{
                 current: page,
                 pageSize,

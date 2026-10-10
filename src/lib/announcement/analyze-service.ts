@@ -66,6 +66,18 @@ export async function analyzeCompanyAnnouncements(
 
   const skipped = candidates.filter((a) => !a.rawText || !assumptions).length;
 
+  // 未配置 key：不逐条尝试，直接返回降级结果（failed 为空，避免误导）
+  if (!ready) {
+    return {
+      attempted: candidates.length,
+      analyzed: 0,
+      signals: 0,
+      skipped,
+      failed: [],
+      llmReady: false,
+    };
+  }
+
   let analyzed = 0;
   const failed: { announcementId: string; title: string; reason: string }[] = [];
 
