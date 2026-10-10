@@ -325,3 +325,17 @@ model AppSetting {
   value     String
   updatedAt DateTime @updatedAt
 }
+
+// ============================================================
+// 10. 智能体对话记录（按标的持久化，刷新不丢）
+//     role: user | assistant；工具内部消息不落库，只存用户可见文本
+// ============================================================
+model AgentConversation {
+  id        String   @id @default(cuid())
+  companyId String // 跨库引用 Company.id，无外键
+  role      String // user | assistant
+  content   String
+  createdAt DateTime @default(now())
+
+  @@index([companyId, createdAt])
+}

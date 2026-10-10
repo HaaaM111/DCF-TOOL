@@ -1,12 +1,17 @@
 /**
  * 公告信号分析模块（LLM 部分）
  * ------------------------------------------------------------------
- * 复用 src/lib/ai-client.ts（DeepSeek，OpenAI 兼容）。
- * 未配置 DEEPSEEK_API_KEY 时：llmReady()=false，analyzeAnnouncement 直接返回 null，
- * 主流程降级为"只采集入库、不产生信号"，不报错、不影响其他功能。
+ * 复用 src/lib/ai-client.ts（OpenAI 兼容，支持 DeepSeek/Kimi/豆包等）。
+ * 配置来源：调用方可传入 DB 配置（env 优先在 resolveLlmConfig 内部处理）。
+ * 未配置 key 时：llmReady(config)=false，analyzeAnnouncement 直接返回 null，
+ * 调用方降级为"不产生信号"，不报错、不影响其他功能。
  * 配置 key 后自动激活，无需改代码。
  */
-import { chatWithDeepSeek, hasDeepSeekCredentials } from "@/lib/ai-client";
+import {
+  chatCompletion,
+  resolveLlmConfig,
+  type LlmConfig,
+} from "@/lib/ai-client";
 
 export interface SuggestedChange {
   field: string; // 限定 Assumption 字段
@@ -50,24 +55,38 @@ const SYSTEM_PROMPT = `你是A股价值投资者的公告分析助手。你的�
 5. action 只能是"上调/下调/维持"；from/to 与公告数据一致，缺失则省略。
 6. 只输出 JSON，不要任何解释文字。`;
 
-/** LLM 是否已配置可用 */
-export function llmReady(): boolean {
-  return hasDeepSeekCredentials();
+/**
+ * LLM 是否已配置可用（env 优先，DB 兜底）。
+ * @param config DB 兜底配置（页面设置的 key 等），不传则只认环境变量
+ */
+export function llmReady(config?: Partial<LlmConfig> | null): boolean {
+  return resolveLlmConfig(config ?? null) !== null;
 }
 
-/** 生成预期差信号；未配置 key / 解析失败 / 超时返回 null（调用方降级） */
+/**
+ * 生成预期差信号；未配置 key / 解析失败 / 超时返回 null（调用方降级）
+ * @param config DB 兜底配置；不传则只认环境变量
+ */
 export async function analyzeAnnouncement(
   title: string,
   text: string,
   assumptions: Record<string, number>,
+  config?: Partial<LlmConfig> | null,
 ): Promise<SignalResult | null> {
-  if (!llmReady()) return null;
+  if (!llmReady(config)) return null;
 
   const userPrompt = `【公告标题】${title}\n【公告正文】${text}\n【公司当前DCF假设】${JSON.stringify(
     assumptions,
   )}\n请输出JSON：{"expectation","direction","summary","evidence":[],"suggestedChanges":[{"field","action","from","to","reason"}]}`;
 
-  const raw = await chatWithDeepSeek(SYSTEM_PROMPT, userPrompt);
+  const result = await chatCompletion({
+    config: config ?? null,
+    messages: [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: userPrompt },
+    ],
+  });
+  const raw = result?.content;
   if (!raw) return null;
 
   try {
@@ -87,6 +106,6 @@ export async function analyzeAnnouncement(
     }
     return parsed;
   } catch {
-    return null; // JSON 解析失败：只入库公告，不产生信号
+    return null; // JSON 解析失败：不产生信号
   }
 }

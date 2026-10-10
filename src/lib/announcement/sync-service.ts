@@ -2,11 +2,12 @@
  * 公告同步共享服务（供 sync 路由与智能体工具共用）
  * ------------------------------------------------------------------
  * 流程：读标的 → 巨潮 orgId → 拉近 N 天公告 → 按 (companyId, source, code) 去重
- *      → 逐个下载 PDF 提取文本 → 标题分类 →（LLM 已配置且命中规则时）生成信号 → 入库
+ *      → 逐个下载 PDF 提取文本 → 标题分类 → 入库（仅采集，不做信号分析）
+ * 分析职责：已迁移至智能体（analyze_announcements 工具 → analyze-service），
+ *           公告中心不再自动批量分析。
  * 设计：单公告失败不影响整批（failed 列表返回）；幂等（唯一键）；部分成功不抛错。
  * 抛错仅用于不可恢复的整批失败（标的不存在/代码无法解析/orgId 查不到/巨潮接口异常）。
  */
-import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import {
   fetchOrgId,
@@ -14,15 +15,11 @@ import {
   type Market,
 } from "@/lib/announcement/cninfo-client";
 import { extractPdfText, classify } from "@/lib/announcement/parser";
-import { analyzeAnnouncement, llmReady } from "@/lib/announcement/analyzer";
 
 export interface SyncResult {
   fetched: number;
   added: number;
-  analyzed: number;
-  signals: number;
   failed: { code: string; title: string; reason: string }[];
-  llmReady: boolean;
 }
 
 /** 整批失败的领域错误：message 可直达用户，status/code 用于 HTTP 映射 */
@@ -47,7 +44,7 @@ function fmtDate(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
-/** 按需同步某公司公告；days 会被钳制在 [1, 90] */
+/** 按需同步某公司公告（仅采集入库）；days 会被钳制在 [1, 90] */
 export async function syncCompanyAnnouncements(
   companyId: string,
   days = DEFAULT_DAYS,
@@ -80,14 +77,7 @@ export async function syncCompanyAnnouncements(
 
   const fetched = await fetchAnnouncements(secCode, orgId, market, fmtDate(from), fmtDate(now));
   if (!fetched.length) {
-    return {
-      fetched: 0,
-      added: 0,
-      analyzed: 0,
-      signals: 0,
-      failed: [],
-      llmReady: llmReady(),
-    };
+    return { fetched: 0, added: 0, failed: [] };
   }
 
   // 按唯一键 (companyId, source, code) 去重
@@ -102,39 +92,13 @@ export async function syncCompanyAnnouncements(
   const existingSet = new Set(existing.map((e) => e.code));
   const newOnes = fetched.filter((a) => !existingSet.has(a.announcementId));
 
-  const assumptions = await prisma.assumption.findUnique({
-    where: { companyId },
-  });
-
   let added = 0;
-  let analyzed = 0;
-  let signals = 0;
   const failed: { code: string; title: string; reason: string }[] = [];
 
   for (const a of newOnes) {
     try {
       const rawText = await extractPdfText(a.pdfUrl, a.adjunctSizeKb);
-      const { category, worthAnalyzing } = classify(a.title);
-
-      let signal: Awaited<ReturnType<typeof analyzeAnnouncement>> = null;
-      if (worthAnalyzing && rawText && assumptions && llmReady()) {
-        const assumptionMap: Record<string, number> = {
-          baseFcf: assumptions.baseFcf,
-          g1: assumptions.g1,
-          g2: assumptions.g2,
-          g3: assumptions.g3,
-          perpetualG: assumptions.perpetualG,
-          ke: assumptions.ke,
-          wacc: assumptions.wacc,
-          e1: assumptions.e1,
-          e2: assumptions.e2,
-          e3: assumptions.e3,
-          exitPe: assumptions.exitPe,
-          transitionG: assumptions.transitionG,
-          terminalProfitEst: assumptions.terminalProfitEst,
-        };
-        signal = await analyzeAnnouncement(a.title, rawText, assumptionMap);
-      }
+      const { category } = classify(a.title);
 
       await prisma.announcement.create({
         data: {
@@ -146,26 +110,10 @@ export async function syncCompanyAnnouncements(
           category,
           pdfUrl: a.pdfUrl,
           rawText,
-          analyzed: !!signal,
-          signals: signal
-            ? {
-                create: {
-                  expectation: signal.expectation,
-                  direction: signal.direction,
-                  summary: (signal.summary ?? "").slice(0, 500),
-                  evidence: (signal.evidence ?? []).slice(0, 3).join("\n").slice(0, 1000),
-                  suggestedChanges: (signal.suggestedChanges ?? []) as unknown as Prisma.InputJsonValue,
-                },
-              }
-            : undefined,
         },
       });
 
       added += 1;
-      if (signal) {
-        analyzed += 1;
-        signals += 1;
-      }
       await sleep(BATCH_SLEEP_MS);
     } catch (e) {
       failed.push({
@@ -176,12 +124,5 @@ export async function syncCompanyAnnouncements(
     }
   }
 
-  return {
-    fetched: fetched.length,
-    added,
-    analyzed,
-    signals,
-    failed,
-    llmReady: llmReady(),
-  };
+  return { fetched: fetched.length, added, failed };
 }

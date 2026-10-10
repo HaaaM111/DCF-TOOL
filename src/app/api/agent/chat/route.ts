@@ -1,9 +1,11 @@
 /**
  * POST /api/agent/chat —— 智能体对话主入口
  * ------------------------------------------------------------------
- * 能力：固定绑定某标的；系统上下文 = 该公司 DCF 假设 + 近期公告信号；
- *      工具 sync_announcements：用户要求拉取/更新公告时由模型调用，
- *      执行真实同步（复用 sync-service），结果回传模型后给出最终回答。
+ * 能力：固定绑定某标的；系统上下文 = 该公司 DCF 假设 + 已入库公告信号；
+ *      工具 sync_announcements：用户要求拉取/更新公告时由模型调用（仅采集入库）；
+ *      工具 analyze_announcements：用户要求分析公告/查看信号时由模型调用，
+ *        对该公司未分析公告生成预期差信号（复用 analyze-service），结果回传后二轮取最终回答。
+ * 对话持久化：由前端在成功交互后调用 POST /api/agent/conversations 落库（本路由不落库）。
  * 降级：未配置 LLM API（env/DB 均无 key）→ 返回 llmReady:false + 引导文案，不报错。
  * 安全：reply 经 XSS 过滤；key 仅服务端；工具循环最多 1 轮防死循环。
  */
@@ -15,9 +17,11 @@ import {
   resolveLlmConfig,
   type ChatMessage,
   type ToolDef,
+  type ToolCall,
 } from "@/lib/ai-client";
 import { readLlmDbSettings } from "@/lib/llm-settings";
 import { syncCompanyAnnouncements } from "@/lib/announcement/sync-service";
+import { analyzeCompanyAnnouncements } from "@/lib/announcement/analyze-service";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,7 +35,7 @@ const SYNC_TOOL: ToolDef = {
   function: {
     name: "sync_announcements",
     description:
-      "重新拉取当前标的最近 N 天（1-90，默认 30）的公告并分析，返回新增公告与预期差信号情况。当用户要求拉取、更新、重新同步公告时调用。",
+      "重新拉取当前标的最近 N 天（1-90，默认 30）的公告并入库（仅采集，不做信号分析）。当用户要求拉取、更新、重新同步公告时调用。",
     parameters: {
       type: "object",
       properties: {
@@ -40,6 +44,25 @@ const SYNC_TOOL: ToolDef = {
           minimum: 1,
           maximum: 90,
           description: "拉取最近多少天的公告，不传默认 30",
+        },
+      },
+    },
+  },
+};
+
+const ANALYZE_TOOL: ToolDef = {
+  type: "function",
+  function: {
+    name: "analyze_announcements",
+    description:
+      "分析当前标的已采集但未分析的公告，生成预期差信号（超预期/符合/低于）与 DCF 假设修正建议，结果入库。当用户要求分析公告、查看预期差信号、判断公告对 DCF 假设的影响时调用。",
+    parameters: {
+      type: "object",
+      properties: {
+        announcementIds: {
+          type: "array",
+          items: { type: "string" },
+          description: "指定要分析的公告 id（可选）；不传则分析全部未分析公告",
         },
       },
     },
@@ -91,7 +114,7 @@ async function buildSystemPrompt(
         .map((a) => {
           const s = a.signals[0];
           const head = `${a.publishAt.toISOString().slice(0, 10)} ${a.title} [${a.category}]`;
-          if (!s) return head + "（未产生信号）";
+          if (!s) return head + "（未分析）";
           const changes = (s.suggestedChanges as { field: string; action: string; from?: number; to?: number; reason?: string }[] | null) ?? [];
           const chg = changes.length
             ? " 建议: " + changes.map((c) => `${c.field} ${c.action}${c.to != null ? `→${c.to}` : ""}`).join("; ")
@@ -104,17 +127,90 @@ async function buildSystemPrompt(
   return [
     "你是 ValueInsight 估值平台的公告智能体，服务当前绑定的标的。回答只能基于以下数据上下文（DCF 假设、已入库公告与信号），不得编造上下文之外的公司数据。",
     "规则：",
-    "1. 用户要求拉取/更新/重新同步公告时，必须调用 sync_announcements 工具，执行完成后再基于真实结果回答。",
-    "2. 区分事实与推断；引用公告内容时注明公告标题与日期。",
-    "3. 涉及假设修正建议时，字段只能取自 DCF 假设字段（baseFcf/g1/g2/g3/perpetualG/ke/wacc/e1/e2/e3/exitPe/transitionG/terminalProfitEst）。",
-    "4. 上下文不足时明确说不知道，不要猜测。",
-    "5. 回答用简体中文，简洁、结构化。",
+    "1. 用户要求拉取/更新/重新同步公告时，必须调用 sync_announcements 工具（仅采集入库），执行完成后再基于真实结果回答。",
+    "2. 用户要求分析公告、查看预期差信号、判断公告对 DCF 假设的影响时，必须调用 analyze_announcements 工具，执行完成后再基于真实信号结果回答。",
+    "3. 区分事实与推断；引用公告内容时注明公告标题与日期。",
+    "4. 涉及假设修正建议时，字段只能取自 DCF 假设字段（baseFcf/g1/g2/g3/perpetualG/ke/wacc/e1/e2/e3/exitPe/transitionG/terminalProfitEst）。",
+    "5. 上下文不足时明确说不知道，不要猜测。",
+    "6. 回答用简体中文，简洁、结构化。",
     "",
     `【当前标的】${company.name}（${company.ticker}）`,
     `【DCF 假设（当前值）】${assumptionLines}`,
     "【近期公告与信号】",
     annLines,
   ].join("\n");
+}
+
+/** 解析工具调用并返回 { toolContent, toolSummary }；抛错则返回失败 JSON */
+async function runTool(
+  toolCall: ToolCall,
+  companyId: string,
+  dbCfg: Partial<import("@/lib/ai-client").LlmConfig> | null,
+): Promise<{ toolContent: string; toolSummary: Record<string, unknown> }> {
+  const name = toolCall.function?.name;
+  const args = (() => {
+    try {
+      return JSON.parse(toolCall.function?.arguments || "{}") as Record<string, unknown>;
+    } catch {
+      return {};
+    }
+  })();
+
+  if (name === "sync_announcements") {
+    let days = 30;
+    if (typeof args.days === "number" && Number.isFinite(args.days)) {
+      days = Math.min(90, Math.max(1, Math.floor(args.days)));
+    }
+    try {
+      const result = await syncCompanyAnnouncements(companyId, days);
+      const summary = {
+        ok: true,
+        fetched: result.fetched,
+        added: result.added,
+        failed: result.failed.length,
+      };
+      return {
+        toolContent: JSON.stringify({ ok: true, ...result }),
+        toolSummary: summary,
+      };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "同步失败";
+      return { toolContent: JSON.stringify({ ok: false, error: msg }), toolSummary: { ok: false, error: msg } };
+    }
+  }
+
+  if (name === "analyze_announcements") {
+    const ids = Array.isArray(args.announcementIds)
+      ? args.announcementIds.filter((x): x is string => typeof x === "string").slice(0, 50)
+      : undefined;
+    try {
+      const result = await analyzeCompanyAnnouncements(companyId, {
+        announcementIds: ids,
+        config: dbCfg,
+      });
+      const summary = {
+        ok: true,
+        attempted: result.attempted,
+        analyzed: result.analyzed,
+        signals: result.signals,
+        skipped: result.skipped,
+        failed: result.failed.length,
+        llmReady: result.llmReady,
+      };
+      return {
+        toolContent: JSON.stringify({ ok: true, ...result }),
+        toolSummary: summary,
+      };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "分析失败";
+      return { toolContent: JSON.stringify({ ok: false, error: msg }), toolSummary: { ok: false, error: msg } };
+    }
+  }
+
+  return {
+    toolContent: JSON.stringify({ ok: false, error: `未知工具：${name ?? "?"}` }),
+    toolSummary: { ok: false, error: "未知工具" },
+  };
 }
 
 export async function POST(req: NextRequest) {
@@ -166,7 +262,7 @@ export async function POST(req: NextRequest) {
     const first = await chatCompletion({
       config: dbCfg,
       messages: baseMessages,
-      tools: [SYNC_TOOL],
+      tools: [SYNC_TOOL, ANALYZE_TOOL],
       maxTokens: MAX_TOKENS,
     });
     if (!first) {
@@ -182,44 +278,18 @@ export async function POST(req: NextRequest) {
     let toolSummary: Record<string, unknown> | null = null;
 
     // 工具调用：最多执行一轮（防循环）
-    const syncCall = first.toolCalls.find((t) => t.function?.name === "sync_announcements");
-    if (syncCall) {
+    const toolCall = first.toolCalls.find((t) => t.function?.name);
+    if (toolCall) {
       toolUsed = true;
-      let days = 30;
-      try {
-        const args = JSON.parse(syncCall.function?.arguments || "{}") as { days?: unknown };
-        if (typeof args.days === "number" && Number.isFinite(args.days)) {
-          days = Math.min(90, Math.max(1, Math.floor(args.days)));
-        }
-      } catch {
-        /* 参数解析失败用默认 30 天 */
-      }
-
-      let toolContent: string;
-      try {
-        const result = await syncCompanyAnnouncements(companyId, days);
-        toolContent = JSON.stringify({ ok: true, ...result });
-        toolSummary = {
-          ok: true,
-          fetched: result.fetched,
-          added: result.added,
-          analyzed: result.analyzed,
-          signals: result.signals,
-          failed: result.failed.length,
-          llmReady: result.llmReady,
-        };
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : "同步失败";
-        toolContent = JSON.stringify({ ok: false, error: msg });
-        toolSummary = { ok: false, error: msg };
-      }
+      const { toolContent, toolSummary: summary } = await runTool(toolCall, companyId, dbCfg);
+      toolSummary = summary;
 
       const second = await chatCompletion({
         config: dbCfg,
         messages: [
           ...baseMessages,
           { role: "assistant", content: null, tool_calls: first.toolCalls },
-          { role: "tool", tool_call_id: syncCall.id, content: toolContent },
+          { role: "tool", tool_call_id: toolCall.id, content: toolContent },
         ],
         maxTokens: MAX_TOKENS,
       });
@@ -228,8 +298,10 @@ export async function POST(req: NextRequest) {
       } else if (!reply) {
         // 模型第二轮也失败：用工具真实结果兜底回答
         reply = toolSummary?.ok
-          ? `已同步完成：拉取 ${toolSummary.fetched} 条，新增 ${toolSummary.added} 条，产生信号 ${toolSummary.signals} 条（失败 ${toolSummary.failed} 条）。`
-          : `公告同步失败：${toolSummary?.error ?? "未知错误"}。`;
+          ? toolSummary.analyzed != null
+            ? `分析完成：尝试 ${toolSummary.attempted} 条，产生信号 ${toolSummary.signals} 条，跳过 ${toolSummary.skipped} 条（失败 ${toolSummary.failed} 条）。`
+            : `已同步完成：拉取 ${toolSummary.fetched} 条，新增 ${toolSummary.added} 条（失败 ${toolSummary.failed} 条）。`
+          : `操作失败：${toolSummary?.error ?? "未知错误"}。`;
       }
     }
 

@@ -4,10 +4,12 @@
  * 智能体对话页 —— 独立智能体页面
  * ------------------------------------------------------------------
  * 顶部绑定标的；对话基于该标的 DCF 假设 + 已入库公告信号；
- * 用户可要求智能体重新拉取公告（模型调用 sync_announcements 工具）。
+ * 用户可要求智能体重新拉取公告（sync_announcements）或分析公告（analyze_announcements）。
+ * 对话持久化：成功交互后由本页调用 POST /api/agent/conversations 落库；
+ * 进入页面/切换标的时读取历史（GET），刷新不丢。
  * LLM 未配置（env/DB 均无 key）时对话不可用，页面引导配置。
  */
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import {
   Card,
   Select,
@@ -32,6 +34,20 @@ import {
 import { useRouter } from "next/navigation";
 
 const { Title, Paragraph, Text } = Typography;
+
+/** 历史为空时的默认欢迎语 */
+const DEFAULT_WELCOME =
+  "你好，我是公告智能体。先在上方选择标的，之后我会基于该公司的 DCF 假设与已入库公告信号回答问题；需要时你也可以让我重新拉取或分析公告。";
+
+/** 绑定标的后统一标准开场语（所有标的一致） */
+function buildBindMessage(name: string, ticker: string): string {
+  return `已绑定标的：${name}（${ticker}）。我是公告智能体，基于该公司的 DCF 假设与已入库公告工作。你可以：
+① 拉取公告 —— 说“拉取近 N 天公告”（1~90 天）
+② 分析公告 —— 说“分析公告”，我会对未分析公告生成预期差信号与假设修正建议
+③ 查看信号 —— 问“有哪些预期差信号”
+④ 假设影响 —— 问“公告对 g1、ke 等假设有什么影响”
+对话与信号结果都会同步保存，随时可回溯。`;
+}
 
 interface CompanyOption {
   id: string;
@@ -59,11 +75,7 @@ export default function AgentPage() {
   const [companies, setCompanies] = useState<CompanyOption[]>([]);
   const [companyId, setCompanyId] = useState<string>();
   const [messages, setMessages] = useState<ChatMsg[]>([
-    {
-      role: "assistant",
-      content:
-        "你好，我是公告智能体。先在上方选择标的，之后我会基于该公司的 DCF 假设与已入库公告信号回答问题；需要时你也可以让我重新拉取公告。",
-    },
+    { role: "assistant", content: DEFAULT_WELCOME },
   ]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
@@ -99,15 +111,76 @@ export default function AgentPage() {
     loadCfg();
   }, [loadCompanies, loadCfg]);
 
+  /** 读取该标的的历史对话（正序）；无历史则保留标准绑定开场语 */
+  const loadConversations = useCallback(
+    async (cid: string) => {
+      const company = companies.find((c) => c.id === cid);
+      const bindMsg = company
+        ? buildBindMessage(company.name, company.ticker)
+        : DEFAULT_WELCOME;
+      setMessages([{ role: "assistant", content: bindMsg }]);
+      try {
+        const res = await fetch(
+          `/api/agent/conversations?companyId=${encodeURIComponent(cid)}`,
+          { cache: "no-store" },
+        );
+        const json = await res.json();
+        const items = (json.items ?? []) as { role: string; content: string }[];
+        if (items.length) {
+          setMessages(
+            items.map((m) => ({
+              role: m.role === "user" ? "user" : "assistant",
+              content: m.content,
+            })),
+          );
+        }
+        // 无历史：保留 bindMsg
+      } catch {
+        // 读取失败：保留 bindMsg
+      }
+    },
+    [companies],
+  );
+
+  /** 追加对话记录（失败静默，不影响对话本身） */
+  const saveConversations = useCallback(
+    async (msgs: { role: "user" | "assistant"; content: string }[]) => {
+      if (!companyId) return;
+      try {
+        await fetch("/api/agent/conversations", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ companyId, messages: msgs }),
+        });
+      } catch {
+        /* 落库失败不阻塞对话 */
+      }
+    },
+    [companyId],
+  );
+
+  /** 从 URL 参数恢复标的（如从公告中心「去智能体分析」跳转）；仅首次生效，切换标的不受 URL 残留影响 */
+  const urlInitRef = useRef(false);
+  useEffect(() => {
+    if (urlInitRef.current || typeof window === "undefined") return;
+    const cid = new URLSearchParams(window.location.search).get("companyId");
+    if (cid) {
+      if (companies.length) {
+        if (companies.some((c) => c.id === cid)) {
+          urlInitRef.current = true;
+          setCompanyId(cid);
+          loadConversations(cid);
+        }
+      }
+      // cid 存在但公司列表未加载完：等 companies 就绪后再次进入
+    } else {
+      urlInitRef.current = true;
+    }
+  }, [companies, loadConversations]);
+
   const onCompanyChange = (v: string) => {
     setCompanyId(v);
-    const c = companies.find((x) => x.id === v);
-    setMessages([
-      {
-        role: "assistant",
-        content: `已绑定标的：${c?.name ?? v}。你可以问我公告预期差、假设修正建议，或让我重新拉取公告。`,
-      },
-    ]);
+    loadConversations(v);
   };
 
   const handleSend = async () => {
@@ -134,19 +207,19 @@ export default function AgentPage() {
         return;
       }
       if (!json.llmReady) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content:
-              json.error ||
-              "未配置 LLM API。请点击右上角「API 配置」填入 Base URL / API Key / Model 后再试。",
-          },
-        ]);
+        const guide =
+          json.error ||
+          "未配置 LLM API。请点击右上角「API 配置」填入 Base URL / API Key / Model 后再试。";
+        setMessages((prev) => [...prev, { role: "assistant", content: guide }]);
+        saveConversations([{ role: "user", content: text }, { role: "assistant", content: guide }]);
         return;
       }
       if (json.reply) {
         setMessages((prev) => [...prev, { role: "assistant", content: json.reply }]);
+        saveConversations([
+          { role: "user", content: text },
+          { role: "assistant", content: json.reply },
+        ]);
       } else if (json.error) {
         message.error(json.error);
       }
@@ -173,13 +246,9 @@ export default function AgentPage() {
         message.error(json.error ?? "同步失败");
         return;
       }
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: `已重新拉取公告：共 ${json.fetched} 条，新增 ${json.added} 条，产生信号 ${json.signals} 条（失败 ${json.failed?.length ?? 0} 条）。问我信号详情或假设影响即可继续分析。`,
-        },
-      ]);
+      const note = `已重新拉取公告：共 ${json.fetched} 条，新增 ${json.added} 条（失败 ${json.failed?.length ?? 0} 条）。需要我分析这些公告吗？`;
+      setMessages((prev) => [...prev, { role: "assistant", content: note }]);
+      saveConversations([{ role: "assistant", content: note }]);
       message.success("公告同步完成");
     } catch {
       message.error("同步请求失败");
@@ -339,7 +408,7 @@ export default function AgentPage() {
               onChange={(e) => setInput(e.target.value)}
               placeholder={
                 companyId
-                  ? "例如：帮我拉取近 30 天公告并总结信号；这些公告对我的 g1、ke 假设有什么影响？"
+                  ? "例如：帮我拉取近 30 天公告；分析这些公告的预期差；对我的 g1、ke 假设有什么影响？"
                   : "请先选择标的"
               }
               autoSize={{ minRows: 2, maxRows: 5 }}

@@ -18,7 +18,7 @@ import {
   Typography,
   Empty,
 } from "antd";
-import { ReloadOutlined, FileSearchOutlined, ArrowLeftOutlined } from "@ant-design/icons";
+import { ReloadOutlined, FileSearchOutlined, ArrowLeftOutlined, RobotOutlined } from "@ant-design/icons";
 import { useRouter } from "next/navigation";
 import type { ColumnsType } from "antd/es/table";
 
@@ -64,10 +64,7 @@ interface AnnouncementItem {
 interface SyncResult {
   fetched: number;
   added: number;
-  analyzed: number;
-  signals: number;
   failed: { code: string; title: string; reason: string }[];
-  llmReady: boolean;
 }
 
 const CATEGORIES = [
@@ -145,6 +142,7 @@ export default function AnnouncementsPage() {
           companyId,
           page: String(targetPage),
           pageSize: String(pageSize),
+          days: String(days),
         });
         if (category) params.set("category", category);
         const res = await fetch(`/api/announcements?${params}`, { cache: "no-store" });
@@ -158,12 +156,12 @@ export default function AnnouncementsPage() {
         setLoading(false);
       }
     },
-    [companyId, category, pageSize, message],
+    [companyId, category, days, pageSize, message],
   );
 
   useEffect(() => {
     if (companyId) loadAnnouncements(page);
-  }, [companyId, category, pageSize, page, loadAnnouncements]);
+  }, [companyId, category, days, pageSize, page, loadAnnouncements]);
 
   const handleSync = async () => {
     if (!companyId) {
@@ -182,9 +180,7 @@ export default function AnnouncementsPage() {
         return;
       }
       setLastSync(json as SyncResult);
-      message.success(
-        `同步完成：新增 ${json.added} 条公告，${json.signals} 条信号`,
-      );
+      message.success(`同步完成：新增 ${json.added} 条公告`);
       loadAnnouncements(1);
     } catch {
       message.error("同步请求失败，请稍后重试");
@@ -220,8 +216,20 @@ export default function AnnouncementsPage() {
       title: "分析状态",
       dataIndex: "analyzed",
       width: 110,
-      render: (v: boolean) =>
-        v ? <Tag color="green">已分析</Tag> : <Tag>未分析</Tag>,
+      render: (_, r) =>
+        r.signals.length ? (
+          <Tag color="green">已分析</Tag>
+        ) : (
+          <a
+            className="text-blue-600"
+            onClick={(e) => {
+              e.preventDefault();
+              router.push(`/agent?companyId=${encodeURIComponent(r.companyId)}`);
+            }}
+          >
+            去智能体分析
+          </a>
+        ),
     },
     {
       title: "预期判断",
@@ -243,7 +251,7 @@ export default function AnnouncementsPage() {
     if (!r.signals.length) {
       return (
         <div className="py-2 text-slate-400 text-sm">
-          该公告未产生预期差信号（LLM 未配置或公告不在规则命中类目）。
+          该公告尚未在智能体中分析。前往「智能体对话」页要求分析即可生成预期差信号。
         </div>
       );
     }
@@ -330,15 +338,27 @@ export default function AnnouncementsPage() {
       <div className="brand-header px-6 py-3 flex items-center justify-between">
         <div>
           <Title level={4} style={{ color: "#fff", margin: 0 }}>
-            公告中心 · 预期差信号
+            公告中心
           </Title>
           <div className="text-xs text-blue-100">
-            巨潮资讯 A 股公告按需采集 · 规则分类 + 可选 LLM 信号（未配置 key 时仅采集）
+            巨潮资讯 A 股公告按需采集 · 预期差分析在「智能体对话」页完成
           </div>
         </div>
-        <Button icon={<ArrowLeftOutlined />} onClick={() => router.push("/dashboard")}>
-          返回看板
-        </Button>
+        <Space>
+          <Button
+            icon={<RobotOutlined />}
+            onClick={() =>
+              companyId
+                ? router.push(`/agent?companyId=${encodeURIComponent(companyId)}`)
+                : router.push("/agent")
+            }
+          >
+            智能体分析
+          </Button>
+          <Button icon={<ArrowLeftOutlined />} onClick={() => router.push("/dashboard")}>
+            返回看板
+          </Button>
+        </Space>
       </div>
 
       <div className="p-6">
@@ -373,7 +393,10 @@ export default function AnnouncementsPage() {
             <Select
               style={{ width: 130 }}
               value={days}
-              onChange={setDays}
+              onChange={(v) => {
+                setDays(v);
+                setPage(1);
+              }}
               options={[
                 { value: 7, label: "近 7 天" },
                 { value: 30, label: "近 30 天" },
@@ -386,7 +409,7 @@ export default function AnnouncementsPage() {
               loading={syncing}
               onClick={handleSync}
             >
-              拉取公告并分析
+              拉取公告
             </Button>
             <Button
               icon={<ReloadOutlined />}
@@ -399,15 +422,13 @@ export default function AnnouncementsPage() {
           {lastSync && (
             <Alert
               className="mt-3"
-              type={lastSync.llmReady ? "success" : "info"}
+              type={lastSync.failed.length ? "warning" : "success"}
               showIcon
-              message={`同步完成：拉取 ${lastSync.fetched} 条 · 新增 ${lastSync.added} 条 · 已分析 ${lastSync.analyzed} 条 · 信号 ${lastSync.signals} 条 · 失败 ${lastSync.failed.length} 条`}
+              message={`同步完成：拉取 ${lastSync.fetched} 条 · 新增 ${lastSync.added} 条 · 失败 ${lastSync.failed.length} 条`}
               description={
-                lastSync.llmReady
-                  ? lastSync.failed.length
-                    ? `部分公告处理失败：${lastSync.failed.map((f) => f.title).join("；")}`
-                    : "全部处理成功。"
-                  : "未配置 DEEPSEEK_API_KEY，信号分析未启用——公告已正常采集入库，配置 key 后重新拉取即可生成信号。"
+                lastSync.failed.length
+                  ? `部分公告处理失败：${lastSync.failed.map((f) => f.title).join("；")}`
+                  : "公告已采集入库。预期差分析请前往「智能体对话」页，要求智能体分析公告即可生成信号。"
               }
             />
           )}
@@ -415,7 +436,7 @@ export default function AnnouncementsPage() {
 
         <Card>
           {items.length === 0 && !loading ? (
-            <Empty description="暂无公告。选择标的并点击「拉取公告并分析」。" />
+            <Empty description="暂无公告。选择标的并点击「拉取公告」采集，或前往智能体对话页让智能体拉取。" />
           ) : (
             <Table
               rowKey="id"

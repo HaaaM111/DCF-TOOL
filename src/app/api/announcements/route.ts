@@ -1,6 +1,6 @@
 /**
  * GET /api/announcements —— 公告列表查询（含预期差信号）
- * 参数：companyId / category / page / pageSize，按 publishAt 倒序
+ * 参数：companyId / category / days（近 N 天，按 publishAt 过滤）/ page / pageSize，按 publishAt 倒序
  */
 import { NextRequest } from "next/server";
 import { guardRequest, jsonOk } from "@/lib/api";
@@ -16,6 +16,8 @@ export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
   const companyId = sp.get("companyId") ?? undefined;
   const category = sp.get("category") ?? undefined;
+  const daysRaw = parseInt(sp.get("days") ?? "", 10);
+  const days = Number.isFinite(daysRaw) && daysRaw > 0 ? daysRaw : undefined;
   const page = Math.max(1, parseInt(sp.get("page") ?? "1", 10) || 1);
   const pageSize = Math.min(
     50,
@@ -25,6 +27,7 @@ export async function GET(req: NextRequest) {
   const where = {
     ...(companyId ? { companyId } : {}),
     ...(category ? { category } : {}),
+    ...(days ? { publishAt: { gte: new Date(Date.now() - days * 24 * 3600 * 1000) } } : {}),
   };
 
   const [total, items] = await Promise.all([
