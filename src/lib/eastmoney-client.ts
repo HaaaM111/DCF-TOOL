@@ -32,6 +32,10 @@ const PUSH2_BASE = "https://push2.eastmoney.com";
 const PUSH2HIS_BASE = "https://push2his.eastmoney.com";
 const DATACENTER_BASE = "https://datacenter-web.eastmoney.com";
 const EMWEB_BASE = "https://emweb.securities.eastmoney.com";
+const SEARCH_BASE = "https://searchapi.eastmoney.com";
+
+/** 东财搜索建议接口的前端公开 token（官方网页固定值，非敏感凭据） */
+const SEARCH_TOKEN = "D43BF722C8E33BDC906FB84D85E326E8";
 
 /** 行情接口备用主机（push2delay 为东财延迟行情镜像，结构一致，用于 failover） */
 const PUSH2_HOSTS = [PUSH2_BASE, "https://push2delay.eastmoney.com"];
@@ -276,6 +280,101 @@ export async function fetchEastPriceHistory(
       volume: Number(volume) || 0,
     };
   });
+}
+
+// ============================================================
+// 股票搜索（searchapi suggest，全市场 A/港股，免费）
+// ============================================================
+
+export interface StockSuggestion {
+  ticker: string; // iFinD 格式：600519.SH / 00700.HK
+  name: string;
+  market: "SH" | "SZ" | "HK";
+}
+
+/** 东财搜索建议单条（仅取用到的字段） */
+interface SuggestRow {
+  Code?: string | number;
+  Name?: string;
+  Classify?: string;
+  QuoteID?: string;
+}
+
+// 搜索缓存：同一关键词 5 分钟内直接返回，避免输入时反复打东财接口
+const SEARCH_CACHE_TTL_MS = 5 * 60 * 1000;
+const SEARCH_CACHE_MAX = 200;
+const searchCache = new Map<
+  string,
+  { data: StockSuggestion[]; expiresAt: number }
+>();
+
+/**
+ * 全市场搜索建议（支持中文名/拼音/代码），返回 A 股 + 港股。
+ * 过滤掉指数/板块/债券/美股/权证等非 DCF 标的。
+ * GET https://searchapi.eastmoney.com/api/suggest/get?input=...&type=14
+ */
+export async function searchEastSuggest(
+  keyword: string,
+): Promise<StockSuggestion[]> {
+  const kw = keyword.trim();
+  if (!kw) return [];
+  const key = kw.toLowerCase();
+
+  // 缓存命中直接返回（含空结果，避免无效词反复请求）
+  const hit = searchCache.get(key);
+  if (hit && hit.expiresAt > Date.now()) return hit.data;
+
+  const url =
+    `${SEARCH_BASE}/api/suggest/get?input=${encodeURIComponent(kw)}` +
+    `&type=14&token=${SEARCH_TOKEN}&count=20`;
+  const raw = await eastGet<{
+    QuotationCodeTable?: { Data?: SuggestRow[] };
+  }>(url, `search ${kw}`);
+  const rows = raw.QuotationCodeTable?.Data;
+  if (!Array.isArray(rows)) return [];
+
+  const out: StockSuggestion[] = [];
+  for (const r of rows) {
+    if (r.Classify !== "AStock" && r.Classify !== "HK") continue; // 只留 A 股/港股
+
+    // QuoteID 形如 "1.600519" / "0.000333" / "116.00700"，前缀即市场
+    const qid = String(r.QuoteID ?? "");
+    const m = /^(\d+)\.(\d+)$/.exec(qid);
+    if (!m) continue;
+    const mktNum = m[1];
+    const market =
+      mktNum === "1" ? "SH" : mktNum === "0" ? "SZ" : mktNum === "116" ? "HK" : "";
+    if (!market) continue;
+
+    // A 股补足 6 位、港股补足 5 位
+    const code = String(r.Code ?? "").padStart(
+      market === "HK" ? 5 : 6,
+      "0",
+    );
+    if (!/^\d{5,6}$/.test(code)) continue;
+    // 港股衍生权证（1xxxx/2xxxx）过滤，只留正股（0xxxx/8xxxx）
+    if (market === "HK" && /^[12]/.test(code)) continue;
+
+    const ticker = `${code}.${market}`;
+    if (out.some((s) => s.ticker === ticker)) continue;
+    out.push({
+      ticker,
+      name: String(r.Name ?? code),
+      market,
+    });
+    if (out.length >= 20) break;
+  }
+
+  // 写入缓存（超上限时淘汰最早一条，Map 迭代序即插入序）
+  if (searchCache.size >= SEARCH_CACHE_MAX) {
+    const oldest = searchCache.keys().next().value;
+    if (oldest) searchCache.delete(oldest);
+  }
+  searchCache.set(key, {
+    data: out,
+    expiresAt: Date.now() + SEARCH_CACHE_TTL_MS,
+  });
+  return out;
 }
 
 // ============================================================

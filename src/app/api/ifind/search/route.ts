@@ -1,17 +1,15 @@
 /**
- * iFinD 股票搜索代理
+ * 股票搜索代理（分流模式）
  * GET /api/ifind/search?keyword=xxx
  * 返回匹配的股票列表 [{ ticker, name, market }]
  *
- * 安全：Token 仅在服务端使用，绝不返回前端。
+ * 搜索链路：东财全市场搜索建议（免费）→ 本地预置池兜底。
+ * 东财支持中文名/拼音/代码，覆盖全市场 A 股 + 港股，不再受本地池限制。
  */
 import { NextRequest } from "next/server";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
-import {
-  searchStock,
-  hasIfindCredentials,
-  getMockSearchResults,
-} from "@/lib/ifind-client";
+import { searchEastSuggest, isEastMoneyEnabled } from "@/lib/eastmoney-client";
+import { searchStock } from "@/lib/ifind-client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,17 +28,31 @@ export async function GET(req: NextRequest) {
     return jsonError("关键词过长", 400, "KEYWORD_TOO_LONG");
   }
 
-  const useMock = !hasIfindCredentials();
-
   try {
-    const data = useMock
-      ? await getMockSearchResults(keyword)
-      : await searchStock(keyword);
+    let data: { ticker: string; name: string; market?: string }[];
 
-    return jsonOk({ data, mock: useMock });
+    // 1) 东财全市场搜索（免费，主通道）
+    if (isEastMoneyEnabled()) {
+      data = await searchEastSuggest(keyword);
+      // 东财无结果（或接口异常已抛出）时，落到本地预置池
+      if (data.length === 0) {
+        data = await searchStock(keyword);
+      }
+    } else {
+      // 东财被显式关闭，直接用本地池
+      data = await searchStock(keyword);
+    }
+
+    return jsonOk({ data, mock: false });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "搜索失败";
-    return jsonError(msg, 502, "IFIND_SEARCH_ERROR");
+    // 东财搜索失败时退回本地池，保证搜索始终可用
+    try {
+      const fallback = await searchStock(keyword);
+      return jsonOk({ data: fallback, mock: false });
+    } catch {
+      const msg = err instanceof Error ? err.message : "搜索失败";
+      return jsonError(msg, 502, "IFIND_SEARCH_ERROR");
+    }
   }
 }
 

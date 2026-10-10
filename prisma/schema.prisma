@@ -280,3 +280,48 @@ model ValidationResult {
 
   @@index([companyId])
 }
+
+// ============================================================
+// 8. 公告与预期差信号（公告智能体，A股·巨潮 cninfo 主源）
+// ============================================================
+model Announcement {
+  id        String   @id @default(cuid())
+  companyId String // 跨库引用 Company.id，无外键
+  source    String   @default("cninfo") // 数据源：cninfo（巨潮）/ sse（上交所）
+  code      String // 源内公告编号：cninfo=announcementId，sse=公告URL
+  title     String
+  publishAt DateTime
+  category  String   @default("其他") // 标题规则分类：业绩预告/定期报告/回购/增减持/重大合同/股权激励/分红/风险/其他
+  pdfUrl    String
+  rawText   String? // PDF 提取文本（截断 ~6000 字符）；图片型扫描件为 null
+  analyzed  Boolean  @default(false) // 是否已产生预期差信号（LLM 已配置且分类命中时为 true）
+  signals   AnnouncementSignal[]
+  createdAt DateTime @default(now())
+
+  @@unique([companyId, source, code])
+  @@index([companyId, publishAt])
+  @@index([category])
+}
+
+model AnnouncementSignal {
+  id               String   @id @default(cuid())
+  announcementId   String
+  announcement     Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  expectation      String // 超预期 | 符合预期 | 低于预期 | 无法判断
+  direction        String // positive | neutral | negative
+  summary          String // LLM 一句话总结（chatWithDeepSeek 已做 XSS 过滤）
+  evidence         String // 逐字引用原文句子（防幻觉）
+  suggestedChanges Json   // [{ field, action: "上调"|"下调"|"维持", from, to, reason }]，field 限定 Assumption 字段
+  createdAt        DateTime @default(now())
+
+  @@index([announcementId])
+}
+
+// ============================================================
+// 9. 应用设置 KV（智能体 API 配置等，key 服务端存储）
+// ============================================================
+model AppSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}

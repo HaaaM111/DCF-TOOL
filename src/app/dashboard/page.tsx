@@ -24,6 +24,8 @@ import {
   ReloadOutlined,
   FileTextOutlined,
   SearchOutlined,
+  FileSearchOutlined,
+  RobotOutlined,
   BulbOutlined,
   BulbFilled,
 } from "@ant-design/icons";
@@ -517,6 +519,15 @@ export default function DashboardPage() {
           </Tooltip>
           <Button icon={<ReloadOutlined />} onClick={loadData}>
             一键刷新
+          </Button>
+          <Button
+            icon={<FileSearchOutlined />}
+            onClick={() => router.push("/announcements")}
+          >
+            公告中心
+          </Button>
+          <Button icon={<RobotOutlined />} onClick={() => router.push("/agent")}>
+            智能体对话
           </Button>
           <Button icon={<FileTextOutlined />}>另存为 HTML</Button>
           <Button
