@@ -26,10 +26,11 @@ import {
   ReloadOutlined,
 } from "@ant-design/icons";
 import { useRouter, useSearchParams } from "next/navigation";
+import AppHeader from "@/components/app-header";
 import { ValueDonut } from "@/components/charts";
 import type { DcfOutput } from "@/types/dcf";
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
 interface FormState {
   name: string;
@@ -475,7 +476,15 @@ function ModelEditContent() {
     }
   };
 
-  if (loading) return <div className="p-10 text-center"><Spin /></div>;
+  if (loading)
+    return (
+      <div className="min-h-screen">
+        <AppHeader title={`${editId ? "编辑" : "新增"}上市公司估值模型`} />
+        <div className="p-10 text-center">
+          <Spin />
+        </div>
+      </div>
+    );
 
   const f = calc?.forward;
   const r = calc?.reverse;
@@ -483,13 +492,12 @@ function ModelEditContent() {
   const fairKe = form.ke + form.crpBps / 10000;
 
   return (
-    <div className="min-h-screen p-6 max-w-[1400px] mx-auto">
-      <Space className="mb-4">
-        <Button onClick={() => router.push("/dashboard")}>← 返回看板</Button>
-        <Title level={4} style={{ margin: 0 }}>
-          {editId ? "编辑" : "新增"}上市公司估值模型
-        </Title>
-      </Space>
+    <div className="min-h-screen">
+      <AppHeader
+        title={`${editId ? "编辑" : "新增"}上市公司估值模型`}
+        subtitle="正向 20 年 DCF 内在价值 + 逆向终局利润 L 反算 · 实时计算"
+      />
+      <div className="p-6 max-w-[1400px] mx-auto">
 
       {/* 实时结果横幅 */}
       {calc && (
@@ -513,7 +521,7 @@ function ModelEditContent() {
                 value={r?.l}
                 precision={1}
                 suffix="亿"
-                styles={{ content: { color: "#2563eb" } }}
+                styles={{ content: { color: "#2563EB" } }}
               />
               <div className="text-xs text-slate-500">
                 L/E3 = {r?.lE3.toFixed(2)}x ｜ 隐含 CAGR {r?.impliedCagr.toFixed(1)}%
@@ -955,6 +963,7 @@ function ModelEditContent() {
           </div>
         </Col>
       </Row>
+      </div>
     </div>
   );
 }

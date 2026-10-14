@@ -15,7 +15,6 @@ import {
   Upload,
   App,
   Tooltip,
-  Typography,
 } from "antd";
 import {
   PlusOutlined,
@@ -24,16 +23,10 @@ import {
   ReloadOutlined,
   FileTextOutlined,
   SearchOutlined,
-  FileSearchOutlined,
-  RobotOutlined,
-  BulbOutlined,
-  BulbFilled,
 } from "@ant-design/icons";
 import { useRouter } from "next/navigation";
-import { useTheme } from "@/app/providers";
+import AppHeader from "@/components/app-header";
 import type { ColumnsType } from "antd/es/table";
-
-const { Title } = Typography;
 
 /** 标的类型（与 API 返回一致） */
 interface Company {
@@ -108,7 +101,6 @@ export default function DashboardPage() {
   const [keyword, setKeyword] = useState("");
   const [importModalOpen, setImportModalOpen] = useState(false);
   const { message } = App.useApp();
-  const { mode, toggle } = useTheme();
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -501,50 +493,31 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen">
       {/* 顶部品牌栏 */}
-      <div className="brand-header px-6 py-3 flex items-center justify-between">
-        <div>
-          <Title level={4} style={{ color: "#fff", margin: 0 }}>
-            DCF 估值穿透与弹性空间测算终端
-          </Title>
-          <div className="text-xs text-blue-100">
-            正向 20 年 DCF 内在价值 + 逆向终局利润 L 反算 · 安全：服务端二次校验
-          </div>
-        </div>
-        <Space>
-          <Tooltip title={mode === "dark" ? "切换浅色" : "切换深色"}>
+      <AppHeader
+        title="DCF 估值穿透与弹性空间测算终端"
+        subtitle="正向 20 年 DCF 内在价值 + 逆向终局利润 L 反算 · 安全：服务端二次校验"
+        actions={
+          <Space wrap size={8}>
+            <Button icon={<ReloadOutlined />} onClick={loadData}>
+              一键刷新
+            </Button>
+            <Button icon={<FileTextOutlined />}>另存为 HTML</Button>
+            <Button icon={<ImportOutlined />} onClick={() => setImportModalOpen(true)}>
+              导入 JSON
+            </Button>
+            <Button icon={<ExportOutlined />} onClick={handleExport}>
+              导出 JSON
+            </Button>
             <Button
-              icon={mode === "dark" ? <BulbFilled /> : <BulbOutlined />}
-              onClick={toggle}
-            />
-          </Tooltip>
-          <Button icon={<ReloadOutlined />} onClick={loadData}>
-            一键刷新
-          </Button>
-          <Button
-            icon={<FileSearchOutlined />}
-            onClick={() => router.push("/announcements")}
-          >
-            公告中心
-          </Button>
-          <Button icon={<RobotOutlined />} onClick={() => router.push("/agent")}>
-            智能体对话
-          </Button>
-          <Button icon={<FileTextOutlined />}>另存为 HTML</Button>
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => router.push("/model/edit")}
-          >
-            新增估值标的
-          </Button>
-          <Button icon={<ImportOutlined />} onClick={() => setImportModalOpen(true)}>
-            导入 JSON
-          </Button>
-          <Button icon={<ExportOutlined />} onClick={handleExport}>
-            导出 JSON
-          </Button>
-        </Space>
-      </div>
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={() => router.push("/model/edit")}
+            >
+              新增估值标的
+            </Button>
+          </Space>
+        }
+      />
 
       <div className="p-6">
         {/* 指标卡 + 四象限 */}
@@ -635,7 +608,7 @@ export default function DashboardPage() {
             dataSource={filtered}
             loading={loading}
             scroll={{ x: 1900, y: 520 }}
-            sticky={{ offsetHeader: 64 }}
+            sticky={{ offsetHeader: 72 }}
             size="middle"
             className="fin-table"
             pagination={{ pageSize: 20, showSizeChanger: true }}

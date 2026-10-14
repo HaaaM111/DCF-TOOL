@@ -24,13 +24,13 @@ import {
   CloudDownloadOutlined,
   SaveOutlined,
   DeleteOutlined,
-  ArrowLeftOutlined,
   RobotOutlined,
 } from "@ant-design/icons";
 import { useRouter } from "next/navigation";
+import AppHeader from "@/components/app-header";
 import type { ColumnsType } from "antd/es/table";
 
-const { Title, Paragraph, Text } = Typography;
+const { Paragraph, Text } = Typography;
 
 /** 标的（与 /api/companies 返回一致） */
 interface CompanyOption {
@@ -482,16 +482,10 @@ export default function AnnouncementsPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <div className="brand-header px-6 py-3 flex items-center justify-between">
-        <div>
-          <Title level={4} style={{ color: "#fff", margin: 0 }}>
-            公告中心
-          </Title>
-          <div className="text-xs text-blue-100">
-            拉取候选 → 勾选存储入库 · 预期差分析在「智能体对话」页完成
-          </div>
-        </div>
-        <Space>
+      <AppHeader
+        title="公告中心"
+        subtitle="拉取候选 → 勾选存储入库 · 预期差分析在「智能体对话」页完成"
+        actions={
           <Button
             icon={<RobotOutlined />}
             onClick={() =>
@@ -502,11 +496,8 @@ export default function AnnouncementsPage() {
           >
             智能体分析
           </Button>
-          <Button icon={<ArrowLeftOutlined />} onClick={() => router.push("/dashboard")}>
-            返回看板
-          </Button>
-        </Space>
-      </div>
+        }
+      />
 
       <div className="p-6">
         <Card className="mb-4">

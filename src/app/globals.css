@@ -135,6 +135,43 @@ body {
   background: linear-gradient(135deg, var(--brand-deep) 0%, var(--brand-indigo) 100%);
   color: #fff;
 }
+/* 顶栏内的通用按钮：透明底 + 白字白边，融入深蓝头部 */
+.brand-header .ant-btn {
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.35);
+  color: #fff;
+}
+.brand-header .ant-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.6);
+  color: #fff;
+}
+.brand-header .ant-btn-primary,
+.brand-header .ant-btn-primary:hover {
+  background: #fff;
+  border-color: #fff;
+  color: var(--brand-deep);
+}
+/* 顶栏导航按钮：激活态底色 */
+.header-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.header-nav .ant-btn {
+  font-weight: 500;
+}
+.header-nav .header-nav-active {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.25);
+  color: #fff;
+}
+/* 顶栏小字号辅助文字 */
+.header-sub {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 12px;
+  line-height: 1.4;
+}
 
 /* ============================================================
    冻结列阴影
@@ -257,4 +294,110 @@ body {
 }
 .fin-card:hover {
   box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+}
+
+/* ============================================================
+   智能体对话布局（左侧历史记录 + 右侧对话区占满视口）
+   ============================================================ */
+.agent-shell {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+}
+.agent-main {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  position: relative;
+}
+
+/* 左侧历史栏 */
+.agent-sidebar {
+  width: 280px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--card-bg);
+  border-right: 1px solid var(--border);
+}
+.agent-history-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+.agent-history-item:hover {
+  background: var(--bg);
+}
+.agent-history-item.active {
+  background: rgba(79, 70, 229, 0.08);
+  border-color: rgba(79, 70, 229, 0.25);
+}
+.dark .agent-history-item:hover {
+  background: rgba(148, 163, 184, 0.1);
+}
+.dark .agent-history-item.active {
+  background: rgba(79, 70, 229, 0.18);
+  border-color: rgba(79, 70, 229, 0.4);
+}
+
+/* 右侧对话区 */
+.agent-topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px;
+  background: var(--card-bg);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.agent-messages {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+.agent-messages-inner {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 20px 24px;
+}
+.agent-composer {
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
+  background: var(--card-bg);
+  padding: 12px 24px;
+}
+.agent-composer-inner {
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+/* 对话气泡 */
+.chat-bubble {
+  max-width: 75%;
+  padding: 10px 14px;
+  border-radius: 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 14px;
+  line-height: 1.65;
+}
+.chat-bubble-user {
+  background: #4F46E5;
+  color: #ffffff;
+}
+.chat-bubble-agent {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+.dark .chat-bubble-agent {
+  background: #1e293b;
+  color: #f1f5f9;
 }

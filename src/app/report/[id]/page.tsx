@@ -25,8 +25,10 @@ import {
   CopyOutlined,
   PlusOutlined,
   DeleteOutlined,
+  EditOutlined,
 } from "@ant-design/icons";
 import { useParams, useRouter } from "next/navigation";
+import AppHeader from "@/components/app-header";
 import { ValueDonut, FcfBars, TrendChart, ConfidenceChart } from "@/components/charts";
 import {
   PeerCompareChart,
@@ -269,17 +271,23 @@ export default function ReportPage() {
 
   if (loading)
     return (
-      <div className="p-10 text-center">
-        <Spin />
+      <div className="min-h-screen">
+        <AppHeader title="深度估值穿透报告" />
+        <div className="p-10 text-center">
+          <Spin />
+        </div>
       </div>
     );
   if (!company)
     return (
-      <div className="p-10 text-center">
-        <Empty description="标的不存在" />
-        <Button className="mt-4" onClick={() => router.push("/dashboard")}>
-          返回看板
-        </Button>
+      <div className="min-h-screen">
+        <AppHeader title="深度估值穿透报告" />
+        <div className="p-10 text-center">
+          <Empty description="标的不存在" />
+          <Button className="mt-4" onClick={() => router.push("/dashboard")}>
+            返回看板
+          </Button>
+        </div>
       </div>
     );
 
@@ -342,14 +350,20 @@ export default function ReportPage() {
   };
 
   return (
-    <div className="min-h-screen p-6 max-w-[1400px] mx-auto">
-      <Space className="mb-4">
-        <Button onClick={() => router.push("/dashboard")}>← 返回看板</Button>
-        <Button onClick={() => router.push(`/model/edit?id=${id}`)}>✏️ 改假设</Button>
-        <Title level={4} style={{ margin: 0 }}>
-          {c.name}（{c.ticker}）— 深度估值穿透与内在价值拆解报告
-        </Title>
-      </Space>
+    <div className="min-h-screen">
+      <AppHeader
+        title={`${c.name}（${c.ticker}）`}
+        subtitle="深度估值穿透与内在价值拆解报告"
+        actions={
+          <Button
+            icon={<EditOutlined />}
+            onClick={() => router.push(`/model/edit?id=${id}`)}
+          >
+            改假设
+          </Button>
+        }
+      />
+      <div className="p-6 max-w-[1400px] mx-auto">
 
       {/* 核心指标卡 */}
       <Row gutter={[16, 16]} className="mb-4">
@@ -825,6 +839,7 @@ export default function ReportPage() {
           </Button>
         </div>
       </Card>
+      </div>
     </div>
   );
 }

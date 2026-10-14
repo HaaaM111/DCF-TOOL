@@ -11,10 +11,8 @@
  */
 import { useEffect, useState, useCallback, useRef } from "react";
 import {
-  Card,
   Select,
   Button,
-  Space,
   Tag,
   App,
   Alert,
@@ -25,18 +23,46 @@ import {
   Spin,
 } from "antd";
 import {
-  ArrowLeftOutlined,
   SendOutlined,
   SettingOutlined,
-  RobotOutlined,
+  PlusOutlined,
+  MenuOutlined,
+  MessageOutlined,
 } from "@ant-design/icons";
-import { useRouter } from "next/navigation";
+import AppHeader from "@/components/app-header";
 
-const { Title, Paragraph, Text } = Typography;
+const { Paragraph, Text } = Typography;
 
 /** 历史为空时的默认欢迎语 */
 const DEFAULT_WELCOME =
   "你好，我是公告智能体。先在上方选择标的，之后我会基于该公司的 DCF 假设与已入库公告信号回答问题；需要时你也可以让我重新拉取或分析公告。";
+
+/** 历史列表项（一个标的对应一条连续会话） */
+interface HistoryItem {
+  company: CompanyOption;
+  lastAt: string;
+  lastContent: string;
+  count: number;
+}
+
+/** 历史栏时间显示（今天 HH:mm / 昨天 / N 天前 / M-D） */
+function relTime(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  const now = new Date();
+  const dayStart = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diffDays = Math.round((dayStart(now) - dayStart(d)) / 86400000);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  if (diffDays === 0) return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  if (diffDays === 1) return "昨天";
+  if (diffDays < 7) return `${diffDays} 天前`;
+  return `${d.getMonth() + 1}-${pad(d.getDate())}`;
+}
+
+/** 历史栏预览文案：折行压平并截断 */
+function previewText(content: string): string {
+  return content.replace(/\s+/g, " ").trim().slice(0, 30);
+}
 
 /** 绑定标的后统一标准开场语（所有标的一致） */
 function buildBindMessage(name: string, ticker: string): string {
@@ -68,7 +94,6 @@ interface CfgState {
 }
 
 export default function AgentPage() {
-  const router = useRouter();
   const { message } = App.useApp();
 
   const [companies, setCompanies] = useState<CompanyOption[]>([]);
@@ -78,21 +103,93 @@ export default function AgentPage() {
   ]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   const [cfg, setCfg] = useState<CfgState | null>(null);
   const [configOpen, setConfigOpen] = useState(false);
   const [cfgSaving, setCfgSaving] = useState(false);
   const [form] = Form.useForm();
 
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  /** 拉取历史会话列表：逐标的读取已有对话（复用现有 GET 接口），按最近时间排序 */
+  const loadHistory = useCallback(async (list: CompanyOption[]) => {
+    const items = await Promise.all(
+      list.map(async (company) => {
+        try {
+          const res = await fetch(
+            `/api/agent/conversations?companyId=${encodeURIComponent(company.id)}`,
+            { cache: "no-store" },
+          );
+          const json = await res.json();
+          const msgs = (json.items ?? []) as {
+            role: string;
+            content: string;
+            createdAt: string;
+          }[];
+          const last = msgs[msgs.length - 1];
+          return {
+            company,
+            lastAt: last?.createdAt ?? "",
+            lastContent: last?.content ?? "",
+            count: msgs.length,
+          };
+        } catch {
+          return { company, lastAt: "", lastContent: "", count: 0 };
+        }
+      }),
+    );
+    setHistory(
+      items
+        .filter((it) => it.count > 0)
+        .sort((a, b) => (a.lastAt < b.lastAt ? 1 : -1)),
+    );
+  }, []);
+
+  /** 单次对话结束后刷新对应标的的历史栏条目 */
+  const refreshOne = useCallback(
+    async (cid: string) => {
+      const company = companies.find((c) => c.id === cid);
+      if (!company) return;
+      try {
+        const res = await fetch(
+          `/api/agent/conversations?companyId=${encodeURIComponent(cid)}`,
+          { cache: "no-store" },
+        );
+        const json = await res.json();
+        const msgs = (json.items ?? []) as {
+          role: string;
+          content: string;
+          createdAt: string;
+        }[];
+        const last = msgs[msgs.length - 1];
+        setHistory((prev) => {
+          const rest = prev.filter((it) => it.company.id !== cid);
+          if (!last) return rest;
+          return [
+            { company, lastAt: last.createdAt, lastContent: last.content, count: msgs.length },
+            ...rest,
+          ].sort((a, b) => (a.lastAt < b.lastAt ? 1 : -1));
+        });
+      } catch {
+        /* 刷新失败不影响对话 */
+      }
+    },
+    [companies],
+  );
+
   const loadCompanies = useCallback(async () => {
     try {
       const res = await fetch("/api/companies", { cache: "no-store" });
       const json = await res.json();
-      setCompanies(json.companies ?? []);
+      const list = (json.companies ?? []) as CompanyOption[];
+      setCompanies(list);
+      loadHistory(list);
     } catch {
       message.error("加载标的列表失败");
     }
-  }, [message]);
+  }, [message, loadHistory]);
 
   const loadCfg = useCallback(async () => {
     try {
@@ -178,8 +275,22 @@ export default function AgentPage() {
 
   const onCompanyChange = (v: string) => {
     setCompanyId(v);
+    setMobileOpen(false);
     loadConversations(v);
   };
+
+  /** 新对话：清除当前标的与消息，回到欢迎态 */
+  const newChat = () => {
+    setCompanyId(undefined);
+    setMessages([{ role: "assistant", content: DEFAULT_WELCOME }]);
+    setInput("");
+    setMobileOpen(false);
+  };
+
+  /** 消息更新后自动滚动到底部 */
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ block: "end" });
+  }, [messages, sending]);
 
   const handleSend = async () => {
     const text = input.trim();
@@ -209,15 +320,17 @@ export default function AgentPage() {
           json.error ||
           "未配置 LLM API。请点击右上角「API 配置」填入 Base URL / API Key / Model 后再试。";
         setMessages((prev) => [...prev, { role: "assistant", content: guide }]);
-        saveConversations([{ role: "user", content: text }, { role: "assistant", content: guide }]);
+        await saveConversations([{ role: "user", content: text }, { role: "assistant", content: guide }]);
+        refreshOne(companyId);
         return;
       }
       if (json.reply) {
         setMessages((prev) => [...prev, { role: "assistant", content: json.reply }]);
-        saveConversations([
+        await saveConversations([
           { role: "user", content: text },
           { role: "assistant", content: json.reply },
         ]);
+        refreshOne(companyId);
       } else if (json.error) {
         message.error(json.error);
       }
@@ -266,136 +379,210 @@ export default function AgentPage() {
     }
   };
 
+  const activeHistory = history.find((it) => it.company.id === companyId);
+
   return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="brand-header px-6 py-3 flex items-center justify-between">
-        <div>
-          <Title level={4} style={{ color: "#fff", margin: 0 }}>
-            <RobotOutlined className="mr-2" />
-            智能体对话
-          </Title>
-          <div className="text-xs text-blue-100">
-            绑定标的 · 基于 DCF 假设与公告信号问答 · 可要求重新拉取公告
-          </div>
-        </div>
-        <Space>
-          <Tag color={cfg?.hasKey ? "green" : "orange"}>
-            {cfg?.hasKey
-              ? `API 已配置（${cfg.source === "env" ? "环境变量" : "页面配置"}）`
-              : "未配置 API"}
-          </Tag>
-          <Button
-            icon={<SettingOutlined />}
-            onClick={openConfig}
-            className="header-btn"
-          >
+    <div className="agent-shell">
+      <AppHeader
+        title="智能体对话"
+        subtitle="绑定标的 · 基于 DCF 假设与公告信号问答 · 可要求重新拉取公告"
+        actions={
+          <Button icon={<SettingOutlined />} onClick={openConfig}>
             API 配置
           </Button>
-          <Button
-            icon={<ArrowLeftOutlined />}
-            onClick={() => router.push("/dashboard")}
-            className="header-btn"
-          >
-            返回看板
-          </Button>
-        </Space>
-      </div>
+        }
+      />
 
-      <div className="p-6">
-        <Card className="mb-4">
-          <Select
-            showSearch
-            placeholder="选择标的（对话上下文将绑定该公司）"
-            style={{ width: 300 }}
-            value={companyId}
-            onChange={onCompanyChange}
-            optionFilterProp="label"
-            options={companies.map((c) => ({
-              value: c.id,
-              label: `${c.name}（${c.ticker}）`,
-            }))}
-          />
-        </Card>
-
-        {cfg && !cfg.hasKey && (
-          <Alert
-            className="mb-4"
-            type="warning"
-            showIcon
-            message="LLM API 未配置，智能体暂不可用"
-            description="点击右上角「API 配置」填写 OpenAI 兼容接口的 Base URL / API Key / Model（如 DeepSeek：https://api.deepseek.com，模型 deepseek-v4-flash）。公告采集与看板不受影响。"
+      <div className="agent-main">
+        {/* 移动端遮罩 */}
+        {mobileOpen && (
+          <div
+            className="absolute inset-0 z-20 md:hidden"
+            style={{ background: "rgba(15, 23, 42, 0.45)" }}
+            onClick={() => setMobileOpen(false)}
           />
         )}
 
-        <Card className="chat-card" style={{ maxWidth: 860, margin: "0 auto" }}>
-          <div className="chat-body" style={{ minHeight: 420, maxHeight: 560, overflowY: "auto" }}>
-            {messages.map((m, i) => (
+        {/* 左侧：历史记录 */}
+        <aside
+          className={`agent-sidebar fixed z-30 left-0 top-16 bottom-0 transition-transform duration-200 md:static md:top-0 md:z-auto md:translate-x-0 ${
+            mobileOpen ? "translate-x-0" : "-translate-x-full"
+          }`}
+        >
+          <div className="p-3" style={{ borderBottom: "1px solid var(--border)" }}>
+            <Button block type="primary" ghost icon={<PlusOutlined />} onClick={newChat}>
+              新对话
+            </Button>
+          </div>
+          <div
+            className="px-4 pt-3 pb-1"
+            style={{ fontSize: 12, color: "var(--text-muted)", letterSpacing: "0.04em" }}
+          >
+            历史对话
+          </div>
+          <div className="flex-1 overflow-y-auto min-h-0 px-2 pb-2">
+            {history.length === 0 ? (
               <div
-                key={i}
-                className="chat-row"
-                style={{
-                  display: "flex",
-                  justifyContent: m.role === "user" ? "flex-end" : "flex-start",
-                  marginBottom: 12,
-                }}
+                className="text-center py-10 px-3"
+                style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.8 }}
               >
-                <div
-                  className={m.role === "user" ? "chat-bubble-user" : "chat-bubble-agent"}
-                  style={{
-                    maxWidth: "75%",
-                    padding: "10px 14px",
-                    borderRadius: 10,
-                    whiteSpace: "pre-wrap",
-                    wordBreak: "break-word",
-                    fontSize: 14,
-                    lineHeight: 1.6,
-                    background: m.role === "user" ? "#1677ff" : "#f5f5f5",
-                    color: m.role === "user" ? "#fff" : "#333",
-                  }}
+                <MessageOutlined style={{ fontSize: 22, marginBottom: 8 }} />
+                <div>暂无历史对话</div>
+                <div>选择标的完成一次对话后，记录会自动保存到这里</div>
+              </div>
+            ) : (
+              history.map((it) => (
+                <button
+                  key={it.company.id}
+                  type="button"
+                  className={`agent-history-item mb-1 ${
+                    companyId === it.company.id ? "active" : ""
+                  }`}
+                  onClick={() => onCompanyChange(it.company.id)}
                 >
-                  {m.content}
-                </div>
-              </div>
-            ))}
-            {sending && (
-              <div className="chat-row" style={{ marginBottom: 12 }}>
-                <Spin size="small" className="mr-2" />
-                <Text type="secondary">智能体思考中…</Text>
-              </div>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="flex-1 min-w-0 truncate"
+                      style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}
+                    >
+                      {it.company.name}
+                      <span style={{ fontSize: 11, fontWeight: 400, color: "var(--text-muted)" }}>
+                        {"  "}
+                        {it.company.ticker}
+                      </span>
+                    </span>
+                    <span
+                      className="shrink-0"
+                      style={{ fontSize: 11, color: "var(--text-muted)" }}
+                    >
+                      {relTime(it.lastAt)}
+                    </span>
+                  </div>
+                  <div
+                    className="truncate mt-1"
+                    style={{ fontSize: 12, color: "var(--text-secondary)" }}
+                  >
+                    {previewText(it.lastContent)}
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
+        </aside>
+
+        {/* 右侧：对话区 */}
+        <main className="flex-1 flex flex-col min-w-0" style={{ background: "var(--bg)" }}>
+          <div className="agent-topbar">
+            <Button
+              type="text"
+              className="md:hidden"
+              style={{ padding: "4px 8px" }}
+              icon={<MenuOutlined />}
+              onClick={() => setMobileOpen(true)}
+            />
+            <Select
+              showSearch
+              placeholder="选择标的（对话上下文将绑定该公司）"
+              style={{ width: 280, maxWidth: "58vw" }}
+              value={companyId}
+              onChange={onCompanyChange}
+              optionFilterProp="label"
+              options={companies.map((c) => ({
+                value: c.id,
+                label: `${c.name}（${c.ticker}）`,
+              }))}
+            />
+            <Tag color={cfg?.hasKey ? "green" : "orange"} style={{ marginInlineEnd: 0 }}>
+              {cfg?.hasKey
+                ? `API 已配置（${cfg.source === "env" ? "环境变量" : "页面配置"}）`
+                : "未配置 API"}
+            </Tag>
+            <div className="flex-1" />
+            {activeHistory && (
+              <Text type="secondary" style={{ fontSize: 12 }} className="hidden sm:inline">
+                {activeHistory.count} 条历史消息
+              </Text>
             )}
           </div>
 
-          <div className="chat-input" style={{ borderTop: "1px solid #eee", paddingTop: 12 }}>
-            <Input.TextArea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder={
-                companyId
-                  ? "例如：帮我拉取近 30 天公告；分析这些公告的预期差；对我的 g1、ke 假设有什么影响？"
-                  : "请先选择标的"
-              }
-              autoSize={{ minRows: 2, maxRows: 5 }}
-              disabled={!companyId || sending}
-              onPressEnter={(e) => {
-                if (!e.shiftKey) {
-                  e.preventDefault();
-                  handleSend();
-                }
-              }}
-            />
-            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
-              <Button
-                type="primary"
-                icon={<SendOutlined />}
-                loading={sending}
-                disabled={!companyId}
-                onClick={handleSend}
-              >
-                发送
-              </Button>
+          {cfg && !cfg.hasKey && (
+            <div style={{ padding: "12px 20px 0" }}>
+              <Alert
+                type="warning"
+                showIcon
+                message="LLM API 未配置，智能体暂不可用"
+                description="点击右上角「API 配置」填写 OpenAI 兼容接口的 Base URL / API Key / Model（如 DeepSeek：https://api.deepseek.com，模型 deepseek-v4-flash）。公告采集与看板不受影响。"
+              />
+            </div>
+          )}
+
+          <div className="agent-messages">
+            <div className="agent-messages-inner">
+              {messages.map((m, i) => (
+                <div
+                  key={i}
+                  className="chat-row"
+                  style={{
+                    display: "flex",
+                    justifyContent: m.role === "user" ? "flex-end" : "flex-start",
+                    marginBottom: 12,
+                  }}
+                >
+                  <div
+                    className={`chat-bubble ${
+                      m.role === "user" ? "chat-bubble-user" : "chat-bubble-agent"
+                    }`}
+                  >
+                    {m.content}
+                  </div>
+                </div>
+              ))}
+              {sending && (
+                <div
+                  className="chat-row"
+                  style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}
+                >
+                  <Spin size="small" />
+                  <Text type="secondary">智能体思考中…</Text>
+                </div>
+              )}
+              <div ref={bottomRef} />
             </div>
           </div>
-        </Card>
+
+          <div className="agent-composer">
+            <div className="agent-composer-inner">
+              <Input.TextArea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder={
+                  companyId
+                    ? "例如：帮我拉取近 30 天公告；分析这些公告的预期差；对我的 g1、ke 假设有什么影响？"
+                    : "请先选择标的"
+                }
+                autoSize={{ minRows: 2, maxRows: 5 }}
+                disabled={!companyId || sending}
+                onPressEnter={(e) => {
+                  if (!e.shiftKey) {
+                    e.preventDefault();
+                    handleSend();
+                  }
+                }}
+              />
+              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
+                <Button
+                  type="primary"
+                  icon={<SendOutlined />}
+                  loading={sending}
+                  disabled={!companyId}
+                  onClick={handleSend}
+                >
+                  发送
+                </Button>
+              </div>
+            </div>
+          </div>
+        </main>
       </div>
 
       <Modal
