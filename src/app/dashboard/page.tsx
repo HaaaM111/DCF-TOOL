@@ -113,7 +113,7 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [message]);
 
   useEffect(() => {
     loadData();
