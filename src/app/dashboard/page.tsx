@@ -24,7 +24,6 @@ import {
   FileTextOutlined,
   SearchOutlined,
 } from "@ant-design/icons";
-import { useRouter } from "next/navigation";
 import AppHeader from "@/components/app-header";
 import type { ColumnsType, ColumnType } from "antd/es/table";
 
@@ -92,7 +91,6 @@ const fmtPct = (n: number, d = 1) =>
   Number.isFinite(n) ? `${n >= 0 ? "+" : ""}${n.toFixed(d)}%` : "-";
 
 export default function DashboardPage() {
-  const router = useRouter();
   const [companies, setCompanies] = useState<Company[]>([]);
   const [baselineCompanies, setBaselineCompanies] = useState<BaselineCompany[]>([]);
   const [baselineLoading, setBaselineLoading] = useState(true);
@@ -358,14 +356,14 @@ export default function DashboardPage() {
           <Button
             size="small"
             type="link"
-            onClick={() => router.push(`/report/${r.id}`)}
+            href={`/report/${encodeURIComponent(r.id)}`}
           >
             详情
           </Button>
           <Button
             size="small"
             type="link"
-            onClick={() => router.push(`/model/edit?id=${r.id}`)}
+            href={`/model/edit?id=${encodeURIComponent(r.id)}`}
           >
             改假设
           </Button>
@@ -511,7 +509,7 @@ export default function DashboardPage() {
             <Button
               type="primary"
               icon={<PlusOutlined />}
-              onClick={() => router.push("/model/edit")}
+              href="/model/edit"
             >
               新增估值标的
             </Button>
@@ -609,7 +607,6 @@ export default function DashboardPage() {
             dataSource={filtered}
             loading={loading}
             scroll={{ y: 520 }}
-            sticky={{ offsetHeader: 72 }}
             size="middle"
             className="fin-table dashboard-primary-table"
             pagination={{ pageSize: 20, showSizeChanger: true }}

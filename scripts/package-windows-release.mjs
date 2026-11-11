@@ -13,6 +13,29 @@ fs.mkdirSync(output);
 const allowed = file => !path.basename(file).startsWith('.env') &&
   path.basename(file) !== '.git' && !/\.(?:db|sqlite|sqlite3)(?:-|$)/i.test(file);
 fs.cpSync(standalone, output, { recursive: true, dereference: true, filter: allowed });
+// Shared dependency junctions can put traced runtime files outside the project.
+// Copy only files traced beneath the real dependency root, preserving their paths.
+const dependencies = fs.realpathSync('node_modules');
+function restoreTracedDependencies(directory) {
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const filename = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      if (!['standalone', 'cache', 'static', 'node_modules'].includes(entry.name)) restoreTracedDependencies(filename);
+    } else if (entry.name.endsWith('.nft.json')) {
+      for (const traced of JSON.parse(fs.readFileSync(filename, 'utf8')).files ?? []) {
+        const source = path.resolve(directory, traced);
+        const relative = path.relative(dependencies, source);
+        if (relative.startsWith('..') || path.isAbsolute(relative) || !allowed(source)) continue;
+        const destination = path.join(output, 'node_modules', relative);
+        if (!fs.existsSync(destination) && fs.statSync(source).isFile()) {
+          fs.mkdirSync(path.dirname(destination), { recursive: true });
+          fs.copyFileSync(source, destination);
+        }
+      }
+    }
+  }
+}
+restoreTracedDependencies(build);
 const configName = path.basename(build);
 fs.cpSync(path.join(build, 'static'), path.join(output, configName, 'static'), { recursive: true });
 if (fs.existsSync('public')) fs.cpSync('public', path.join(output, 'public'), { recursive: true, filter: allowed });

@@ -3,6 +3,7 @@ param(
     [Parameter(Mandatory = $true)][ValidatePattern('^[A-Fa-f0-9]{64}$')][string]$ExpectedSha256,
     [Parameter(Mandatory = $true)][string]$Archive,
     [Parameter(Mandatory = $true)][string]$ConfigurationFile,
+    [ValidatePattern('^https://[A-Za-z0-9.-]+(?::[0-9]{1,5})?$')][string]$PublicOrigin,
     [string]$ProductionRoot = 'C:\valueinsight',
     [string]$ReleaseRoot = 'C:\valueinsight-releases',
     [string]$ServiceName = 'ValueInsight'
@@ -60,12 +61,14 @@ foreach ($name in $productionDatabases.Keys) {
     $expected = '(?m)^\s*' + $name + '\s*=\s*["'']?' + [regex]::Escape($productionDatabases[$name]) + '["'']?\s*$'
     if (![regex]::IsMatch($configuration, $expected)) { throw 'Configuration must explicitly reference the production databases' }
 }
+$allowedOrigins = @('http://127.0.0.1:3103')
+if ($PublicOrigin) { $allowedOrigins += $PublicOrigin }
 $settings = @{
     DATABASE_URL = 'file:' + $ProductionRoot.Replace('\', '/') + '/prisma/user.db'
     BASELINE_DATABASE_URL = 'file:' + $ProductionRoot.Replace('\', '/') + '/prisma/baseline.db?mode=ro'
     PORT = '3000'
     HOSTNAME = '127.0.0.1'
-    CORS_ORIGIN = 'http://127.0.0.1:3103'
+    CORS_ORIGIN = $allowedOrigins -join ','
     RELEASE_COMMIT = $Commit
 }
 foreach ($name in $settings.Keys) {

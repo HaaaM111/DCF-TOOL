@@ -5,7 +5,8 @@
  */
 import { NextRequest } from "next/server";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
-import { prisma, prismaBase } from "@/lib/prisma";
+import { prisma } from "@/lib/prisma";
+import { idSchema } from "@/lib/agent/schemas";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,7 +16,8 @@ export async function GET(req: NextRequest) {
   if (guard) return guard;
 
   const id = req.nextUrl.pathname.split("/")[3];
-  const company = await prismaBase.company.findUnique({
+  if (!idSchema.safeParse(id).success) return jsonError("无效id", 422);
+  const company = await prisma.company.findUnique({
     where: { id },
     select: { ticker: true },
   });

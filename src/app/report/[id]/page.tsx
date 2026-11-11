@@ -370,7 +370,7 @@ export default function ReportPage() {
         actions={
           <Button
             icon={<EditOutlined />}
-            onClick={() => router.push(`/model/edit?id=${id}`)}
+            href={`/model/edit?id=${encodeURIComponent(id)}`}
           >
             改假设
           </Button>

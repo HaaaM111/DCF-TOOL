@@ -273,14 +273,8 @@ body {
   box-shadow: -4px 0 6px -4px rgba(0, 0, 0, 0.15);
 }
 
-/* ============================================================
-   表头 sticky 时的背景固定
-   ============================================================ */
-.fin-table .ant-table-thead > tr > th {
-  position: sticky;
-  top: 0;
-  z-index: 3;
-}
+/* Table scroll.y keeps its header inside the table; page-level sticky
+   rules would detach it from the card when the document scrolls. */
 .dark .fin-table .ant-table-thead > tr > th {
   background: #0f172a !important;
 }
@@ -419,7 +413,6 @@ html,body{max-width:100%;overflow-x:clip;}
 @keyframes terminal-pulse{50%{opacity:.3;}}
 .dark .ant-table-thead>tr>th{background:#252a36!important;color:#9ca3af!important;}
 .dark .ant-table-tbody>tr:hover>td{background:#252a36!important;}
-.fin-table .ant-table-thead{position:sticky;top:0;z-index:2;}
 .fin-card{transition:box-shadow .2s,border-color .2s;}
 .fin-card:hover{border-color:#3b82f6;}
 .ant-table-cell{overflow-wrap:anywhere;}

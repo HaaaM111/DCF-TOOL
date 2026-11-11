@@ -8,7 +8,7 @@ import {
   FileSearchOutlined,
   RobotOutlined,
 } from "@ant-design/icons";
-import { useRouter, usePathname } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useTheme } from "@/app/providers";
 import type { ReactNode } from "react";
 
@@ -31,7 +31,6 @@ interface AppHeaderProps {
  * 仅承载视觉与导航，不包含业务逻辑。
  */
 export default function AppHeader({ title, subtitle, actions }: AppHeaderProps) {
-  const router = useRouter();
   const pathname = usePathname();
   const { mode, toggle } = useTheme();
 
@@ -59,7 +58,8 @@ export default function AppHeader({ title, subtitle, actions }: AppHeaderProps) 
               size="small"
               icon={n.icon}
               className={activeKey === n.key ? "header-nav-active" : ""}
-              onClick={() => router.push(n.key)}
+              href={n.key}
+              aria-current={activeKey === n.key ? "page" : undefined}
             >
               {n.label}
             </Button>

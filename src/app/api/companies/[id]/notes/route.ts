@@ -4,7 +4,8 @@
  */
 import { NextRequest } from "next/server";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
-import { prisma, prismaBase } from "@/lib/prisma";
+import { prisma } from "@/lib/prisma";
+import { idSchema } from "@/lib/agent/schemas";
 import { timelineEntrySchema } from "@/lib/validation";
 
 export const runtime = "nodejs";
@@ -20,6 +21,7 @@ export async function GET(req: NextRequest) {
   if (guard) return guard;
 
   const companyId = companyIdParam(req);
+  if (!idSchema.safeParse(companyId).success) return jsonError("无效id", 422);
   const notes = await prisma.timelineEntry.findMany({
     where: { companyId },
     orderBy: { date: "desc" },
@@ -32,7 +34,8 @@ export async function POST(req: NextRequest) {
   if (guard) return guard;
 
   const companyId = companyIdParam(req);
-  const exists = await prismaBase.company.findUnique({ where: { id: companyId } });
+  if (!idSchema.safeParse(companyId).success) return jsonError("无效id", 422);
+  const exists = await prisma.company.findUnique({ where: { id: companyId } });
   if (!exists) return jsonError("标的不存在", 404, "NOT_FOUND");
 
   let body: unknown;
