@@ -387,9 +387,9 @@ export default function ReportPage() {
           </Card>
         </Col>
         <Col xs={12} md={6}>
-          <Card style={{ borderLeft: "4px solid #16a34a" }}>
+          <Card style={{ borderLeft: `4px solid ${c.upside >= 0 ? "#10b981" : "#ef4444"}` }}>
             <Statistic
-              title="★调整后潜在空间（股东回报口径）"
+              title="隐含上行空间（股东回报）"
               value={c.upside}
               precision={1}
               suffix="%"
@@ -402,11 +402,10 @@ export default function ReportPage() {
         <Col xs={12} md={6}>
           <Card>
             <Statistic
-              title="正向 DCF 原版目标价与空间"
-              value={c.originalUpside}
-              precision={1}
-              suffix="%"
-              prefix={c.originalUpside >= 0 ? "+" : ""}
+              title="DCF 目标价（股东回报）"
+              value={c.targetPrice}
+              precision={2}
+              prefix="¥"
               styles={{ content: { color: "#2563eb" } }}
             />
             <div className="text-xs text-slate-400">原版合理价：¥{(f?.originalTargetPrice ?? 0).toFixed(2)}</div>
@@ -481,7 +480,7 @@ export default function ReportPage() {
       <Card title="三旋钮解算（点击翻译项即按一键采用）" className="mb-4">
         <Row gutter={[16, 16]}>
           <Col xs={24} md={8}>
-            <Card size="small" style={{ background: "#fef3c7" }}>
+            <Card size="small" className="scenario-knob scenario-knob-payout">
               <div className="text-sm">① 派现率 — {knobPayout >= 0.7 ? "75%" : "50%"}（当前 {(knobPayout * 100).toFixed(0)}%）</div>
               <Button size="small" onClick={() => setKnobPayout(knobPayout >= 0.7 ? 0.5 : 0.75)}>
                 切换派现率
@@ -489,7 +488,7 @@ export default function ReportPage() {
             </Card>
           </Col>
           <Col xs={24} md={8}>
-            <Card size="small" style={{ background: "#fee2e2" }}>
+            <Card size="small" className="scenario-knob scenario-knob-exit">
               <div className="text-sm">② Exit PE — 当前 {knobExitPe}x</div>
               <Button size="small" onClick={() => setKnobExitPe(knobExitPe >= 7 ? 4.7 : 7)}>
                 切换 Exit PE
@@ -497,7 +496,7 @@ export default function ReportPage() {
             </Card>
           </Col>
           <Col xs={24} md={8}>
-            <Card size="small" style={{ background: "#dbeafe" }}>
+            <Card size="small" className="scenario-knob scenario-knob-growth">
               <div className="text-sm">③ 永续 g — 当前 {(knobG * 100).toFixed(1)}%</div>
               <Button size="small" onClick={() => setKnobG(knobG > 0 ? 0 : 0.012)}>
                 切换永续 g
@@ -554,22 +553,15 @@ export default function ReportPage() {
             size="small"
             pagination={false}
             columns={[
-              { title: "折现率 r", dataIndex: "param", render: (v: number) => `${(v * 100).toFixed(0)}%` },
-              { title: "隐含终值 TV3", dataIndex: "l", render: (v: number) => `${v.toFixed(0)} 亿` },
-              {
-                title: "L_conservative (保守)",
-                dataIndex: "l",
-                render: (v: number) => <span className="txt-neg">{v.toFixed(0)} 亿</span>,
-              },
-              { title: "L_multiple (7x退出)", dataIndex: "l", render: (v: number) => `${(v / 7).toFixed(0)} 亿` },
-              { title: "L_gordon (永续g=1.2%)", dataIndex: "l", render: (v: number) => `${v.toFixed(0)} 亿` },
-              { title: "L/E3 倍数", dataIndex: "lE3", render: (v: number) => `${v.toFixed(2)}x` },
-              { title: "L/E0 倍数", dataIndex: "l", render: (v: number) => `${(v / c.e0).toFixed(2)}x` },
+              { title: "折现率 r", dataIndex: "param", align: "right", render: (v: number) => `${(v * 100).toFixed(0)}%` },
+              { title: "隐含终局利润 L", dataIndex: "l", align: "right", render: (v: number) => `${v.toFixed(0)} 亿` },
+              { title: "L/E3 倍数", dataIndex: "lE3", align: "right", render: (v: number) => `${v.toFixed(2)}x` },
+              { title: "L/E0 倍数", dataIndex: "l", align: "right", responsive: ["md"], render: (v: number) => c.e0 ? `${(v / c.e0).toFixed(2)}x` : "不可用" },
               {
                 title: "叙事分级诊断",
+                responsive: ["md"],
                 render: () => <Tag color={c.diagnosis.includes("现金") ? "green" : "blue"}>{c.diagnosis}</Tag>,
               },
-              { title: "终局敏感度", render: () => "-" },
             ]}
             dataSource={sens.r.map((cell) => ({ ...cell, key: cell.param }))}
           />

@@ -1,6 +1,6 @@
 "use client";
 
-import ReactECharts from "echarts-for-react";
+import ReactECharts from "@/components/terminal-chart";
 import type { MonteCarloResult, ValueComposition } from "@/types/dcf";
 
 /** 价值构成环形图（终值 / 显性期 / 留存现金 / 净现金） */
@@ -20,9 +20,9 @@ export function ValueDonut({ comp }: { comp: ValueComposition }) {
         `${p.name}<br/>${p.value.toFixed(1)} 亿 (${p.percent}%)`,
     },
     legend: {
-      orient: "vertical",
-      right: 10,
-      top: "center",
+      orient: "horizontal",
+      left: "center",
+      bottom: 0,
       itemWidth: 12,
       itemHeight: 12,
       textStyle: { fontSize: 12 },
@@ -32,9 +32,9 @@ export function ValueDonut({ comp }: { comp: ValueComposition }) {
         name: "价值构成",
         type: "pie",
         radius: ["52%", "78%"],
-        center: ["35%", "50%"],
+        center: ["50%", "42%"],
         avoidLabelOverlap: false,
-        itemStyle: { borderRadius: 4, borderColor: "var(--card-bg)", borderWidth: 2 },
+        itemStyle: { borderRadius: 4, borderColor: "transparent", borderWidth: 2 },
         label: {
           show: true,
           position: "center",
@@ -55,7 +55,7 @@ export function ValueDonut({ comp }: { comp: ValueComposition }) {
     ],
   };
 
-  return <ReactECharts className="chart-settle" option={option} style={{ height: 240 }} />;
+  return <ReactECharts className="chart-settle" option={option} style={{ height: 300 }} />;
 }
 
 /** 20 年 FCF 推演 vs 折现现值 柱状图 */

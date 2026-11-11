@@ -153,6 +153,7 @@ body {
 /* 顶栏导航按钮：激活态底色 */
 .header-nav {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 4px;
 }
@@ -427,3 +428,24 @@ html,body{max-width:100%;overflow-x:clip;}
 @media(prefers-reduced-motion:reduce){.chart-settle,.agent-tool-status i{animation:none!important;}*{scroll-behavior:auto!important;}}
 
 .detail-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;}.detail-grid>div{display:flex;justify-content:space-between;gap:12px;}.detail-grid span{color:var(--text-secondary);}.dark .text-slate-800,.dark .text-slate-700{color:#e5e7eb!important;}@media(max-width:600px){.dashboard-primary-table .ant-table-thead{display:none;}.dashboard-primary-table .ant-table-tbody>tr{display:flex;flex-wrap:wrap;border-bottom:1px solid var(--border);}.dashboard-primary-table .ant-table-tbody>tr>td{position:static!important;flex:1 1 45%;width:auto!important;max-width:100%;}.ant-table-wrapper{max-width:100%;}.ant-table-content>table{min-width:0!important;width:100%!important;}}
+
+.scenario-knob { background: var(--card-bg); }
+.scenario-knob-payout { border-top: 2px solid #f59e0b; }
+.scenario-knob-exit { border-top: 2px solid #ef4444; }
+.scenario-knob-growth { border-top: 2px solid #3b82f6; }
+.dark .brand-header { background: #1a1d27; border-bottom: 1px solid #2d3748; }
+.dark .fin-table .ant-table-cell-fix-start,
+.dark .fin-table .ant-table-cell-fix-end { background: #1a1d27 !important; }
+.dark .fin-table .ant-table-tbody > tr:nth-child(odd) > td { background: #1e222e !important; }
+.dark .fin-table .ant-table-tbody > tr:hover > td { background: #252a36 !important; }
+.dark .fin-table .ant-btn-link:not(.ant-btn-dangerous) { color: #60a5fa !important; }
+.brand-header .ant-btn:not(.ant-btn-primary) { background-color: transparent !important; color: #fff !important; }
+@media (max-width: 600px) {
+  .ant-card-head { padding-inline: 12px !important; }
+  .ant-card-head-wrapper { flex-wrap: wrap; gap: 8px; }
+  .ant-card-head-title { white-space: normal !important; overflow-wrap: anywhere; }
+  .ant-card-extra { margin-inline-start: 0 !important; }
+  .chart-settle { max-width: 100%; min-width: 0; }
+  .ant-divider-with-text,
+  .ant-divider-inner-text { white-space: normal !important; overflow-wrap: anywhere; min-width: 0; }
+}

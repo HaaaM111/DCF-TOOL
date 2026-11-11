@@ -1,6 +1,6 @@
 "use client";
 
-import ReactECharts from "echarts-for-react";
+import ReactECharts from "@/components/terminal-chart";
 import type { SensitivityHeatmapCell } from "@/lib/valuation-validation";
 
 interface ValidationSummary {
