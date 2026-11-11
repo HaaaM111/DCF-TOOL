@@ -10,7 +10,7 @@ APP_DIR="/var/www/valueinsight"
 echo "===== [1/7] 检查环境配置 ====="
 cd $APP_DIR
 if [ ! -f .env ]; then
-  echo "❌ 未找到 .env，请先执行：cp .env.production .env 并填入真实配置"
+  echo "❌ 未找到 .env，请先执行：cp .env.example .env 并填入真实配置"
   exit 1
 fi
 

@@ -26,7 +26,7 @@ import {
 } from "@ant-design/icons";
 import { useRouter } from "next/navigation";
 import AppHeader from "@/components/app-header";
-import type { ColumnsType } from "antd/es/table";
+import type { ColumnsType, ColumnType } from "antd/es/table";
 
 /** 标的类型（与 API 返回一致） */
 interface Company {
@@ -221,7 +221,7 @@ export default function DashboardPage() {
   };
 
   // 表格列定义（表头与公司名列冻结，支持横向滚动）
-  const columns: ColumnsType<Company> = [
+  const columns: ColumnType<Company>[] = [
     {
       title: "标的简称",
       dataIndex: "name",
@@ -383,7 +383,7 @@ export default function DashboardPage() {
   ];
 
   // 基准库档案对照表列（只读参考）
-  const baselineColumns: ColumnsType<BaselineCompany> = [
+  const baselineColumns: ColumnType<BaselineCompany>[] = [
     {
       title: "标的",
       dataIndex: "name",
@@ -587,7 +587,7 @@ export default function DashboardPage() {
             <span>
               📊 估值穿透全景排行榜
               <span className="text-xs text-slate-400 ml-2 font-normal">
-                （表头与公司名列已永久锁定，支持横纵向自由拖拽）
+                （核心列优先 · 展开行查看完整指标）
               </span>
             </span>
           }
@@ -604,13 +604,14 @@ export default function DashboardPage() {
         >
           <Table
             rowKey="id"
-            columns={columns}
+            columns={columns.filter(col=> !col.dataIndex || ["name","currentPrice","upside","impliedL","diagnosis"].includes(String(col.dataIndex)))}
+            expandable={{expandedRowRender:r=><div className="detail-grid">{columns.filter(col=>col.dataIndex).map(col=><div key={String(col.dataIndex)}><span>{String(col.title)}</span><strong>{String(r[col.dataIndex as keyof Company]??"—")}</strong></div>)}</div>}}
             dataSource={filtered}
             loading={loading}
-            scroll={{ x: 1900, y: 520 }}
+            scroll={{ y: 520 }}
             sticky={{ offsetHeader: 72 }}
             size="middle"
-            className="fin-table"
+            className="fin-table dashboard-primary-table"
             pagination={{ pageSize: 20, showSizeChanger: true }}
           />
         </Card>
@@ -629,10 +630,10 @@ export default function DashboardPage() {
         >
           <Table
             rowKey="id"
-            columns={baselineColumns}
+            columns={baselineColumns.filter(col=>!col.dataIndex || ["name","ticker","currentPrice","e0","revenue"].includes(String(col.dataIndex)))}
             dataSource={baselineCompanies}
             loading={baselineLoading}
-            scroll={{ x: 1400 }}
+            scroll={{ y: 400 }}
             size="small"
             className="fin-table"
             pagination={false}

@@ -151,9 +151,9 @@ export function calcRelativeValuation(
   const industryPsMean = mean(peerMultiples.map((p) => p.ps));
 
   // 相对估值法推算合理市值
-  const peValue = industryPeMean * num(e0);
-  const pbValue = industryPbMean * num(bookValue);
-  const psValue = industryPsMean * num(revenue);
+  const peValue = industryPeMedian * num(e0);
+  const pbValue = median(peerMultiples.map(p=>p.pb)) * num(bookValue);
+  const psValue = median(peerMultiples.map(p=>p.ps)) * num(revenue);
 
   // 取中位数抗异常
   const relativeValue = median([peValue, pbValue, psValue]);
@@ -212,7 +212,8 @@ export const DIFF_THRESHOLD = 20;
 export function crossValidate(
   absoluteValue: number,
   relativeValue: number,
-): { diffRate: number; conclusion: "一致" | "偏离" } {
+): { diffRate: number | null; conclusion: "一致" | "偏离" | "数据不足" } {
+  if (!Number.isFinite(relativeValue) || relativeValue<=0 || !Number.isFinite(absoluteValue)) return {diffRate:null,conclusion:"数据不足"};
   const diffRate =
     relativeValue > 0
       ? (Math.abs(absoluteValue - relativeValue) / relativeValue) * 100

@@ -255,7 +255,7 @@ export async function resolveCompanyData(
   };
 
   // source 以财务来源为准（财务是本场景的数据核心），行情来源不单独暴露
-  return { source: fin.source, data };
+  return { source: quote.source === "mock" || fin.source === "mock" ? "mock" : fin.source, data };
 }
 
 // ============================================================

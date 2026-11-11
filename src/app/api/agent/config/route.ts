@@ -1,3 +1,5 @@
+import { configSchema } from "@/lib/agent/schemas";
+import { validateRemoteUrl } from "@/lib/security/urls";
 /**
  * GET/POST /api/agent/config —— 智能体 LLM 配置读写
  * ------------------------------------------------------------------
@@ -29,6 +31,7 @@ export async function GET(req: NextRequest) {
   return jsonOk({
     baseUrl: env.baseUrl || db.baseUrl || "",
     model: env.model || db.model || "",
+    thinking: env.thinking || db.thinking || "",
     hasKey: !!activeKey,
     keyMasked: maskKey(activeKey),
     source,
@@ -39,7 +42,7 @@ export async function POST(req: NextRequest) {
   const guard = guardRequest(req);
   if (guard) return guard;
 
-  let body: { baseUrl?: string; apiKey?: string; model?: string };
+  let body: { baseUrl?: string; apiKey?: string; model?: string; thinking?: string };
   try {
     body = (await req.json()) as typeof body;
   } catch {
@@ -49,11 +52,18 @@ export async function POST(req: NextRequest) {
     return jsonError("请求体必须是 JSON 对象", 400, "BAD_BODY");
   }
 
+  const parsed = configSchema.safeParse(body);
+  if (!parsed.success) return jsonError("配置参数无效", 422, "VALIDATION_ERROR");
+  body = parsed.data;
+  try { if (body.baseUrl) validateRemoteUrl(body.baseUrl); } catch { return jsonError("不受信任的服务地址",422,"INVALID_ENDPOINT"); }
+  const previous = await readLlmDbSettings();
+  if (body.baseUrl && body.baseUrl !== previous.baseUrl && !body.apiKey) return jsonError("更换端点必须重新提供该端点的密钥",422,"KEY_BINDING_REQUIRED");
   try {
     await writeLlmDbSettings({
-      baseUrl: body.baseUrl,
-      apiKey: body.apiKey,
-      model: body.model,
+      baseUrl: body.baseUrl ?? previous.baseUrl,
+      apiKey: body.apiKey ?? previous.apiKey,
+      model: body.model ?? previous.model,
+      thinking: body.thinking ?? previous.thinking,
     });
   } catch {
     return jsonError("保存配置失败", 500, "SETTINGS_SAVE_FAILED");
@@ -67,6 +77,7 @@ export async function POST(req: NextRequest) {
   return jsonOk({
     baseUrl: env.baseUrl || db.baseUrl || "",
     model: env.model || db.model || "",
+    thinking: env.thinking || db.thinking || "",
     hasKey: !!activeKey,
     keyMasked: maskKey(activeKey),
     source,

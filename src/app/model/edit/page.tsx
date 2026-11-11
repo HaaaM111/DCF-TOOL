@@ -26,6 +26,7 @@ import {
   ReloadOutlined,
 } from "@ant-design/icons";
 import { useRouter, useSearchParams } from "next/navigation";
+import SupplementalFinancials from "@/components/supplemental-financials";
 import AppHeader from "@/components/app-header";
 import { ValueDonut } from "@/components/charts";
 import type { DcfOutput } from "@/types/dcf";
@@ -222,7 +223,6 @@ function ModelEditContent() {
     if (!tickerParam) return;
     setForm((f) => ({ ...f, ticker: tickerParam }));
     fetchBasics(tickerParam);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 派生：净现金、市值
@@ -759,6 +759,7 @@ function ModelEditContent() {
           </Card>
 
           {/* 基础行情与净现金资产 */}
+          <SupplementalFinancials companyId={editId ?? undefined}/>
           <Card title="1. 基础行情与净现金资产" className="mb-4">
             <Row gutter={[16, 16]}>
               <Col span={8}>

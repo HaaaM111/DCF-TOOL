@@ -4,35 +4,47 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "eslint src --ignore-pattern \"src/generated/**\"",
+    "test": "node --conditions=react-server --import tsx --test tests/*.test.ts",
+    "db:generate": "prisma generate --schema prisma/schema.prisma && prisma generate --schema prisma/schema-base.prisma"
   },
   "dependencies": {
+    "@ai-sdk/openai-compatible": "^3.0.87",
     "@ant-design/icons": "^6.3.4",
     "@prisma/client": "^6.19.3",
+    "ai": "^7.0.166",
     "antd": "^6.6.5",
     "echarts": "^6.1.0",
     "echarts-for-react": "^3.0.6",
-    "next": "14.2.35",
+    "next": "^16.4.6",
     "node-cron": "^4.6.0",
     "pdf-parse": "1.1.1",
     "prisma": "^6.19.3",
-    "react": "^18",
-    "react-dom": "^18",
-    "zod": "^4.6.5"
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "server-only": "^0.0.1",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/node": "^20",
     "@types/node-cron": "^3.0.11",
     "@types/pdf-parse": "^1.1.5",
-    "@types/react": "^18",
-    "@types/react-dom": "^18",
-    "eslint": "^8",
-    "eslint-config-next": "14.2.35",
-    "postcss": "^8",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.4.6",
+    "postcss": "^8.5.32",
     "tailwindcss": "^3.4.1",
     "tsx": "^4.23.15",
     "typescript": "^5"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "overrides": {
+    "deepmerge-ts": "^8.0.0",
+    "minimatch": "^11.0.1"
   }
 }

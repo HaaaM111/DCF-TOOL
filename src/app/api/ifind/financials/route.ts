@@ -1,3 +1,4 @@
+import { tickerSchema } from "@/lib/validation";
 /**
  * 财务数据代理（独立路由，分流模式）
  * GET /api/ifind/financials?ticker=600104.SH
@@ -19,7 +20,7 @@ export async function GET(req: NextRequest) {
   if (guard) return guard;
 
   const ticker = req.nextUrl.searchParams.get("ticker")?.trim() ?? "";
-  if (!ticker) {
+  if (!tickerSchema.safeParse(ticker).success) {
     return jsonError("缺少 ticker 参数", 400, "MISSING_TICKER");
   }
 

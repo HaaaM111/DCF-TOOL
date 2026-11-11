@@ -1,4 +1,5 @@
 "use client";
+import { reviewAssumptions } from "@/lib/assumption-review";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -6,6 +7,7 @@ import {
   Row,
   Col,
   Statistic,
+  InputNumber,
   Tag,
   Table,
   Button,
@@ -110,9 +112,10 @@ interface ValidationResponse {
     pbPercentile: number;
     psPercentile: number;
     premiumDiscount: number;
-    diffRate: number;
+    diffRate: number | null;
     conclusion: string;
     aiAttribution: string | null;
+    multiples?: {methods:{name:string;count:number;mean:number|null;median:number|null;equityValue:number|null;status:string}[]};
     sensitivityHeatmap: { wacc: number; g: number; targetPrice: number }[] | null;
   };
   peers: { name: string; pe: number; pb: number; ps: number; [key: string]: unknown }[];
@@ -135,6 +138,11 @@ export default function ReportPage() {
   const [prices, setPrices] = useState<{ date: string; close: number }[]>([]);
   const [mcResult, setMcResult] = useState<MonteCarloResult | null>(null);
   const [mcLoading, setMcLoading] = useState(false);
+  const [jumpEnabled,setJumpEnabled]=useState(false);
+  const [jumpLambda,setJumpLambda]=useState(0.1);
+  const [jumpMean,setJumpMean]=useState(-0.2);
+  const [jumpStd,setJumpStd]=useState(0.1);
+  const [attributionLoading,setAttributionLoading]=useState(false);
   const [validation, setValidation] = useState<ValidationResponse | null>(null);
   const [validationLoading, setValidationLoading] = useState(false);
   const { message } = App.useApp();
@@ -177,6 +185,8 @@ export default function ReportPage() {
           e0: company.e0,
         },
         samples: 3000,
+        seed:42,
+        jump:{enabled:jumpEnabled,lambda:jumpLambda,mean:jumpMean,std:jumpStd},
       }),
     })
       .then((r) => r.json())
@@ -190,7 +200,7 @@ export default function ReportPage() {
     return () => {
       cancelled = true;
     };
-  }, [company]);
+  }, [company,jumpEnabled,jumpLambda,jumpMean,jumpStd]);
 
   // 估值验证（绝对 × 相对 交叉验证 + AI 归因）
   useEffect(() => {
@@ -205,7 +215,10 @@ export default function ReportPage() {
     })
       .then((r) => r.json())
       .then((d) => {
-        if (!cancelled && d.validation) setValidation(d);
+        if (!cancelled && d.validation) {
+          setValidation(d);
+          if(d.attributionPending){setAttributionLoading(true);fetch("/api/validation/attribution",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({companyId:company.id})}).then(r=>r.json()).then(a=>{if(!cancelled)setValidation(prev=>prev?{...prev,validation:{...prev.validation,aiAttribution:a.aiAttribution}}:prev);}).catch(()=>{if(!cancelled)setValidation(prev=>prev?{...prev,validation:{...prev.validation,aiAttribution:"分析服务暂时不可用，请稍后重试"}}:prev);}).finally(()=>{if(!cancelled)setAttributionLoading(false);});}
+        }
       })
       .catch(() => {})
       .finally(() => {
@@ -366,7 +379,7 @@ export default function ReportPage() {
       <div className="p-6 max-w-[1400px] mx-auto">
 
       {/* 核心指标卡 */}
-      <Row gutter={[16, 16]} className="mb-4">
+      <Row className="terminal-kpis mb-4" gutter={[16, 16]}>
         <Col xs={12} md={6}>
           <Card>
             <Statistic title="当前股价 / 市值" value={c.currentPrice} precision={2} prefix="¥" />
@@ -401,11 +414,11 @@ export default function ReportPage() {
         </Col>
         <Col xs={12} md={6}>
           <Card>
-            <Statistic title="WACC 加权资本成本" value={c.wacc * 100} precision={2} suffix="%" styles={{ content: { color: "#7c3aed" } }} />
+            <Statistic title="WACC 资本结构诊断" value={c.assumption ? (reviewAssumptions(c.assumption,c).wacc ?? c.assumption.ke)*100 : c.forwardKe*100} precision={2} suffix="%" styles={{ content: { color: "#7c3aed" } }} />
             <div className="text-xs text-slate-400">Ke {(c.forwardKe * 100).toFixed(1)}% ｜ Kd 税后 {(c.kd * (1 - c.taxRate) * 100).toFixed(2)}%</div>
           </Card>
         </Col>
-      </Row>
+       <Col xs={12} md={6}><Card className="fin-card"><Statistic title="终值 / 股权价值" value={f?.composition.total ? f.pvTerminal/f.composition.total*100 : 0} precision={1} suffix="%"/><Text type="secondary">派现终值现值占比</Text></Card></Col></Row>
 
       {/* 口径对照 */}
       <Alert
@@ -444,7 +457,7 @@ export default function ReportPage() {
           className="mb-4"
           title="Gordon 镜像自洽校验"
           extra={
-            g.isConsistent ? (
+            g.isApplicable === false ? <Tag color="default">不适用</Tag> : g.isConsistent ? (
               <Tag icon={<CheckCircleFilled />} color="success">自洽</Tag>
             ) : (
               <Tag icon={<CloseCircleFilled />} color="error">不自洽 ({g.deviation.toFixed(0)}%)</Tag>
@@ -452,7 +465,7 @@ export default function ReportPage() {
           }
         >
           <Paragraph>
-            <Text strong>隐含 Ke {(g.impliedKe * 100).toFixed(1)}%</Text> vs{" "}
+            <Text strong>隐含 Ke {g.isApplicable === false ? "不适用" : `${(g.impliedKe * 100).toFixed(1)}%`}</Text> vs{" "}
             <Text strong>正向 Ke {(g.forwardKe * 100).toFixed(1)}%</Text> ｜ 偏差{" "}
             <span className={g.isConsistent ? "txt-pos" : "txt-neg"}>{g.deviation.toFixed(1)}%</span>
           </Paragraph>
@@ -504,7 +517,7 @@ export default function ReportPage() {
       {/* 一、正向 DCF 价值拆解 */}
       <Card
         title="一、正向 DCF · 内在价值与结构拆解"
-        extra={<Tag color="blue">WACC {(c.wacc * 100).toFixed(2)}%</Tag>}
+        extra={<Tag color="blue">Ke {(c.forwardKe * 100).toFixed(2)}%</Tag>}
         className="mb-4"
       >
         <Row gutter={[16, 16]} className="mb-4">
@@ -594,6 +607,9 @@ export default function ReportPage() {
         }
         className="mb-4"
       >
+        <div className="simulation-controls"><label><input type="checkbox" checked={jumpEnabled} onChange={e=>setJumpEnabled(e.target.checked)}/> 启用跳跃压力情景</label><label>λ/年 <InputNumber min={0} max={5} step={0.05} value={jumpLambda} onChange={v=>setJumpLambda(v??0.1)}/></label><label>跳跃对数均值 <InputNumber min={-2} max={1} step={0.05} value={jumpMean} onChange={v=>setJumpMean(v??-0.2)}/></label><label>幅度标准差 <InputNumber min={0} max={1} step={0.05} value={jumpStd} onChange={v=>setJumpStd(v??0.1)}/></label></div>
+        <Text type="secondary">逐年现金流泊松跳跃；未做漂移补偿，属于未校准压力测试，不能解释为真实灾难概率。</Text>
+        {mcResult?.base && <div className="mt-3">基础 P5/P95：¥{mcResult.base.p5.toFixed(2)} / ¥{mcResult.base.p95.toFixed(2)}{mcResult.jump && <> ｜含跳跃：¥{mcResult.jump.p5.toFixed(2)} / ¥{mcResult.jump.p95.toFixed(2)}</>} ｜拒绝样本 {mcResult.rejected??0}</div>}
         {mcLoading ? (
           <div className="text-center py-8"><Spin description="蒙特卡洛模拟中（3000 次采样）..." /></div>
         ) : mcResult ? (
@@ -636,13 +652,13 @@ export default function ReportPage() {
       >
         {validationLoading ? (
           <div className="text-center py-8">
-            <Spin description="正在交叉验证并生成 AI 归因（≤30秒）..." />
+            <Spin description="正在计算确定性交叉验证…" />
           </div>
         ) : validation?.validation ? (
           <div>
             <Row gutter={[16, 16]}>
               <Col span={12}>
-                <Card size="small" title="PE/PB/PS 横向对比（本公司 vs 行业均值）">
+                <Card size="small" title="PE/PB/PS 横向对比（均值辅助，中位数为主）">
                   <PeerCompareChart data={validation.validation} />
                 </Card>
               </Col>
@@ -665,7 +681,7 @@ export default function ReportPage() {
                     title="当前 PE / 历史分位"
                     value={validation.validation.currentPe}
                     precision={1}
-                    suffix={`(${validation.validation.pePercentile.toFixed(0)}%)`}
+                    suffix={validation.hasHistory ? `(${validation.validation.pePercentile.toFixed(0)}%)` : "（历史数据不足）"}
                   />
                 </Card>
               </Col>
@@ -695,6 +711,11 @@ export default function ReportPage() {
               </Col>
             </Row>
 
+            {validation.validation.multiples && <Table size="small" pagination={false} rowKey="name" className="mt-4 fin-table" dataSource={validation.validation.multiples.methods} columns={[
+              {title:"倍数",dataIndex:"name"},{title:"有效同行",dataIndex:"count",align:"right"},{title:"均值",dataIndex:"mean",align:"right",render:(v:number|null)=>v?.toFixed(2)??"—"},{title:"中位数（主口径）",dataIndex:"median",align:"right",render:(v:number|null)=>v?.toFixed(2)??"—"},{title:"股权价值/亿元",dataIndex:"equityValue",align:"right",render:(v:number|null)=>v?.toFixed(1)??"数据不足"}
+            ]}/>}
+            {validation.validation.conclusion === "数据不足" && <Alert type="warning" title="有效同行或财务字段不足，无法进行交叉验证，禁止解释为估值一致。"/>}
+            {attributionLoading && <div className="agent-tool-status" role="status"><i/>正在独立生成归因，其他图表已可使用…</div>}
             {/* AI 归因分析 */}
             {validation.validation.aiAttribution && (
               <Card
@@ -702,7 +723,7 @@ export default function ReportPage() {
                 title="🤖 AI 归因分析"
                 className="mt-4"
                 style={{
-                  borderColor: validation.validation.diffRate >= 20 ? "#FAAD14" : "#52C41A",
+                  borderColor: (validation.validation.diffRate ?? 0) >= 20 ? "#FAAD14" : "#52C41A",
                   borderWidth: 2,
                 }}
               >
@@ -713,7 +734,7 @@ export default function ReportPage() {
             )}
 
             {/* 敏感性热力图 */}
-            <Card size="small" title="敏感性热力图（WACC × 永续 g）" className="mt-4">
+            <Card size="small" title="敏感性热力图（Ke × 永续 g）" className="mt-4">
               {validation.validation.sensitivityHeatmap &&
               Array.isArray(validation.validation.sensitivityHeatmap) &&
               validation.validation.sensitivityHeatmap.length > 0 ? (
@@ -798,30 +819,30 @@ export default function ReportPage() {
         className="mb-4"
       >
         <Alert
-          type="success"
+          type={(f?.adjustedUpside ?? 0)>=0?"success":"warning"}
           showIcon
           icon={<ArrowUpOutlined />}
-          title="模型说便宜，市场说 NO —— 分歧本身就是线索"
-          description={`按你的现金流推演，这股票即使要求 ${(c.forwardKe * 100).toFixed(0)}% 的年回报还值 ${(f?.adjustedEquityValue ?? 0).toFixed(0)} 亿，比市价 ${c.marketCap.toFixed(0)} 亿高出一大截。市场要么怀疑你现金流的成色，要么在为别的事情焦虑——深挖「市场为什么不认」，就是这部分功能存在的意义。`}
+          title={(f?.adjustedUpside ?? 0)>=0?"模型估值高于市价，请检查假设与市场分歧":"模型估值低于市价，请检查增长和回报率假设"}
+          description={`基于已保存假设，股权价值 ${(f?.adjustedEquityValue ?? 0).toFixed(1)} 亿元，当前市值 ${c.marketCap.toFixed(1)} 亿元，模型隐含空间 ${(f?.adjustedUpside ?? 0).toFixed(1)}%。这是条件估值，分歧原因需要额外证据。`}
         />
 
         <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Card size="small" title="产能状态 · 收获期">
-            <div className="text-2xl font-bold text-green-600">0.0%</div>
+          <Card size="small" title="扩张性投入代理指标">
+            <div className="text-2xl font-bold text-green-600">{c.da>0 ? `${(Math.max(0,c.capex-c.da)/c.da*100).toFixed(1)}%` : "数据不足"}</div>
             <div className="text-xs text-slate-500 mt-1">
-              算式：折旧 {c.da.toFixed(0)} 亿（Capex/D&A {(c.capex / c.da).toFixed(2)}）→ 无可释放的扩张性投入（本值为 0）
+              算式：折旧 {c.da.toFixed(0)} 亿（Capex/D&A {(c.capex / c.da).toFixed(2)}）→ 扩张性投入代理值为 max(Capex−D&A,0)/D&A，不能直接等同于可释放现金
             </div>
           </Card>
-          <Card size="small" title="收息潜力 · 全信你的故事">
-            <div className="text-2xl font-bold text-green-600">29.7%</div>
+          <Card size="small" title="首年模型股息 / 市值">
+            <div className="text-2xl font-bold text-green-600">{c.marketCap>0?`${((f?.rows[0]?.dividend??0)/c.marketCap*100).toFixed(1)}%`:"数据不足"}</div>
             <div className="text-xs text-slate-500 mt-1">
-              算式：年分红 {(f?.rows[0]?.dividend ?? 0).toFixed(0)} 亿 ÷ 市值 {c.marketCap.toFixed(0)} 亿 = 29.7%
+              算式：年分红 {(f?.rows[0]?.dividend ?? 0).toFixed(0)} 亿 ÷ 市值 {c.marketCap.toFixed(0)} 亿 = 以上工具计算值
             </div>
           </Card>
-          <Card size="small" title="终局支撑 · 前20年全白干">
-            <div className="text-2xl font-bold text-green-600">13%</div>
+          <Card size="small" title="派现终值现值 / 市值">
+            <div className="text-2xl font-bold text-green-600">{c.marketCap>0?`${((f?.pvTerminal??0)/c.marketCap*100).toFixed(1)}%`:"数据不足"}</div>
             <div className="text-xs text-slate-500 mt-1">
-              算式：第20年FCF {(f?.fcfY20 ?? 0).toFixed(0)} 亿 → 永续终值 {(f?.terminalValue ?? 0).toFixed(0)} 亿（WACC {(c.wacc * 100).toFixed(1)}%）→ 折现20年 = {(f?.pvTerminal ?? 0).toFixed(0)} 亿 ÷ 市值 = 13%
+              算式：第20年FCF {(f?.fcfY20 ?? 0).toFixed(0)} 亿 → 永续终值 {(f?.terminalValue ?? 0).toFixed(0)} 亿（Ke {(c.forwardKe * 100).toFixed(1)}%）→ 折现20年 = {(f?.pvTerminal ?? 0).toFixed(0)} 亿 ÷ 市值 = 以上工具计算值
             </div>
           </Card>
         </div>

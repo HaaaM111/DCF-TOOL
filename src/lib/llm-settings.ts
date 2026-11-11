@@ -12,6 +12,7 @@ export const LLM_SETTING_KEYS = {
   baseUrl: "llm_base_url",
   apiKey: "llm_api_key",
   model: "llm_model",
+  thinking: "llm_thinking",
 } as const;
 
 /** 从 AppSetting 读取页面配置（不包含 env，env 优先在 resolveLlmConfig 处理） */
@@ -24,6 +25,7 @@ export async function readLlmDbSettings(): Promise<Partial<LlmConfig>> {
     baseUrl: map.get(LLM_SETTING_KEYS.baseUrl) || undefined,
     apiKey: map.get(LLM_SETTING_KEYS.apiKey) || undefined,
     model: map.get(LLM_SETTING_KEYS.model) || undefined,
+    thinking: (map.get(LLM_SETTING_KEYS.thinking) as LlmConfig["thinking"]) || undefined,
   };
 }
 
@@ -32,23 +34,27 @@ export async function writeLlmDbSettings(cfg: {
   baseUrl?: string;
   apiKey?: string;
   model?: string;
+  thinking?: string;
 }): Promise<void> {
   const writes: [string, string | undefined][] = [
     [LLM_SETTING_KEYS.baseUrl, cfg.baseUrl?.trim() || undefined],
     [LLM_SETTING_KEYS.apiKey, cfg.apiKey?.trim() || undefined],
     [LLM_SETTING_KEYS.model, cfg.model?.trim() || undefined],
+    [LLM_SETTING_KEYS.thinking, cfg.thinking?.trim() || undefined],
   ];
+  await prisma.$transaction(async (tx) => {
   for (const [key, value] of writes) {
     if (value) {
-      await prisma.appSetting.upsert({
+      await tx.appSetting.upsert({
         where: { key },
         update: { value },
         create: { key, value },
       });
     } else {
-      await prisma.appSetting.deleteMany({ where: { key } });
+      await tx.appSetting.deleteMany({ where: { key } });
     }
   }
+  });
 }
 
 /** key 掩码：sk-abc123...xyz9 */

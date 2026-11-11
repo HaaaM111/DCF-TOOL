@@ -1,3 +1,4 @@
+import { tickerSchema } from "@/lib/validation";
 /**
  * iFinD 数据代理路由（统一入口，分流模式）
  * GET /api/ifind/quote?ticker=xxx       —— 最新行情（东财 → iFinD → mock）
@@ -36,7 +37,7 @@ export async function GET(req: NextRequest) {
   const action = url.pathname.split("/").pop() ?? "";
   const ticker = getTicker(req);
 
-  if (!ticker) {
+  if (!tickerSchema.safeParse(ticker).success) {
     return jsonError("缺少 ticker 参数", 400, "MISSING_TICKER");
   }
 

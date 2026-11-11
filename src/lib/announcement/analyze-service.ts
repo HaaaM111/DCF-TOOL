@@ -31,6 +31,7 @@ export interface AnalyzeOptions {
   announcementIds?: string[];
   /** DB 兜底配置（env 优先在 resolveLlmConfig 内部处理） */
   config?: Partial<LlmConfig> | null;
+  signal?: AbortSignal;
 }
 
 /**
@@ -78,10 +79,12 @@ export async function analyzeCompanyAnnouncements(
     };
   }
 
+  const abortSignal=opts.signal??AbortSignal.timeout(90000);
   let analyzed = 0;
   const failed: { announcementId: string; title: string; reason: string }[] = [];
 
   for (const a of candidates) {
+    if(abortSignal.aborted)break;
     if (!a.rawText || !assumptions) continue;
     try {
       const assumptionMap: Record<string, number> = {
@@ -105,6 +108,7 @@ export async function analyzeCompanyAnnouncements(
         a.rawText,
         assumptionMap,
         opts.config ?? null,
+        abortSignal,
       );
 
       if (!signal) {

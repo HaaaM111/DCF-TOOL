@@ -6,7 +6,7 @@ import type { MonteCarloResult, ValueComposition } from "@/types/dcf";
 /** 价值构成环形图（终值 / 显性期 / 留存现金 / 净现金） */
 export function ValueDonut({ comp }: { comp: ValueComposition }) {
   const items = [
-    { name: "终值（20年后永续派现）", value: comp.terminal, color: "#1E3A5F" },
+    { name: "终值（20年后永续派现）", value: comp.terminal, color: "#3b82f6" },
     { name: "显性期（前20年派现折现）", value: comp.explicit, color: "#4F46E5" },
     { name: "留存现金累积（按2%复利）", value: comp.retainedCash, color: "#F59E0B" },
     { name: "净现金 (+) / 净负债 (-)", value: comp.netCash, color: "#10B981" },
@@ -34,13 +34,13 @@ export function ValueDonut({ comp }: { comp: ValueComposition }) {
         radius: ["52%", "78%"],
         center: ["35%", "50%"],
         avoidLabelOverlap: false,
-        itemStyle: { borderRadius: 4, borderColor: "#fff", borderWidth: 2 },
+        itemStyle: { borderRadius: 4, borderColor: "var(--card-bg)", borderWidth: 2 },
         label: {
           show: true,
           position: "center",
           formatter: [`{a|${total.toFixed(0)}}`, "{b|亿 · 股权价值}"].join("\n"),
           rich: {
-            a: { fontSize: 22, fontWeight: "bold", color: "#0f172a", lineHeight: 30 },
+            a: { fontSize: 22, fontWeight: "bold", color: "#9ca3af", lineHeight: 30 },
             b: { fontSize: 11, color: "#94a3b8" },
           },
         },
@@ -55,7 +55,7 @@ export function ValueDonut({ comp }: { comp: ValueComposition }) {
     ],
   };
 
-  return <ReactECharts option={option} style={{ height: 240 }} />;
+  return <ReactECharts className="chart-settle" option={option} style={{ height: 240 }} />;
 }
 
 /** 20 年 FCF 推演 vs 折现现值 柱状图 */
@@ -85,7 +85,7 @@ export function FcfBars({ rows }: { rows: { year: number; fcf: number; pvFcf: nu
       },
     ],
   };
-  return <ReactECharts option={option} style={{ height: 300 }} />;
+  return <ReactECharts className="chart-settle" option={option} style={{ height: 300 }} />;
 }
 
 /**
@@ -152,7 +152,7 @@ export function TrendChart({
         data: closeData,
         smooth: true,
         symbol: "none",
-        lineStyle: { width: 2, color: "#1E3A5F" },
+        lineStyle: { width: 2, color: "#3b82f6" },
         areaStyle: {
           color: {
             type: "linear",
@@ -203,7 +203,7 @@ export function TrendChart({
     ],
   };
 
-  return <ReactECharts option={option} style={{ height: 340 }} />;
+  return <ReactECharts className="chart-settle" option={option} style={{ height: 340 }} />;
 }
 
 /**
@@ -255,11 +255,11 @@ export function ConfidenceChart({
           data: [
             {
               xAxis: currentPrice,
-              lineStyle: { color: "#1E3A5F", width: 2.5, type: "solid" },
+              lineStyle: { color: "#3b82f6", width: 2.5, type: "solid" },
               label: {
                 formatter: `市价 ¥${currentPrice.toFixed(2)} · ${mc.pricePercentile.toFixed(0)}分位`,
                 position: "insideEndTop",
-                color: "#1E3A5F",
+                color: "#3b82f6",
                 fontSize: 11,
                 fontWeight: "bold",
               },
@@ -270,5 +270,5 @@ export function ConfidenceChart({
     ],
   };
 
-  return <ReactECharts option={option} style={{ height: 280 }} />;
+  return <ReactECharts className="chart-settle" option={option} style={{ height: 280 }} />;
 }

@@ -29,7 +29,7 @@ const discountRate = finiteNumber.refine((v) => v > 0 && v <= 1, "折现率应�
 const maxText = (n: number) => z.string().trim().max(n);
 
 /** 股票代码：字母数字+点，如 600104.sh */
-const tickerSchema = z
+export const tickerSchema = z
   .string()
   .trim()
   .min(1)
@@ -43,8 +43,8 @@ const positiveNumber = finiteNumber.refine((v) => v > 0, "必须为正数");
 export const companySchema = z.object({
   name: maxText(50).min(1, "标的简称为必填"),
   ticker: tickerSchema,
-  currentPrice: nonNegative,
-  shares: nonNegative,
+  currentPrice: positiveNumber,
+  shares: positiveNumber,
   marketCap: nonNegative,
   cash: finiteNumber,
   debt: finiteNumber,
@@ -78,12 +78,12 @@ export const assumptionsSchema = z.object({
   e2: finiteNumber,
   e3: finiteNumber,
   reverseR: discountRate,
-  exitPe: nonNegative,
+  exitPe: positiveNumber,
   transitionG: growthRate,
   terminalProfitEst: finiteNumber,
   crpName: z.string().max(50).default(""),
   crpBps: finiteNumber.default(0),
-});
+}).refine(a=>a.ke>a.perpetualG && a.reverseR>a.perpetualG,{message:"折现率必须高于永续增长率",path:["perpetualG"]});
 
 /** 时间线记录校验 */
 export const timelineEntrySchema = z.object({

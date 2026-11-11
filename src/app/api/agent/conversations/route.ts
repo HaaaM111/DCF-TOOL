@@ -1,3 +1,5 @@
+import { z } from "zod";
+import { idSchema } from "@/lib/agent/schemas";
 /**
  * 智能体对话记录接口
  * ------------------------------------------------------------------
@@ -28,7 +30,7 @@ export async function GET(req: NextRequest) {
   if (guard) return guard;
 
   const companyId = req.nextUrl.searchParams.get("companyId");
-  if (!companyId) {
+  if (!companyId || !idSchema.safeParse(companyId).success) {
     return jsonError("缺少 companyId", 400, "BAD_BODY");
   }
 
@@ -59,6 +61,9 @@ export async function POST(req: NextRequest) {
   } catch {
     return jsonError("请求体必须是 JSON", 400, "BAD_BODY");
   }
+  const parsed=z.object({companyId:idSchema,messages:z.array(z.object({role:z.enum(["user","assistant"]),content:z.string().trim().min(1).max(4000)})).min(1).max(20)}).strict().safeParse(body);
+  if(!parsed.success)return jsonError("会话参数无效",422);
+  body=parsed.data;
   const companyId = body?.companyId;
   const messages = Array.isArray(body?.messages) ? body.messages : [];
   if (!companyId || !messages.length) {

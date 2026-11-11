@@ -12,7 +12,7 @@ function resolveSqliteUrl(url: string | undefined): string | undefined {
   if (!url || !url.startsWith("file:")) return url;
   const [head, query] = url.slice(5).split("?");
   if (!head.startsWith(".")) return url; // 已是绝对路径
-  const abs = path.resolve(process.cwd(), head).replace(/\\/g, "/");
+  const abs = path.resolve(/* turbopackIgnore: true */ process.cwd(), head).replace(/\\/g, "/");
   return query ? `file:${abs}?${query}` : `file:${abs}`;
 }
 

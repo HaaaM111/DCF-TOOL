@@ -31,9 +31,9 @@ export function PeerCompareChart({ data }: { data: ValidationSummary }) {
         name: "本公司",
         type: "bar",
         data: [
-          { value: +data.currentPe.toFixed(2), itemStyle: { color: "#1E3A5F" } },
-          { value: +data.currentPb.toFixed(2), itemStyle: { color: "#1E3A5F" } },
-          { value: +data.currentPs.toFixed(2), itemStyle: { color: "#1E3A5F" } },
+          { value: +data.currentPe.toFixed(2), itemStyle: { color: "#3b82f6" } },
+          { value: +data.currentPb.toFixed(2), itemStyle: { color: "#3b82f6" } },
+          { value: +data.currentPs.toFixed(2), itemStyle: { color: "#3b82f6" } },
         ],
         barWidth: 28,
         label: { show: true, position: "top" },
@@ -51,7 +51,7 @@ export function PeerCompareChart({ data }: { data: ValidationSummary }) {
       },
     ],
   };
-  return <ReactECharts option={option} style={{ height: 280 }} />;
+  return <ReactECharts className="chart-settle" option={option} style={{ height: 280 }} />;
 }
 
 /**
@@ -66,9 +66,10 @@ export function ValidationGauge({
 }: {
   absoluteValue: number;
   relativeValue: number;
-  diffRate: number;
+  diffRate: number | null;
   conclusion: string;
 }) {
+  if(diffRate === null) return <div role="status">有效同行或财务字段不足，暂无可比较估值。</div>;
   const isDeviating = diffRate >= 20;
   const maxVal = Math.max(absoluteValue, relativeValue) * 1.1 || 1;
   const absPct = (absoluteValue / maxVal) * 100;
@@ -78,15 +79,15 @@ export function ValidationGauge({
     <div className="space-y-4">
       <div>
         <div className="flex justify-between text-sm mb-1">
-          <span style={{ color: "#1E3A5F" }}>DCF 绝对估值</span>
-          <span style={{ color: "#1E3A5F", fontWeight: 600 }}>{absoluteValue.toFixed(1)} 亿</span>
+          <span style={{ color: "#3b82f6" }}>DCF 绝对估值</span>
+          <span style={{ color: "#3b82f6", fontWeight: 600 }}>{absoluteValue.toFixed(1)} 亿</span>
         </div>
         <div style={{ height: 22, background: "#f1f5f9", borderRadius: 11, overflow: "hidden" }}>
           <div
             style={{
               width: `${absPct}%`,
               height: "100%",
-              background: "#1E3A5F",
+              background: "#3b82f6",
               borderRadius: 11,
               transition: "width 0.5s",
             }}
@@ -132,7 +133,7 @@ export function ValidationGauge({
 }
 
 /**
- * 敏感性热力图：WACC × 永续 g
+ * 敏感性热力图：Ke × 永续 g
  * 颜色越绿估值越高，越红估值越低
  */
 export function SensitivityHeatmap({ matrix }: { matrix: SensitivityHeatmapCell[] }) {
@@ -199,5 +200,5 @@ export function SensitivityHeatmap({ matrix }: { matrix: SensitivityHeatmapCell[
     ],
   };
 
-  return <ReactECharts option={option} style={{ width: "100%", height: 360 }} notMerge lazyUpdate />;
+  return <ReactECharts className="chart-settle" option={option} style={{ width: "100%", height: 360 }} notMerge lazyUpdate />;
 }

@@ -1,3 +1,4 @@
+import { safeRemoteFetch } from "@/lib/security/urls";
 /**
  * 公告解析模块：PDF 文本提取 + 标题关键词分类
  * ------------------------------------------------------------------
@@ -12,7 +13,6 @@ export interface ParsedAnnouncement {
 // pdf-parse 为 CJS 模块（@types 声明 export =），无默认导出；
 // 配合 next.config 的 serverComponentsExternalPackages 保持外部 require，
 // 避免 webpack 打包触发其 debug 模式读取测试文件而崩溃。
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const pdfParse = require("pdf-parse") as (
   dataBuffer: Buffer,
 ) => Promise<{ text?: string }>;
@@ -32,9 +32,12 @@ export async function extractPdfText(
   if (!url) return null;
   if (sizeKb && sizeKb > MAX_PDF_SIZE_KB) return null;
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(30000) });
+    const res = await safeRemoteFetch(url, { signal: AbortSignal.timeout(30000) }, "document");
     if (!res.ok) return null;
-    const buf = Buffer.from(await res.arrayBuffer());
+    if(Number(res.headers.get("content-length"))>MAX_PDF_SIZE_KB*1024)return null;
+    const reader=res.body?.getReader();if(!reader)return null;const chunks:Uint8Array[]=[];let length=0;
+    try{while(true){const {done,value}=await reader.read();if(done)break;length+=value.byteLength;if(length>MAX_PDF_SIZE_KB*1024)return null;chunks.push(value);}}finally{await reader.cancel();}
+    const buf = Buffer.concat(chunks);if(buf.subarray(0,5).toString()!=="%PDF-")return null;
     const data = await pdfParse(buf);
     const text = (data.text ?? "").trim();
     return text.length > MIN_TEXT_CHARS ? text.slice(0, MAX_TEXT_CHARS) : null;

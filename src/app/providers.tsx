@@ -13,6 +13,7 @@ import {
   useState,
   ReactNode,
 } from "react";
+import TerminalInteractions from "@/components/terminal-interactions";
 import dayjs from "dayjs";
 import "dayjs/locale/zh-cn";
 
@@ -24,19 +25,19 @@ interface ThemeCtx {
   mode: ThemeMode;
   toggle: () => void;
 }
-const ThemeContext = createContext<ThemeCtx>({ mode: "light", toggle: () => {} });
+const ThemeContext = createContext<ThemeCtx>({ mode: "dark", toggle: () => {} });
 export const useTheme = () => useContext(ThemeContext);
 
 /**
  * Ant Design 主题配置（专业金融终端配色）
- * 主色：深蓝 #1E3A5F；靛蓝 #4F46E5；正向绿 #10B981；警示红 #EF4444；琥珀 #F59E0B
+ * 主色：深蓝 #1E3A5F；靛蓝 #3b82f6；正向绿 #10B981；警示红 #EF4444；琥珀 #F59E0B
  */
 function buildTheme(mode: ThemeMode) {
   const isDark = mode === "dark";
   return {
     algorithm: isDark ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
     token: {
-      colorPrimary: "#4F46E5",
+      colorPrimary: "#3b82f6",
       colorSuccess: "#10B981",
       colorError: "#EF4444",
       colorWarning: "#F59E0B",
@@ -44,11 +45,11 @@ function buildTheme(mode: ThemeMode) {
       borderRadius: 8,
       fontFamily:
         '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif',
-      colorBgLayout: isDark ? "#0F172A" : "#F8FAFC",
-      colorBgContainer: isDark ? "#1E293B" : "#FFFFFF",
-      colorBorder: isDark ? "#334155" : "#E2E8F0",
-      colorText: isDark ? "#F1F5F9" : "#0F172A",
-      colorTextSecondary: isDark ? "#94A3B8" : "#64748B",
+      colorBgLayout: isDark ? "#0f1117" : "#F8FAFC",
+      colorBgContainer: isDark ? "#1a1d27" : "#FFFFFF",
+      colorBorder: isDark ? "#2d3748" : "#E2E8F0",
+      colorText: isDark ? "#e5e7eb" : "#0f1117",
+      colorTextSecondary: isDark ? "#9ca3af" : "#64748B",
     },
     components: {
       Card: {
@@ -58,9 +59,9 @@ function buildTheme(mode: ThemeMode) {
           : "0 1px 2px 0 rgba(0,0,0,0.04)",
       },
       Table: {
-        headerBg: isDark ? "#0F172A" : "#F8FAFC",
-        headerColor: isDark ? "#94A3B8" : "#64748B",
-        rowHoverBg: isDark ? "#334155" : "#F0F7FF",
+        headerBg: isDark ? "#0f1117" : "#F8FAFC",
+        headerColor: isDark ? "#9ca3af" : "#64748B",
+        rowHoverBg: isDark ? "#2d3748" : "#F0F7FF",
       },
       Tag: {
         borderRadiusSM: 4,
@@ -70,12 +71,12 @@ function buildTheme(mode: ThemeMode) {
 }
 
 export default function Providers({ children }: { children: ReactNode }) {
-  const [mode, setMode] = useState<ThemeMode>("light");
+  const [mode, setMode] = useState<ThemeMode>("dark");
 
   // 从 localStorage 读取偏好
   useEffect(() => {
     const saved = localStorage.getItem("dcf-theme") as ThemeMode | null;
-    if (saved) setMode(saved);
+    if (saved === "light" || saved === "dark") setMode(saved);
   }, []);
 
   // 同步到 <html> class
@@ -90,7 +91,7 @@ export default function Providers({ children }: { children: ReactNode }) {
 
   return (
     <ThemeContext.Provider value={{ mode, toggle }}>
-      <ConfigProvider locale={zhCN} theme={buildTheme(mode)}>
+      <ConfigProvider locale={zhCN} theme={buildTheme(mode)}><TerminalInteractions/>
         <AntdApp>{children}</AntdApp>
       </ConfigProvider>
     </ThemeContext.Provider>

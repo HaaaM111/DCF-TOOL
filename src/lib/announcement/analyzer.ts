@@ -1,3 +1,4 @@
+import { z } from "zod";
 /**
  * 公告信号分析模块（LLM 部分）
  * ------------------------------------------------------------------
@@ -72,6 +73,7 @@ export async function analyzeAnnouncement(
   text: string,
   assumptions: Record<string, number>,
   config?: Partial<LlmConfig> | null,
+  signal?: AbortSignal,
 ): Promise<SignalResult | null> {
   if (!llmReady(config)) return null;
 
@@ -79,13 +81,19 @@ export async function analyzeAnnouncement(
     assumptions,
   )}\n请输出JSON：{"expectation","direction","summary","evidence":[],"suggestedChanges":[{"field","action","from","to","reason"}]}`;
 
-  const result = await chatCompletion({
-    config: config ?? null,
-    messages: [
-      { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: userPrompt },
-    ],
-  });
+  let result: Awaited<ReturnType<typeof chatCompletion>>;
+  try {
+    result = await chatCompletion({
+      config: config ?? null,
+      signal,
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: userPrompt },
+      ],
+    });
+  } catch {
+    return null; // LLM 调用失败：不产生信号
+  }
   const raw = result?.content;
   if (!raw) return null;
 
@@ -93,7 +101,9 @@ export async function analyzeAnnouncement(
     const start = raw.indexOf("{");
     const end = raw.lastIndexOf("}");
     if (start < 0 || end <= start) return null;
-    const parsed = JSON.parse(raw.slice(start, end + 1)) as SignalResult;
+    const schema=z.object({expectation:z.enum(["超预期","符合预期","低于预期","无法判断"]),direction:z.enum(["positive","neutral","negative"]),summary:z.string().max(2000),evidence:z.array(z.string().min(1).max(2000)).max(10),suggestedChanges:z.array(z.object({field:z.enum(ALLOWED_ASSUMPTION_FIELDS),action:z.enum(["上调","下调","维持"]),from:z.number().finite().optional(),to:z.number().finite().optional(),reason:z.string().max(1000)})).max(10)});
+    const parsed = schema.parse(JSON.parse(raw.slice(start, end + 1)));
+    if(parsed.evidence.some(e=>!text.includes(e)))return null;
     // 字段白名单过滤，防止 LLM 输出非法字段
     if (Array.isArray(parsed.suggestedChanges)) {
       parsed.suggestedChanges = parsed.suggestedChanges.filter(

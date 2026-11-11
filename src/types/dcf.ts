@@ -83,6 +83,9 @@ export interface ReverseDcfResult {
 
 /** Gordon 自洽校验结果 */
 export interface GordonCheckResult {
+  isApplicable?: boolean;
+  marketImpliedKe?: number;
+  deviationBps?: number;
   impliedKe: number;      // 隐含 Ke
   forwardKe: number;      // 正向 Ke
   deviation: number;      // 偏差 %
@@ -114,6 +117,10 @@ export interface DcfOutput {
 
 /** 蒙特卡洛模拟结果 */
 export interface MonteCarloResult {
+  base?: {p5:number;p95:number;median:number};
+  jump?: {p5:number;p95:number;median:number};
+  rejected?: number;
+  seed?: number;
   samples: number;
   p5: number;
   p25: number;

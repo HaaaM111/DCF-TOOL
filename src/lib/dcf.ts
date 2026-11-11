@@ -40,7 +40,9 @@ const num = (v: number): number => (Number.isFinite(v) ? v : 0);
 export function calcForwardDcf(
   a: DcfAssumptions,
   b: CompanyBasics,
+  options?: { cashFlowMultipliers?: number[] },
 ): ForwardDcfResult {
+  if (![...Object.values(a).filter(v=>typeof v === "number"), b.shares,b.currentPrice,b.netCash,b.e0].every(Number.isFinite) || b.shares<=0 || b.currentPrice<=0 || a.ke<=a.perpetualG || a.ke<=0 || a.perpetualG<=-1) throw new Error("无效DCF参数：股本/股价必须为正且 Ke > g");
   const ke = num(a.ke);
   const gPerp = num(a.perpetualG);
 
@@ -55,7 +57,7 @@ export function calcForwardDcf(
     else if (t <= 10) g = num(a.g2);
     else g = num(a.g3);
 
-    const fcf = fcfPrev * (1 + g);
+    const fcf = fcfPrev * (1 + g) * (options?.cashFlowMultipliers?.[t-1] ?? 1);
     const payoutRate = t <= 10 ? num(a.payoutRate1) : num(a.payoutRate2);
     const dividend = fcf * payoutRate;
     const retained = fcf - dividend;
@@ -220,28 +222,18 @@ export function calcGordonCheck(
   a: DcfAssumptions,
   reverse: ReverseDcfResult,
 ): GordonCheckResult {
-  const forwardKe = num(a.ke);
-  const impliedKe = num(reverse.impliedKe);
-  const deviation =
-    forwardKe > 1e-9 ? ((impliedKe - forwardKe) / forwardKe) * 100 : 0;
-  const isConsistent = Math.abs(deviation) <= GORDON_TOLERANCE * 100;
-
-  let reason: string;
-  if (isConsistent) {
-    reason = `隐含 Ke（${(impliedKe * 100).toFixed(1)}%）与正向 Ke（${(forwardKe * 100).toFixed(1)}%）偏差 ${deviation.toFixed(1)}%，在 ±${GORDON_TOLERANCE * 100}% 容忍区间内，模型自洽。`;
-  } else if (impliedKe < forwardKe) {
-    reason = `隐含 Ke（${(impliedKe * 100).toFixed(1)}%）显著低于正向 Ke（${(forwardKe * 100).toFixed(1)}%），偏差 ${deviation.toFixed(1)}%。说明市场用更低的折现率定价，或当前股价隐含了更乐观的预期；若你的本意是按正向 Ke 保守定价，可在备注中说明该分歧。`;
-  } else {
-    reason = `隐含 Ke（${(impliedKe * 100).toFixed(1)}%）显著高于正向 Ke（${(forwardKe * 100).toFixed(1)}%），偏差 ${deviation.toFixed(1)}%。说明市场要求更高回报，可能定价偏保守或存在风险折价；需校验 Ke 或 Exit PE 假设。`;
-  }
-
-  return {
-    impliedKe,
-    forwardKe,
-    deviation: num(deviation),
-    isConsistent,
-    reason,
-  };
+  const forwardKe = a.ke;
+  // payoutRate2 applies to FCF, whereas Exit PE applies to net profit.
+  const terminalFcf=a.baseFcf*Math.pow(1+a.g1,5)*Math.pow(1+a.g2,5)*Math.pow(1+a.g3,10);
+  const applicable=a.terminalProfitEst>0 && a.exitPe>0 && terminalFcf>=0;
+  const terminalDividend=terminalFcf*a.payoutRate2;
+  const impliedKe = applicable ? a.perpetualG + terminalDividend*(1+a.perpetualG)/(a.terminalProfitEst*a.exitPe) : 0;
+  const deviation = (impliedKe-forwardKe)/forwardKe*100;
+  const tolerance = GORDON_TOLERANCE*100;
+  const isConsistent = applicable && Number.isFinite(impliedKe) && Math.abs(deviation)<=tolerance;
+  return {forwardKe,impliedKe,deviation,isConsistent,isApplicable:applicable,
+    marketImpliedKe:reverse.impliedKe, deviationBps:(impliedKe-forwardKe)*10000,
+    reason: !applicable ? "Exit PE 镜像不适用：需提供正的终局净利润、Exit PE 及非负终局FCF。请校准终局利润、Ke 或 Exit PE。" : isConsistent ? "Exit PE 隐含 Ke 与正向 Ke 在相对偏差 ±10% 阈值内。股权现金流使用 Ke；WACC 标签仅为兼容字段。" : "Exit PE 隐含回报与正向 Ke 不一致，请校准 Ke 或 Exit PE；公式为 g + 终局FCF×FCF派现率×(1+g)/(终局净利润×Exit PE)。股权口径不能直接替换为企业 WACC。"};
 }
 
 /**
@@ -276,7 +268,7 @@ export function calcSensitivity(
   });
 
   // ② L 对退出 PE（终值 = L * ExitPE）
-  const peValues = [5, 6, 7, 8, 9];
+  const peValues = [0.6, 0.8, 1, 1.2, 1.4].map(x=>x*a.exitPe);
   const peCells = peValues.map((pe) => {
     const tv = impliedTvAt(num(a.reverseR) || num(a.ke));
     const l = pe > 0 ? tv / pe : 0;

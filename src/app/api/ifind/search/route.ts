@@ -1,3 +1,4 @@
+import { z } from "zod";
 /**
  * 股票搜索代理（分流模式）
  * GET /api/ifind/search?keyword=xxx
@@ -19,7 +20,7 @@ export async function GET(req: NextRequest) {
   if (guard) return guard;
 
   const keyword = req.nextUrl.searchParams.get("keyword")?.trim() ?? "";
-  if (!keyword) {
+  if (!z.string().trim().min(1).max(32).regex(/^[\p{L}\p{N} ._-]+$/u).safeParse(keyword).success) {
     return jsonError("缺少 keyword 参数", 400, "MISSING_KEYWORD");
   }
 
