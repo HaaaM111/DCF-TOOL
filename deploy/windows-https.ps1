@@ -77,8 +77,6 @@ try {
         else { & $nssm set $ServiceName $name $parameters[$name] | Out-Null }
         if ($LASTEXITCODE -ne 0) { throw "Unable to configure service option $name" }
     }
-    & $nssm set $ServiceName DependOnService ValueInsight | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'Unable to configure application dependency' }
     foreach($port in @(80,443)) {
         New-NetFirewallRule -Name "ValueInsightEdge-TCP-$port" -DisplayName "ValueInsight HTTPS TCP $port" -Direction Inbound -Action Allow -Protocol TCP -LocalPort $port -Profile Any | Out-Null
     }
