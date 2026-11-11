@@ -32,10 +32,10 @@ $caddyfile=@"
     admin off
     persist_config off
     storage file_system {
-        root $forwardRoot/data
+        root "$forwardRoot/data"
     }
     log {
-        output file $forwardRoot/logs/caddy.json {
+        output file "$forwardRoot/logs/caddy.json" {
             roll_size 10MiB
             roll_keep 3
         }

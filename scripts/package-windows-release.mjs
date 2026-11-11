@@ -12,33 +12,7 @@ if (output === build || output.startsWith(build + path.sep)) throw new Error('Ou
 fs.mkdirSync(output);
 const allowed = file => !path.basename(file).startsWith('.env') &&
   path.basename(file) !== '.git' && !/\.(?:db|sqlite|sqlite3)(?:-|$)/i.test(file);
-fs.cpSync(standalone, output, { recursive: true, dereference: true, filter: file =>
-  allowed(file) && path.relative(standalone, file).split(path.sep)[0] !== 'node_modules' });
-// Windows may link standalone/node_modules to the complete development tree.
-// Reconstruct dependencies from file traces instead of dereferencing that junction.
-const dependencies = fs.realpathSync('node_modules');
-function restoreTracedDependencies(directory) {
-  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-    const filename = path.join(directory, entry.name);
-    if (entry.isDirectory()) {
-      if (!['standalone', 'cache', 'static', 'node_modules'].includes(entry.name)) restoreTracedDependencies(filename);
-    } else if (entry.name.endsWith('.nft.json')) {
-      for (const traced of JSON.parse(fs.readFileSync(filename, 'utf8')).files ?? []) {
-        const tracedPath = path.resolve(directory, traced);
-        if (!fs.existsSync(tracedPath)) continue;
-        const source = fs.realpathSync(tracedPath);
-        const relative = path.relative(dependencies, source);
-        if (relative.startsWith('..') || path.isAbsolute(relative) || !allowed(source)) continue;
-        const destination = path.join(output, 'node_modules', relative);
-        if (!fs.existsSync(destination) && fs.statSync(source).isFile()) {
-          fs.mkdirSync(path.dirname(destination), { recursive: true });
-          fs.copyFileSync(source, destination);
-        }
-      }
-    }
-  }
-}
-restoreTracedDependencies(build);
+fs.cpSync(standalone, output, { recursive: true, dereference: true, filter: allowed });
 const configName = path.basename(build);
 fs.cpSync(path.join(build, 'static'), path.join(output, configName, 'static'), { recursive: true });
 if (fs.existsSync('public')) fs.cpSync('public', path.join(output, 'public'), { recursive: true, filter: allowed });
