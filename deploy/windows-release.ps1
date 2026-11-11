@@ -52,6 +52,14 @@ if ($LASTEXITCODE -ne 0) { throw 'Portable runtime failed' }
 
 # Keep provider credentials in a protected server-side file. SQLite paths stay absolute.
 $configuration = [IO.File]::ReadAllText((Resolve-Path -LiteralPath $ConfigurationFile).ProviderPath)
+$productionDatabases = @{
+    DATABASE_URL = 'file:' + $ProductionRoot.Replace('\', '/') + '/prisma/user.db'
+    BASELINE_DATABASE_URL = 'file:' + $ProductionRoot.Replace('\', '/') + '/prisma/baseline.db?mode=ro'
+}
+foreach ($name in $productionDatabases.Keys) {
+    $expected = '(?m)^\s*' + $name + '\s*=\s*["'']?' + [regex]::Escape($productionDatabases[$name]) + '["'']?\s*$'
+    if (![regex]::IsMatch($configuration, $expected)) { throw 'Configuration must explicitly reference the production databases' }
+}
 $settings = @{
     DATABASE_URL = 'file:' + $ProductionRoot.Replace('\', '/') + '/prisma/user.db'
     BASELINE_DATABASE_URL = 'file:' + $ProductionRoot.Replace('\', '/') + '/prisma/baseline.db?mode=ro'
