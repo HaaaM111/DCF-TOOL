@@ -30,6 +30,7 @@ $forwardRoot=$root.Replace('\','/')
 $caddyfile=@"
 {
     admin off
+    default_sni $PublicIp
     persist_config off
     storage file_system {
         root "$forwardRoot/data"
