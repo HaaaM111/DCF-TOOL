@@ -5,6 +5,8 @@
 import { NextRequest } from "next/server";
 import { guardRequest } from "@/lib/api";
 import { getAllCompaniesMerged } from "@/lib/dual-db";
+import { getOperatingRevision } from "@/lib/operating-model-store";
+import type { PrimaryValuation } from "@/lib/primary-valuation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,7 +17,13 @@ export async function GET(req: NextRequest) {
 
   const companies = await getAllCompaniesMerged();
 
-  const payload = companies.map((c: Record<string, unknown>) => ({
+  const payload = await Promise.all(companies.map(async (c) => {
+    const primary = c.primaryValuation as PrimaryValuation;
+    const operatingModel = primary.kind === "operating" ? {
+      publication: primary.publication,
+      input: await getOperatingRevision(String(c.id), primary.publication.revision),
+    } : undefined;
+    return {
     company: {
       name: c.name,
       ticker: c.ticker,
@@ -27,6 +35,9 @@ export async function GET(req: NextRequest) {
       netCashAdj: c.netCashAdj,
       netCash: c.netCash,
       e0: c.e0,
+      revenue: c.revenue,
+      bookValue: c.bookValue,
+      industry: c.industry,
       cfo: c.cfo,
       capex: c.capex,
       da: c.da,
@@ -37,6 +48,8 @@ export async function GET(req: NextRequest) {
       diagnosis: c.diagnosis ?? "",
     },
     assumptions: (c.assumption as unknown) ?? undefined,
+    operatingModel,
+    };
   }));
 
   const json = JSON.stringify(payload, null, 2);

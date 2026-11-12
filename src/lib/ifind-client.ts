@@ -404,7 +404,7 @@ export async function fetchFinancials(ticker: string) {
   return {
     ticker,
     name: name || ticker,
-    cash: 0, // 货币资金（暂未找到对应指标，默认 0）
+    cash: null,
     debt: Number((debt / YI).toFixed(2)),
     shares: Number((shares / 1e8).toFixed(2)), // 股 → 亿股
     cfo: Number((cfo / YI).toFixed(2)),

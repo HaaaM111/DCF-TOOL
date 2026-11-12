@@ -39,12 +39,12 @@ export function ValidationGauge({
   diffRate,
   conclusion,
 }: {
-  absoluteValue: number;
+  absoluteValue: number | null;
   relativeValue: number;
   diffRate: number | null;
   conclusion: string;
 }) {
-  if(diffRate === null) return <div role="status">有效同行或财务字段不足，暂无可比较估值。</div>;
+  if(diffRate === null || absoluteValue === null) return <div role="status">交叉验证需要同一估值日、币种及有效同行数据。</div>;
   const isDeviating = diffRate >= 20;
   const maxVal = Math.max(absoluteValue, relativeValue) * 1.1 || 1;
   const absPct = (absoluteValue / maxVal) * 100;

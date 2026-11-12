@@ -14,6 +14,8 @@ import { createValuationTools } from "./tools";
 import { ANALYST_PROMPT,EXECUTOR_PROMPT } from "./roles";
 import { groundedText } from "./grounding";
 import { calculatePeerValuation } from "@/lib/peer-valuation-service";
+import { getOperatingPublication, getOperatingRevision } from "@/lib/operating-model-store";
+import { selectPrimaryValuation } from "@/lib/primary-valuation";
 
 export async function handleAgentChat(req:NextRequest){
   const guard=guardRequest(req);if(guard)return guard;
@@ -21,11 +23,16 @@ export async function handleAgentChat(req:NextRequest){
   const parsed=chatSchema.safeParse(await req.json().catch(()=>null));
   if(!parsed.success)return jsonError("对话参数校验失败",422,"VALIDATION_ERROR");
   const {companyId,messages}=parsed.data;
-  const company=await prisma.company.findUnique({where:{id:companyId}});
-  const assumption=await prisma.assumption.findUnique({where:{companyId}});
-  if(!company||!assumption)return jsonError("标的或已保存假设不存在",404);
+  const [company, assumption, snapshot, publication] = await Promise.all([
+    prisma.company.findUnique({where:{id:companyId}}), prisma.assumption.findUnique({where:{companyId}}),
+    prisma.companySnapshot.findUnique({where:{companyId}}), getOperatingPublication(companyId),
+  ]);
+  if(!company)return jsonError("标的不存在",404);
   const ca=companySchema.safeParse(company),aa=assumptionsSchema.safeParse(assumption);
-  if(!ca.success||!aa.success)return jsonError("已保存模型参数无效，请先校准股本、股价及 Ke/g",422);
+  if(!ca.success)return jsonError("已保存公司档案无效",422);
+  const assumptions = aa.success ? aa.data : null;
+  const primary = selectPrimaryValuation({ ...company, targetPrice: snapshot?.targetPrice }, publication);
+  const operatingInput = primary.kind === "operating" ? await getOperatingRevision(companyId, primary.publication.revision) : null;
   let cfg;try{cfg=resolveLlmConfig(await readLlmDbSettings());}catch{return jsonError("LLM配置地址不受信任",422);}
   if(!cfg)return jsonError(SERVICE_UNAVAILABLE,503,"LLM_UNAVAILABLE");
   const metrics=await readMetrics(companyId);
@@ -40,10 +47,10 @@ export async function handleAgentChat(req:NextRequest){
     let reply="",completed=false;
     try{
       let peerRun: ReturnType<typeof calculatePeerValuation> | undefined;
-      const tools=createValuationTools({companyId,assumptions:aa.data,company:{...ca.data,ebit:metrics?.ebit??undefined,ebitda:metrics?.ebitda??undefined},
+      const tools=createValuationTools({companyId,assumptions,primary,operatingInput,company:{...ca.data,ebit:metrics?.ebit??undefined,ebitda:metrics?.ebitda??undefined},
         peerValuation:()=>peerRun??=calculatePeerValuation(company),cfg,signal,announcements},observe,status);
-      status("假设分析师：读取与审视增长率、Ke 假设…");
-      const context={company:ca.data,assumptions:aa.data,review:reviewAssumptions(aa.data,ca.data),announcements,source:"已保存数据；财报与市场参数仍需人工校准"};
+      status("假设分析师：读取已发布估值与假设…");
+      const context={company:ca.data,primary,legacyAssumptionReview:assumptions && primary.kind==="legacy"?reviewAssumptions(assumptions,ca.data):null,announcements};
       observe("get_financial_context",context);
       let handoff=analystSchema.parse({role:"assumption_analyst",reviews:[{field:"ke",assessment:"证据不足",reason:"缺少可核验资本市场参数，仅审视现有用户假设"}],limitations:["当前假设尚未独立校准"]});
       try{

@@ -10,7 +10,7 @@ type Company = { id: string; ticker: string; name: string; industry: string };
 
 async function readSnapshot(ticker: string, name: string, start: string, end: string, id?: string) {
   const [financial, history, metrics] = await Promise.all([
-    resolveFinancials(ticker), resolvePriceHistory(ticker, start, end), id ? readMetrics(id) : null,
+    resolveFinancials(ticker, { includeReportedCash: false }), resolvePriceHistory(ticker, start, end), id ? readMetrics(id) : null,
   ]);
   const facts = financial.data.comparable;
   if (financial.source === "mock" || !facts || facts.shares <= 0

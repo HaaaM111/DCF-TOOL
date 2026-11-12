@@ -121,6 +121,7 @@ function ModelEditContent() {
   const [searchResults, setSearchResults] = useState<{ ticker: string; name: string }[]>([]);
   const [searching, setSearching] = useState(false);
   const [fetchingBasics, setFetchingBasics] = useState(false);
+  const [cashNeedsReview, setCashNeedsReview] = useState(false);
   const [adoptedScheme, setAdoptedScheme] = useState<string | null>(null);
   const { message } = App.useApp();
 
@@ -246,7 +247,10 @@ function ModelEditContent() {
       const res = await fetch(`/api/ifind/company?ticker=${encodeURIComponent(ticker)}`);
       const json = await res.json();
       if (!res.ok || !json.data) throw new Error(json.error ?? "抓取失败");
+      if (json.mock) throw new Error("真实行情或财报不可用，请核对数据源后重试");
       const d = json.data;
+      const hasCash = typeof d.cash === "number" && Number.isFinite(d.cash);
+      setCashNeedsReview(!hasCash);
       const e1 = +(d.e0 * 1.05).toFixed(2);
       const e2 = +(d.e0 * 1.1).toFixed(2);
       const e3 = +(d.e0 * 1.16).toFixed(2);
@@ -254,7 +258,7 @@ function ModelEditContent() {
         ...f,
         currentPrice: d.currentPrice,
         shares: d.shares,
-        cash: d.cash,
+        cash: hasCash ? d.cash : f.cash,
         debt: d.debt,
         e0: d.e0,
         revenue: d.revenue ?? 0,
@@ -263,14 +267,14 @@ function ModelEditContent() {
         capex: d.capex,
         da: d.da,
         industry: d.industry ?? f.industry ?? "",
-        e1,
-        e2,
-        e3,
-        baseFcf: d.cfo - d.capex,
+        e1: editId ? f.e1 : e1,
+        e2: editId ? f.e2 : e2,
+        e3: editId ? f.e3 : e3,
+        baseFcf: editId ? f.baseFcf : d.cfo - d.capex,
         name: f.name || d.name || f.ticker,
       }));
       // 采用"当年实际值"方案
-      setAdoptedScheme("actual");
+      if (!editId) setAdoptedScheme("actual");
       const sourceMsg =
         json.source === "eastmoney"
           ? "已从东方财富抓取基础数据（免费源）"
@@ -278,6 +282,7 @@ function ModelEditContent() {
             ? "已抓取基础数据（模拟模式）"
             : "已从 iFinD 抓取基础数据";
       message.success(sourceMsg);
+      if (!hasCash) message.warning("货币资金缺失，请按同一期报表手动录入。");
       if (json.incomplete) {
         message.warning("东财兜底数据部分字段缺失（Capex/有息负债等），请手动核对后使用");
       }
@@ -413,6 +418,10 @@ function ModelEditContent() {
 
   // 保存
   const handleSave = async () => {
+    if (cashNeedsReview) {
+      message.error("请核验并填写同一期报表的货币资金");
+      return;
+    }
     if (!form.name || !form.ticker) {
       message.error("标的简称与股票代码为必填");
       return;
@@ -784,7 +793,11 @@ function ModelEditContent() {
               </Col>
               <Col span={8}>
                 <Text type="secondary">货币资金 (亿元)</Text>
-                <InputNumber style={{ width: "100%" }} value={form.cash} onChange={(v) => set("cash", v ?? 0)} />
+                <InputNumber style={{ width: "100%" }} status={cashNeedsReview ? "warning" : undefined}
+                  value={cashNeedsReview ? null : form.cash} onChange={(v) => {
+                    setCashNeedsReview(v === null);
+                    if (v !== null) set("cash", v);
+                  }} />
               </Col>
               <Col span={8}>
                 <Text type="secondary">有息负债 (亿元)</Text>

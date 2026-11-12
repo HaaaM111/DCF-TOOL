@@ -26,6 +26,7 @@ import {
 } from "@ant-design/icons";
 import AppHeader from "@/components/app-header";
 import type { ColumnsType, ColumnType } from "antd/es/table";
+import type { PrimaryValuation } from "@/lib/primary-valuation";
 
 /** 标的类型（与 API 返回一致） */
 interface Company {
@@ -39,8 +40,9 @@ interface Company {
   e0: number;
   quadrant: string;
   diagnosis: string;
-  targetPrice: number;
-  upside: number;
+  targetPrice: number | null;
+  upside: number | null;
+  primaryValuation: PrimaryValuation;
   originalUpside: number;
   impliedKe: number;
   forwardKe: number;
@@ -148,14 +150,8 @@ export default function DashboardPage() {
 
   // 顶部指标
   const total = companies.length;
-  const avgUpside =
-    total > 0
-      ? companies.reduce((s, c) => s + c.upside, 0) / total
-      : 0;
-  const avgOriginal =
-    total > 0
-      ? companies.reduce((s, c) => s + c.originalUpside, 0) / total
-      : 0;
+  const operatingCount = companies.filter((c) => c.primaryValuation.kind === "operating").length;
+  const missingCount = companies.filter((c) => c.primaryValuation.kind === "unavailable").length;
 
   const quadrantCounts = QUADRANTS.map((q) => ({
     ...q,
@@ -242,19 +238,21 @@ export default function DashboardPage() {
       ),
     },
     {
-      title: "★调整后潜在空间",
+      title: "主估值",
       dataIndex: "upside",
       width: 130,
-      render: (v: number, r) => (
-        <div>
-          <div className={v >= 0 ? "txt-pos" : "txt-neg"}>
-            {fmtPct(v)}
-          </div>
-          <div className="text-xs text-slate-400">
-            目标 ¥{fmt(r.targetPrice, 2)}
-          </div>
-        </div>
-      ),
+      render: (_: number | null, r) => {
+        const primary = r.primaryValuation;
+        if (primary.kind === "unavailable") return <Tooltip title={primary.reason}><Tag color="orange">待核验</Tag></Tooltip>;
+        if (primary.kind === "legacy") return <Tooltip title={primary.reason}>
+          <span>¥{fmt(primary.price, 2)} <span className="text-xs text-slate-400">简化参考</span></span>
+        </Tooltip>;
+        return <div>
+          <div>{fmt(primary.price, 2)} {primary.publication.currency}/股</div>
+          <div className="text-xs text-slate-400">{primary.publication.retrospective ? "事后复算" : "经营估值"} · {primary.publication.valuationDate}</div>
+          {primary.upside !== null && <div className={primary.upside >= 0 ? "txt-pos" : "txt-neg"}>{fmtPct(primary.upside)} 同日</div>}
+        </div>;
+      },
     },
     {
       title: "前次评估",
@@ -536,15 +534,12 @@ export default function DashboardPage() {
           <Col xs={24} sm={8}>
             <Card>
               <Statistic
-                title="平均潜在上行空间（调整后口径）"
-                value={avgUpside}
-                precision={1}
-                suffix="%"
-                styles={{ content: { color: avgUpside >= 0 ? "#16a34a" : "#dc2626" } }}
-                prefix={avgUpside >= 0 ? "+" : ""}
+                title="已发布经营估值"
+                value={operatingCount}
+                suffix={`/ ${total} 家`}
               />
               <div className="text-xs text-slate-400 mt-1">
-                正向 DCF 原版均值：{fmtPct(avgOriginal)}
+                {missingCount} 家待核验
               </div>
             </Card>
           </Col>

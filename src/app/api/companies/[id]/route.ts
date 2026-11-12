@@ -9,6 +9,7 @@ import { guardRequest, jsonError, jsonOk } from "@/lib/api";
 import { prisma } from "@/lib/prisma";
 import { getCompanyMerged } from "@/lib/dual-db";
 import { assumptionsSchema, companySchema } from "@/lib/validation";
+import { activeOperatingKey, operatingRevisionPrefix } from "@/lib/operating-model-store";
 import {
   calcDcf,
   classifyQuadrant,
@@ -200,6 +201,7 @@ export async function DELETE(req: NextRequest) {
     prisma.peerValuation.deleteMany({ where: { companyId: id } }),
     // 8. 历史估值
     prisma.historicalValuation.deleteMany({ where: { companyId: id } }),
+    prisma.appSetting.deleteMany({ where: { OR: [{ key: activeOperatingKey(id) }, { key: { startsWith: operatingRevisionPrefix(id) } }] } }),
     // 9. 公司档案本身
     prisma.company.delete({ where: { id } }),
   ]);

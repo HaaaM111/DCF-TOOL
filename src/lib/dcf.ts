@@ -81,9 +81,7 @@ export function calcForwardDcf(
   // 用第 20 年分红作为永续起点，更贴合“股东回报口径”
   const dY20 = rows[19].dividend;
   const keMinusG = ke - gPerp;
-  // 永续价值（年末）；若 ke<=g 退化为有限倍数避免爆炸
-  const terminalValue =
-    keMinusG > 1e-6 ? (dY20 * (1 + gPerp)) / keMinusG : dY20 * 50;
+  const terminalValue = (dY20 * (1 + gPerp)) / keMinusG;
   const pvTerminal = terminalValue / Math.pow(1 + ke, 20);
 
   // 留存现金累积折现到现值
@@ -93,7 +91,7 @@ export function calcForwardDcf(
 
   // ---- 原版口径（FCF DCF）----
   // TV 用 FCF 而非分红
-  const tvFcf = keMinusG > 1e-6 ? (fcfY20 * (1 + gPerp)) / keMinusG : fcfY20 * 50;
+  const tvFcf = (fcfY20 * (1 + gPerp)) / keMinusG;
   const pvTvFcf = tvFcf / Math.pow(1 + ke, 20);
   const originalEv = pvExplicitFcf + pvTvFcf;
   const originalEquityValue = originalEv + netCash;

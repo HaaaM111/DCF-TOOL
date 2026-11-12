@@ -41,6 +41,7 @@ import {
 import { calcDcf } from "@/lib/dcf";
 import type { DcfOutput, MonteCarloResult } from "@/types/dcf";
 import type { calculatePeerValuation } from "@/lib/peer-valuation-service";
+import type { PrimaryValuation } from "@/lib/primary-valuation";
 
 const { Title, Paragraph, Text } = Typography;
 
@@ -62,8 +63,9 @@ interface CompanyData {
   fxRate: number;
   kd: number;
   taxRate: number;
-  targetPrice: number;
-  upside: number;
+  targetPrice: number | null;
+  upside: number | null;
+  primaryValuation: PrimaryValuation;
   originalUpside: number;
   impliedKe: number;
   forwardKe: number;
@@ -101,7 +103,7 @@ interface CompanyData {
 
 interface ValidationResponse {
   validation: {
-    absoluteValue: number;
+    absoluteValue: number | null;
     relativeValue: number;
     currentPe: number;
     currentPb: number;
@@ -119,7 +121,9 @@ interface ValidationResponse {
     aiAttribution: string | null;
     multiples: Awaited<ReturnType<typeof calculatePeerValuation>>["multiples"];
     peerSelection: Awaited<ReturnType<typeof calculatePeerValuation>>["evidence"];
-    sensitivityHeatmap: { wacc: number; g: number; targetPrice: number }[] | null;
+    sensitivityHeatmap: { wacc: number; g: number; targetPrice: number | null }[];
+    sensitivityRate: "WACC" | "Ke";
+    sensitivityCurrency: string;
   };
   peers: { ticker: string; name: string; pe: number; pb: number; ps: number }[];
   hasHistory: boolean;
@@ -173,7 +177,7 @@ export default function ReportPage() {
 
   // 蒙特卡洛模拟（假设就绪后触发）
   useEffect(() => {
-    if (!company?.assumption) return;
+    if (!company?.assumption || company.primaryValuation.kind !== "legacy") return;
     let cancelled = false;
     setMcLoading(true);
     fetch("/api/simulation/monte-carlo", {
@@ -308,6 +312,8 @@ export default function ReportPage() {
     );
 
   const c = company;
+  const primary = c.primaryValuation;
+  const publication = primary.kind === "operating" ? primary.publication : undefined;
   const f = output?.forward;
   const r = output?.reverse;
   const g = output?.gordon;
@@ -390,48 +396,52 @@ export default function ReportPage() {
           </Card>
         </Col>
         <Col xs={12} md={6}>
-          <Card style={{ borderLeft: `4px solid ${c.upside >= 0 ? "#10b981" : "#ef4444"}` }}>
+          <Card>
             <Statistic
-              title="隐含上行空间（股东回报）"
-              value={c.upside}
+              title="同日隐含上行空间"
+              value={c.upside ?? "—"}
               precision={1}
-              suffix="%"
-              prefix={c.upside >= 0 ? "+" : ""}
-              styles={{ content: { color: c.upside >= 0 ? "#16a34a" : "#dc2626" } }}
+              suffix={c.upside === null ? undefined : "%"}
+              prefix={c.upside !== null && c.upside >= 0 ? "+" : ""}
             />
-            <div className="text-xs text-slate-400">合理目标价：¥{c.targetPrice.toFixed(2)}</div>
+            <div className="text-xs text-slate-400">{c.upside !== null ? publication?.valuationDate : "需同日收盘价及当时可得资料"}</div>
           </Card>
         </Col>
         <Col xs={12} md={6}>
           <Card>
             <Statistic
-              title="DCF 目标价（股东回报）"
-              value={c.targetPrice}
+              title={publication ? "已发布经营估值" : primary.kind === "legacy" ? "简化估值参考" : "主估值待核验"}
+              value={c.targetPrice ?? "—"}
               precision={2}
-              prefix="¥"
+              suffix={c.targetPrice === null ? undefined : `${publication?.currency ?? "CNY"}/股`}
               styles={{ content: { color: "#2563eb" } }}
             />
-            <div className="text-xs text-slate-400">原版合理价：¥{(f?.originalTargetPrice ?? 0).toFixed(2)}</div>
+            {publication && <div className="text-xs text-slate-400">
+              {publication.retrospective ? "事后复算" : "经营估值"} · {publication.valuationDate}
+            </div>}
           </Card>
         </Col>
         <Col xs={12} md={6}>
           <Card>
-            <Statistic title="WACC 资本结构诊断" value={c.assumption ? (reviewAssumptions(c.assumption,c).wacc ?? c.assumption.ke)*100 : c.forwardKe*100} precision={2} suffix="%" styles={{ content: { color: "#7c3aed" } }} />
-            <div className="text-xs text-slate-400">Ke {(c.forwardKe * 100).toFixed(1)}% ｜ Kd 税后 {(c.kd * (1 - c.taxRate) * 100).toFixed(2)}%</div>
+            <Statistic title={publication ? "经营估值 WACC" : "WACC 资本结构诊断"} value={publication ? publication.wacc * 100 : c.assumption ? (reviewAssumptions(c.assumption,c).wacc ?? c.assumption.ke)*100 : "—"} precision={2} suffix="%" styles={{ content: { color: "#7c3aed" } }} />
+            {!publication && <div className="text-xs text-slate-400">Ke {((c.forwardKe ?? 0) * 100).toFixed(1)}% ｜ Kd 税后 {(c.kd * (1 - c.taxRate) * 100).toFixed(2)}%</div>}
           </Card>
         </Col>
-       <Col xs={12} md={6}><Card className="fin-card"><Statistic title="终值 / 股权价值" value={f?.composition.total ? f.pvTerminal/f.composition.total*100 : 0} precision={1} suffix="%"/><Text type="secondary">派现终值现值占比</Text></Card></Col></Row>
+       <Col xs={12} md={6}><Card className="fin-card"><Statistic title={publication ? "终值 / 经营价值" : "派现终值 / 股权价值"}
+         value={publication ? publication.terminalValueShare === null ? "—" : publication.terminalValueShare * 100 : f?.composition.total ? f.pvTerminal/f.composition.total*100 : "—"} precision={1} suffix="%"/></Card></Col></Row>
+
+      {primary.kind !== "operating" && <Alert className="mb-4" type="warning" showIcon title={primary.reason} />}
 
       {/* 口径对照 */}
       <Alert
         className="mb-4"
         type="info"
         showIcon
-        title="口径对照说明"
+        title="存量简化模型口径"
         description={
           <ul className="mb-0">
             <li>正向 Y20（{f?.fcfY20.toFixed(1)} 亿）= 基于 baseFcf 按 20 年增长率推演出的第 20 年自由现金流（FCF 口径）。</li>
-            <li>终局利润估计（{c.terminalProfitEst.toFixed(0)} 亿）= 用户对第 20 年净利润的主观判断，用于逆向反算。</li>
+            <li>终局利润估计（{(c.terminalProfitEst ?? 0).toFixed(0)} 亿）= 用户对第 20 年净利润的主观判断，用于逆向反算。</li>
             <li>股东回报口径 = 派现折现 + 留存现金（按 2% 复利累积至第 20 年再折现）+ 净现金。</li>
           </ul>
         }
@@ -447,8 +457,8 @@ export default function ReportPage() {
           <TrendChart
             prices={prices}
             valuation={[]}
-            p5={mcResult?.p5}
-            p95={mcResult?.p95}
+            p5={primary.kind === "legacy" ? mcResult?.p5 : undefined}
+            p95={primary.kind === "legacy" ? mcResult?.p95 : undefined}
           />
         </Card>
       )}
@@ -518,7 +528,7 @@ export default function ReportPage() {
 
       {/* 一、正向 DCF 价值拆解 */}
       <Card
-        title="一、正向 DCF · 内在价值与结构拆解"
+        title="一、简化股东回报模型 · 结构拆解"
         extra={<Tag color="blue">Ke {(c.forwardKe * 100).toFixed(2)}%</Tag>}
         className="mb-4"
       >
@@ -545,7 +555,7 @@ export default function ReportPage() {
         {f && <FcfBars rows={f.rows} />}
       </Card>
 
-      <OperatingValuationPanel key={c.ticker} ticker={c.ticker} />
+      <OperatingValuationPanel key={c.id} ticker={c.ticker} companyId={c.id} publication={publication} onPublished={() => { void load(); }} />
 
       {/* 二、逆向 DCF */}
       {sens && (
@@ -592,9 +602,8 @@ export default function ReportPage() {
         </Card>
       )}
 
-      {/* 蒙特卡洛置信区间 */}
-      <Card
-        title="四、蒙特卡洛置信区间 · 目标价概率分布"
+      {primary.kind === "legacy" && <Card
+        title="四、简化模型蒙特卡洛 · 每股估值分布"
         extra={
           <Space>
             <Tag color="green">P5 ¥{mcResult?.p5?.toFixed(2) ?? "-"}</Tag>
@@ -635,7 +644,7 @@ export default function ReportPage() {
         ) : (
           <Empty description="置信区间计算失败" />
         )}
-      </Card>
+      </Card>}
 
       {/* 估值验证（绝对 × 相对 交叉验证） */}
       <Card
@@ -729,7 +738,6 @@ export default function ReportPage() {
               })),
               { title: "数据核验", render: (_, peer) => peer.excluded ?? `财报 ${peer.financialSource} / 行情 ${peer.quoteSource}` },
             ]} />
-            {validation.validation.conclusion === "数据不足" && <Alert type="warning" title="有效同行或财务字段不足，无法进行交叉验证，禁止解释为估值一致。"/>}
             {attributionLoading && <div className="agent-tool-status" role="status"><i/>正在独立生成归因，其他图表已可使用…</div>}
             {/* AI 归因分析 */}
             {validation.validation.aiAttribution && (
@@ -749,13 +757,13 @@ export default function ReportPage() {
             )}
 
             {/* 敏感性热力图 */}
-            <Card size="small" title="敏感性热力图（Ke × 永续 g）" className="mt-4">
+            <Card size="small" title={`敏感性热力图（${validation.validation.sensitivityRate} × 永续 g）`} className="mt-4">
               {validation.validation.sensitivityHeatmap &&
               Array.isArray(validation.validation.sensitivityHeatmap) &&
               validation.validation.sensitivityHeatmap.length > 0 ? (
-                <SensitivityHeatmap matrix={validation.validation.sensitivityHeatmap} />
+                <SensitivityHeatmap matrix={validation.validation.sensitivityHeatmap} rateLabel={validation.validation.sensitivityRate} currency={validation.validation.sensitivityCurrency} />
               ) : (
-                <div className="text-center py-8 text-slate-400">热力图数据加载中…</div>
+                <div className="text-center py-8 text-slate-400">估值输入待核验</div>
               )}
             </Card>
           </div>
@@ -867,7 +875,7 @@ export default function ReportPage() {
             icon={<CopyOutlined />}
             onClick={() =>
               copyPrompt(
-                `请用大白话解读这份 DCF 预期差：目标价 ¥${c.targetPrice.toFixed(2)}（+${c.upside.toFixed(1)}%），隐含终局利润 L=${r?.l.toFixed(0)}亿，L/E3=${r?.lE3.toFixed(1)}x。300 字以内。`,
+                "请根据已发布的主估值底稿解释估值差异、输入口径和剩余的数据缺口。300 字以内。",
               )
             }
           >

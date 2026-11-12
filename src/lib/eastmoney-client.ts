@@ -449,6 +449,20 @@ function lastAnnualReportDate(): string {
   return `${year}-12-31`;
 }
 
+async function readEastBalance(ticker: string, reportDate: string) {
+  if (!/^\d{6}\.(SH|SZ)$/i.test(ticker) || !/^\d{4}-12-31$/.test(reportDate)) return undefined;
+  const balanceUrl = `${EMWEB_BASE}/PC_HSF10/NewFinanceAnalysis/ZcfzbAjaxNew`
+    + `?companyType=4&reportDateType=0&reportType=1&dates=${reportDate}&code=${toEmCode(ticker)}`;
+  const response = emwebSchema.safeParse(await eastGet<unknown>(balanceUrl, `balance ${ticker}`));
+  const row = response.success ? response.data.data?.[0] : undefined;
+  return row?.REPORT_DATE && row.REPORT_DATE.slice(0, 10) !== reportDate ? undefined : row;
+}
+
+export async function fetchEastReportedCash(ticker: string, reportDate: string) {
+  const row = await readEastBalance(ticker, reportDate);
+  return row?.MONETARYFUNDS == null ? null : row.MONETARYFUNDS / 1e8;
+}
+
 /**
  * 财务数据兜底（仅 A 股）
  * 返回结构与 ifind-client.fetchFinancials 一致（单位：亿元 / 亿股），
@@ -480,12 +494,7 @@ export async function fetchEastFinancials(ticker: string) {
   }
 
   // 2) 资产负债表（emweb）：归母净资产 / 有息负债
-  const balanceUrl =
-    `${EMWEB_BASE}/PC_HSF10/NewFinanceAnalysis/ZcfzbAjaxNew` +
-    `?companyType=4&reportDateType=0&reportType=1&dates=${reportDate}&code=${emCode}`;
-  const balRaw = await eastGet<unknown>(balanceUrl, `balance ${ticker}`);
-  const balParsed = emwebSchema.safeParse(balRaw);
-  const balRow = balParsed.success ? balParsed.data.data?.[0] : undefined;
+  const balRow = await readEastBalance(ticker, reportDate);
 
   // 3) 现金流量表（emweb）：CFO / Capex / D&A
   const cfUrl =
@@ -536,7 +545,8 @@ export async function fetchEastFinancials(ticker: string) {
   return {
     ticker,
     name: mainRow.SECURITY_NAME_ABBR || ticker,
-    cash: 0, // 与 ifind 口径一致：货币资金暂不填
+    cash: balRow?.MONETARYFUNDS == null ? null : balRow.MONETARYFUNDS / YI,
+    cashSource: balRow?.MONETARYFUNDS == null ? undefined : "eastmoney" as const,
     debt: Number((debt / YI).toFixed(2)),
     shares: Number(((mainRow.TOTAL_SHARE ?? 0) / 1e8).toFixed(2)),
     cfo: Number((cfo / YI).toFixed(2)),

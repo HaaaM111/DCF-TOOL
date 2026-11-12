@@ -1,9 +1,10 @@
 "use client";
 
 import { useId, useState } from "react";
-import { Alert, Button, Card, Collapse, Descriptions, Input, Segmented, Space, Table, Typography } from "antd";
+import { Alert, App, Button, Card, Collapse, Descriptions, Input, Popconfirm, Segmented, Space, Table, Typography } from "antd";
 import { SensitivityHeatmap } from "./validation-charts";
 import type { OperatingAnalysis, OperatingAnalysisInput } from "@/lib/operating-scenarios";
+import type { OperatingPublication } from "@/lib/primary-valuation";
 
 const { Paragraph, Text } = Typography;
 const maxInputLength = 32000;
@@ -136,12 +137,19 @@ function ValuationResult({ result }: { result: OperatingAnalysis }) {
   );
 }
 
-export default function OperatingValuationPanel({ ticker }: { ticker: string }) {
+export default function OperatingValuationPanel({ ticker, companyId, publication, onPublished }: {
+  ticker: string;
+  companyId: string;
+  publication?: OperatingPublication;
+  onPublished: (publication: OperatingPublication) => void;
+}) {
   const fileId = useId();
   const [draft, setDraft] = useState("");
   const [result, setResult] = useState<OperatingAnalysis | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const { message } = App.useApp();
+  const endpoint = `/api/companies/${encodeURIComponent(companyId)}/operating-model`;
 
   function edit(next: string) {
     setDraft(next);
@@ -196,16 +204,52 @@ export default function OperatingValuationPanel({ ticker }: { ticker: string }) 
     }
   }
 
+  async function loadPublished() {
+    setLoading(true);
+    try {
+      const response = await fetch(endpoint, { cache: "no-store", signal: AbortSignal.timeout(10000) });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error);
+      edit(JSON.stringify(body.input, null, 2));
+    } catch {
+      setError("读取已发布底稿失败");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function publish() {
+    if (!result?.reconciliation.passed) return;
+    setLoading(true);
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ input: result.input, expectedRevision: publication?.revision ?? null }),
+        signal: AbortSignal.timeout(10000),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "发布失败");
+      onPublished(body.publication);
+      message.success("经营底稿已发布为主估值");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "发布底稿失败");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <Card title="经营价值勾稽 · FCFF / ReOI / AOIG" className="mb-4">
       <Space orientation="vertical" size="middle" className="w-full">
-        <Text type="secondary">使用年度税后经营利润和期末净经营资产（NOA）复算。金额与股数使用同一数量级，9.5% 填 0.095。计算结果仅用于本次校验。</Text>
+        <Text type="secondary">使用年度税后经营利润和期末净经营资产（NOA）复算。金额与股数使用同一数量级，9.5% 填 0.095。</Text>
+        {publication && <Text>已发布底稿 {publication.revision.slice(0, 12)} · 估值锚点 {publication.valuationDate} · 资料截止 {publication.informationCutoff}</Text>}
         <Collapse items={[{
           key: "input",
           label: "录入经营预测或导入 JSON",
           children: <Space orientation="vertical" className="w-full">
             <Space wrap>
               <Button onClick={fillExample} disabled={loading}>填入虚拟示例</Button>
+              {publication && <Button onClick={loadPublished} disabled={loading}>加载已发布底稿</Button>}
               <label htmlFor={fileId}>导入校验文件</label>
               <input id={fileId} type="file" accept=".json,application/json" disabled={loading}
                 className="max-w-full text-sm"
@@ -234,6 +278,12 @@ export default function OperatingValuationPanel({ ticker }: { ticker: string }) 
         }]} />
         {error && <Alert type="error" title={error} showIcon />}
         {result && <ValuationResult result={result} />}
+        {result?.reconciliation.passed && result.input.forecastSource.name !== "虚拟示例" && (
+          <Popconfirm title="发布为主估值？" description="发布后看板、报告和智能体将读取本版底稿。"
+            okText="发布" cancelText="取消" onConfirm={publish}>
+            <Button type="primary" loading={loading}>发布为主估值</Button>
+          </Popconfirm>
+        )}
       </Space>
     </Card>
   );

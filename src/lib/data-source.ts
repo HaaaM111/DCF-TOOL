@@ -17,6 +17,7 @@ import {
   fetchEastQuote,
   fetchEastPriceHistory,
   fetchEastFinancials,
+  fetchEastReportedCash,
   isEastMoneyEnabled,
 } from "./eastmoney-client";
 import {
@@ -38,7 +39,8 @@ export interface Resolved<T> {
 export interface FinancialsResult {
   ticker: string;
   name: string;
-  cash: number;
+  cash: number | null;
+  cashSource?: "eastmoney";
   debt: number;
   shares: number;
   cfo: number;
@@ -182,12 +184,15 @@ export async function resolveQuote(ticker: string): Promise<Resolved<QuoteData>>
 
 export async function resolveFinancials(
   ticker: string,
+  options: { includeReportedCash?: boolean } = {},
 ): Promise<Resolved<FinancialsResult>> {
   // 1) iFinD（权威口径，主通道）
   if (hasIfindCredentials()) {
     try {
       const f = await fetchFinancials(ticker);
-      return { source: "ifind", data: f };
+      const cash = options.includeReportedCash !== false && isEastMoneyEnabled()
+        ? await fetchEastReportedCash(ticker, f.reportDate).catch(() => null) : null;
+      return { source: "ifind", data: { ...f, cash, ...(cash === null ? {} : { cashSource: "eastmoney" as const }) } };
     } catch {
       // iFinD 失败，落到东财兜底
     }

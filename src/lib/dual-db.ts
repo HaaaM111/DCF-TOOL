@@ -1,4 +1,6 @@
 import { prisma } from "./prisma";
+import { activeOperatingKey, getOperatingPublication, parseOperatingPublication } from "./operating-model-store";
+import { selectPrimaryValuation, type OperatingPublication } from "./primary-valuation";
 
 /** 用户库 Company 行类型（界面唯一数据源） */
 type CompanyRow = {
@@ -14,10 +16,12 @@ type CompanyRow = {
  */
 export async function mergeCompanySnapshot(
   company: CompanyRow,
+  knownPublication?: OperatingPublication | null,
 ): Promise<Record<string, unknown>> {
-  const [assumption, snapshot] = await Promise.all([
+  const [assumption, snapshot, publication] = await Promise.all([
     prisma.assumption.findUnique({ where: { companyId: company.id } }),
     prisma.companySnapshot.findUnique({ where: { companyId: company.id } }),
+    knownPublication === undefined ? getOperatingPublication(company.id) : knownPublication,
   ]);
 
   const out: Record<string, unknown> = { ...company };
@@ -33,6 +37,11 @@ export async function mergeCompanySnapshot(
   }
 
   out.assumption = assumption;
+  const primary = selectPrimaryValuation(out, publication);
+  out.primaryValuation = primary;
+  out.legacyTargetPrice = out.targetPrice ?? null;
+  out.targetPrice = primary.price;
+  out.upside = primary.upside;
   return out;
 }
 
@@ -41,7 +50,9 @@ export async function getAllCompaniesMerged() {
   const companies = await prisma.company.findMany({
     orderBy: { updatedAt: "desc" },
   });
-  return Promise.all(companies.map((c) => mergeCompanySnapshot(c)));
+  const active = await prisma.appSetting.findMany({ where: { key: { startsWith: activeOperatingKey("") } } });
+  const publications = new Map(active.map(({ key, value }) => [key, parseOperatingPublication(value)]));
+  return Promise.all(companies.map((c) => mergeCompanySnapshot(c, publications.get(activeOperatingKey(c.id)) ?? null)));
 }
 
 /** 单个标的（含快照、假设、时间线），供模型编辑/报告页使用 */
