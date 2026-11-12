@@ -3,53 +3,28 @@
 import ReactECharts from "@/components/terminal-chart";
 import type { SensitivityHeatmapCell } from "@/lib/valuation-validation";
 
-interface ValidationSummary {
-  currentPe: number;
-  currentPb: number;
-  currentPs: number;
-  industryPeMean: number;
-  industryPbMean: number;
-  industryPsMean: number;
-  pePercentile: number;
-  pbPercentile: number;
-  psPercentile: number;
-  premiumDiscount: number;
-}
-
-/**
- * 横向对比柱状图：本公司 PE/PB/PS vs 行业均值
- */
-export function PeerCompareChart({ data }: { data: ValidationSummary }) {
+export function PeerCompareChart({ methods }: {
+  methods: { name: string; count: number; current: number | null; mean: number | null; median: number | null }[];
+}) {
+  const comparable = ["P/E", "P/B", "P/S"].map((name) => methods.find((method) => method.name === name));
+  const series = [
+    { name: "本公司", key: "current", color: "#3b82f6" },
+    { name: "同行中位数", key: "median", color: "#10b981" },
+    { name: "同行均值", key: "mean", color: "#94a3b8" },
+  ] as const;
   const option = {
     tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
-    legend: { top: 0, data: ["本公司", "行业均值"] },
+    legend: { top: 0 },
     grid: { left: 60, right: 30, top: 40, bottom: 30 },
     xAxis: { type: "category", data: ["PE", "PB", "PS"] },
     yAxis: { type: "value" },
-    series: [
-      {
-        name: "本公司",
-        type: "bar",
-        data: [
-          { value: +data.currentPe.toFixed(2), itemStyle: { color: "#3b82f6" } },
-          { value: +data.currentPb.toFixed(2), itemStyle: { color: "#3b82f6" } },
-          { value: +data.currentPs.toFixed(2), itemStyle: { color: "#3b82f6" } },
-        ],
-        barWidth: 28,
-        label: { show: true, position: "top" },
-      },
-      {
-        name: "行业均值",
-        type: "bar",
-        data: [
-          { value: +data.industryPeMean.toFixed(2), itemStyle: { color: "#94A3B8" } },
-          { value: +data.industryPbMean.toFixed(2), itemStyle: { color: "#94A3B8" } },
-          { value: +data.industryPsMean.toFixed(2), itemStyle: { color: "#94A3B8" } },
-        ],
-        barWidth: 28,
-        label: { show: true, position: "top" },
-      },
-    ],
+    series: series.map(({ name, key, color }) => ({
+      name, type: "bar", itemStyle: { color }, barMaxWidth: 24,
+      data: comparable.map((method) => {
+        const value = method && (key === "current" || method.count >= 3) ? method[key] : null;
+        return value == null ? null : Number(value.toFixed(2));
+      }),
+    })),
   };
   return <ReactECharts className="chart-settle" option={option} style={{ height: 280 }} />;
 }
@@ -96,7 +71,7 @@ export function ValidationGauge({
       </div>
       <div>
         <div className="flex justify-between text-sm mb-1">
-          <span style={{ color: "#0EA5E9" }}>相对估值（PE/PB/PS 中位数法）</span>
+          <span style={{ color: "#0EA5E9" }}>相对估值（有效倍数估值中位数）</span>
           <span style={{ color: "#0EA5E9", fontWeight: 600 }}>{relativeValue.toFixed(1)} 亿</span>
         </div>
         <div style={{ height: 22, background: "#f1f5f9", borderRadius: 11, overflow: "hidden" }}>
@@ -136,21 +111,29 @@ export function ValidationGauge({
  * 敏感性热力图：Ke × 永续 g
  * 颜色越绿估值越高，越红估值越低
  */
-export function SensitivityHeatmap({ matrix }: { matrix: SensitivityHeatmapCell[] }) {
+export function SensitivityHeatmap({
+  matrix, rateLabel = "Ke", currency = "CNY",
+}: {
+  matrix: (Omit<SensitivityHeatmapCell, "targetPrice"> & { targetPrice: number | null })[];
+  rateLabel?: string;
+  currency?: string;
+}) {
   if (!Array.isArray(matrix) || matrix.length === 0) {
     return <div style={{ height: 360, display: "flex", alignItems: "center", justifyContent: "center", color: "#94a3b8" }}>暂无热力图数据</div>;
   }
   const waccValues = Array.from(new Set(matrix.map((c) => c.wacc))).sort((a, b) => a - b);
   const gValues = Array.from(new Set(matrix.map((c) => c.g))).sort((a, b) => a - b);
 
-  const prices = matrix.map((c) => c.targetPrice).filter((v) => v > 0);
+  const prices = matrix.flatMap(({ targetPrice }) => targetPrice === null ? [] : [targetPrice]);
   const minP = prices.length ? Math.min(...prices) : 0;
   const maxP = prices.length ? Math.max(...prices) : 1;
+  const rate = (value: number) => `${Number((value * 100).toFixed(4))}%`;
 
-  const data = matrix.map((c) => {
+  const data = matrix.flatMap((c) => {
+    if (c.targetPrice === null) return [];
     const x = gValues.indexOf(c.g);
     const y = waccValues.indexOf(c.wacc);
-    return [x, y, +c.targetPrice.toFixed(2)];
+    return [[x, y, c.targetPrice]];
   });
 
   const option = {
@@ -158,13 +141,13 @@ export function SensitivityHeatmap({ matrix }: { matrix: SensitivityHeatmapCell[
       position: "top",
       formatter: (p: { value: number[] }) => {
         const [x, y, v] = p.value;
-        return `WACC=${(waccValues[y] * 100).toFixed(0)}%<br/>永续g=${(gValues[x] * 100).toFixed(0)}%<br/>目标价=¥${v}`;
+        return `${rateLabel}=${rate(waccValues[y])}<br/>永续 g=${rate(gValues[x])}<br/>每股价值=${v.toFixed(2)} ${currency}`;
       },
     },
     grid: { height: "60%", top: "10%", left: 60, right: 30 },
     xAxis: {
       type: "category",
-      data: gValues.map((g) => `${(g * 100).toFixed(0)}%`),
+      data: gValues.map(rate),
       splitArea: { show: true },
       name: "永续增长率 g",
       nameLocation: "middle",
@@ -172,15 +155,16 @@ export function SensitivityHeatmap({ matrix }: { matrix: SensitivityHeatmapCell[
     },
     yAxis: {
       type: "category",
-      data: waccValues.map((w) => `${(w * 100).toFixed(0)}%`),
+      data: waccValues.map(rate),
       splitArea: { show: true },
-      name: "WACC",
+      name: rateLabel,
+      inverse: true,
       nameLocation: "middle",
       nameGap: 40,
     },
     visualMap: {
       min: minP,
-      max: maxP,
+      max: maxP > minP ? maxP : minP + 1,
       calculable: true,
       orient: "horizontal",
       left: "center",
@@ -194,7 +178,7 @@ export function SensitivityHeatmap({ matrix }: { matrix: SensitivityHeatmapCell[
         name: "目标价",
         type: "heatmap",
         data,
-        label: { show: true, fontSize: 11, color: "#000" },
+        label: { show: true, fontSize: 10, color: "#000", formatter: (p: { value: number[] }) => p.value[2].toFixed(2) },
         emphasis: { itemStyle: { shadowBlur: 10, shadowColor: "rgba(0,0,0,0.5)" } },
       },
     ],

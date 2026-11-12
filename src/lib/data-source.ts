@@ -49,6 +49,7 @@ export interface FinancialsResult {
   bookValue: number;
   totalAssets: number;
   reportDate: string;
+  comparable?: { shares: number; parentEarnings?: number; parentBook?: number; netCash?: number };
   incomplete?: boolean;
 }
 

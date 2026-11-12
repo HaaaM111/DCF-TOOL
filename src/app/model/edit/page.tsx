@@ -771,6 +771,10 @@ function ModelEditContent() {
                 <Input value={form.ticker} onChange={(e) => set("ticker", e.target.value)} />
               </Col>
               <Col span={8}>
+                <Text type="secondary">可比公司细分行业</Text>
+                <Input maxLength={50} value={form.industry} onChange={(e) => set("industry", e.target.value)} placeholder="如汽车零部件" />
+              </Col>
+              <Col span={8}>
                 <Text type="secondary">当前股价 (元)</Text>
                 <InputNumber style={{ width: "100%" }} value={form.currentPrice} onChange={(v) => set("currentPrice", v ?? 0)} />
               </Col>

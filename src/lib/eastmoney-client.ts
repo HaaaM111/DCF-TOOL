@@ -545,6 +545,12 @@ export async function fetchEastFinancials(ticker: string) {
     e0: Number(((mainRow.PARENTNETPROFIT ?? 0) / YI).toFixed(2)),
     revenue: Number(((mainRow.TOTALOPERATEREVE ?? 0) / YI).toFixed(2)),
     bookValue: Number((bookValue / YI).toFixed(2)),
+    comparable: {
+      shares: (mainRow.TOTAL_SHARE ?? 0) / YI,
+      parentEarnings: mainRow.PARENTNETPROFIT == null ? undefined : mainRow.PARENTNETPROFIT / YI,
+      parentBook: balRow?.TOTAL_PARENT_EQUITY == null ? undefined : balRow.TOTAL_PARENT_EQUITY / YI,
+      netCash: balRow?.MONETARYFUNDS == null ? undefined : (balRow.MONETARYFUNDS - debt) / YI,
+    },
     totalAssets: Number(
       ((mainRow.TOTAL_ASSETS_PK ?? balRow?.TOTAL_ASSETS ?? 0) / YI).toFixed(2),
     ),

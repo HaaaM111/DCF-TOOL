@@ -413,6 +413,11 @@ export async function fetchFinancials(ticker: string) {
     e0: Number(((npParent ?? np) / YI).toFixed(2)), // 优先 PIT 归母净利润，兜底净利润
     revenue: Number((revenue / YI).toFixed(2)),
     bookValue: Number(((totalParentEquity ?? 0) / YI).toFixed(2)),
+    comparable: {
+      shares: shares / YI,
+      parentEarnings: npParent == null ? undefined : npParent / YI,
+      parentBook: totalParentEquity == null ? undefined : totalParentEquity / YI,
+    },
     totalAssets: Number((totalAssets / YI).toFixed(2)),
     reportDate: `${year}-12-31`,
   };
@@ -510,7 +515,10 @@ const STOCK_POOL: { ticker: string; name: string; market: string; industry: stri
   { ticker: "000581.SZ", name: "威孚高科", market: "SZ", industry: "汽车零部件" },
   { ticker: "600741.SH", name: "华域汽车", market: "SH", industry: "汽车零部件" },
   { ticker: "002920.SZ", name: "德赛西威", market: "SZ", industry: "汽车零部件" },
-  { ticker: "603799.SH", name: "华友钴业", market: "SH", industry: "汽车零部件" },
+  { ticker: "603786.SH", name: "科博达", market: "SH", industry: "汽车零部件" },
+  { ticker: "002906.SZ", name: "华阳集团", market: "SZ", industry: "汽车零部件" },
+  { ticker: "600699.SH", name: "均胜电子", market: "SH", industry: "汽车零部件" },
+  { ticker: "603799.SH", name: "华友钴业", market: "SH", industry: "有色金属" },
   // 白酒/食品饮料
   { ticker: "600519.SH", name: "贵州茅台", market: "SH", industry: "白酒" },
   { ticker: "000858.SZ", name: "五粮液", market: "SZ", industry: "白酒" },

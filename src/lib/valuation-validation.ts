@@ -158,9 +158,9 @@ export function calcRelativeValuation(
   // 取中位数抗异常
   const relativeValue = median([peValue, pbValue, psValue]);
 
-  // 溢价/折价率（以 PE 为代表）
+  // 溢价/折价率（以同行 P/E 中位数为代表）
   const premiumDiscount =
-    industryPeMean > 0 ? ((currentPe - industryPeMean) / industryPeMean) * 100 : 0;
+    industryPeMedian > 0 ? ((currentPe - industryPeMedian) / industryPeMedian) * 100 : 0;
 
   return {
     currentPe,

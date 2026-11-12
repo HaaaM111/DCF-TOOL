@@ -40,6 +40,7 @@ import {
 } from "@/components/validation-charts";
 import { calcDcf } from "@/lib/dcf";
 import type { DcfOutput, MonteCarloResult } from "@/types/dcf";
+import type { calculatePeerValuation } from "@/lib/peer-valuation-service";
 
 const { Title, Paragraph, Text } = Typography;
 
@@ -116,10 +117,11 @@ interface ValidationResponse {
     diffRate: number | null;
     conclusion: string;
     aiAttribution: string | null;
-    multiples?: {methods:{name:string;count:number;mean:number|null;median:number|null;equityValue:number|null;status:string}[]};
+    multiples: Awaited<ReturnType<typeof calculatePeerValuation>>["multiples"];
+    peerSelection: Awaited<ReturnType<typeof calculatePeerValuation>>["evidence"];
     sensitivityHeatmap: { wacc: number; g: number; targetPrice: number }[] | null;
   };
-  peers: { name: string; pe: number; pb: number; ps: number; [key: string]: unknown }[];
+  peers: { ticker: string; name: string; pe: number; pb: number; ps: number }[];
   hasHistory: boolean;
   aiEnabled: boolean;
 }
@@ -652,12 +654,12 @@ export default function ReportPage() {
         ) : validation?.validation ? (
           <div>
             <Row gutter={[16, 16]}>
-              <Col span={12}>
+              <Col xs={24} lg={12}>
                 <Card size="small" title="PE/PB/PS 横向对比（均值辅助，中位数为主）">
-                  <PeerCompareChart data={validation.validation} />
+                  <PeerCompareChart methods={validation.validation.multiples.methods} />
                 </Card>
               </Col>
-              <Col span={12}>
+              <Col xs={24} lg={12}>
                 <Card size="small" title="绝对 vs 相对 估值差异">
                   <ValidationGauge
                     absoluteValue={validation.validation.absoluteValue}
@@ -674,17 +676,17 @@ export default function ReportPage() {
                 <Card size="small">
                   <Statistic
                     title="当前 PE / 历史分位"
-                    value={validation.validation.currentPe}
+                    value={validation.validation.multiples.methods[0]?.current ?? "—"}
                     precision={1}
-                    suffix={validation.hasHistory ? `(${validation.validation.pePercentile.toFixed(0)}%)` : "（历史数据不足）"}
+                    suffix={validation.hasHistory && validation.validation.multiples.methods[0]?.current != null ? `(${validation.validation.pePercentile.toFixed(0)}%)` : undefined}
                   />
                 </Card>
               </Col>
               <Col span={8}>
                 <Card size="small">
                   <Statistic
-                    title="行业 PE 均值"
-                    value={validation.validation.industryPeMean}
+                    title="同行 PE 中位数"
+                    value={(validation.validation.multiples.methods[0]?.count ?? 0) >= 3 ? validation.validation.multiples.methods[0].median ?? "—" : "—"}
                     precision={1}
                   />
                 </Card>
@@ -693,7 +695,7 @@ export default function ReportPage() {
                 <Card size="small">
                   <Statistic
                     title="相对行业溢价率"
-                    value={validation.validation.premiumDiscount}
+                    value={(validation.validation.multiples.methods[0]?.count ?? 0) >= 3 && validation.validation.multiples.methods[0]?.current != null ? validation.validation.premiumDiscount : "—"}
                     precision={1}
                     suffix="%"
                     styles={{
@@ -709,6 +711,24 @@ export default function ReportPage() {
             {validation.validation.multiples && <Table size="small" pagination={false} rowKey="name" className="mt-4 fin-table" dataSource={validation.validation.multiples.methods} columns={[
               {title:"倍数",dataIndex:"name"},{title:"有效同行",dataIndex:"count",align:"right"},{title:"均值",dataIndex:"mean",align:"right",render:(v:number|null)=>v?.toFixed(2)??"—"},{title:"中位数（主口径）",dataIndex:"median",align:"right",render:(v:number|null)=>v?.toFixed(2)??"—"},{title:"股权价值/亿元",dataIndex:"equityValue",align:"right",render:(v:number|null)=>v?.toFixed(1)??"数据不足"}
             ]}/>}
+            <Paragraph type="secondary" className="mt-4">
+              {validation.validation.peerSelection.industry || "待配置细分行业"} · 年报 {validation.validation.peerSelection.period ?? "待核验"}
+              {" "}· 收盘日 {validation.validation.peerSelection.quoteDate ?? "待核验"} · CNY
+              {validation.validation.peerSelection.sources && ` · 标的财报 ${validation.validation.peerSelection.sources.financial} / 行情 ${validation.validation.peerSelection.sources.quote}`}
+            </Paragraph>
+            <Table size="small" pagination={false} rowKey="ticker" scroll={{ x: 730 }} dataSource={validation.validation.peerSelection.peerEvidence.map((peer) => ({
+              ...peer, ratios: validation.peers.find(({ ticker }) => ticker === peer.ticker),
+            }))} columns={[
+              { title: "同行", render: (_, peer) => `${peer.name}（${peer.ticker}）` },
+              { title: "入选依据", dataIndex: "reason" },
+              ...(["pe", "pb", "ps"] as const).map((key) => ({
+                title: { pe: "P/E", pb: "P/B", ps: "P/S" }[key],
+                key, align: "right" as const,
+                render: (_: unknown, peer: { ratios?: ValidationResponse["peers"][number] }) =>
+                  (peer.ratios?.[key] ?? 0) > 0 ? peer.ratios![key].toFixed(2) : "—",
+              })),
+              { title: "数据核验", render: (_, peer) => peer.excluded ?? `财报 ${peer.financialSource} / 行情 ${peer.quoteSource}` },
+            ]} />
             {validation.validation.conclusion === "数据不足" && <Alert type="warning" title="有效同行或财务字段不足，无法进行交叉验证，禁止解释为估值一致。"/>}
             {attributionLoading && <div className="agent-tool-status" role="status"><i/>正在独立生成归因，其他图表已可使用…</div>}
             {/* AI 归因分析 */}

@@ -13,6 +13,7 @@ import { analystSchema,chatSchema } from "./schemas";
 import { createValuationTools } from "./tools";
 import { ANALYST_PROMPT,EXECUTOR_PROMPT } from "./roles";
 import { groundedText } from "./grounding";
+import { calculatePeerValuation } from "@/lib/peer-valuation-service";
 
 export async function handleAgentChat(req:NextRequest){
   const guard=guardRequest(req);if(guard)return guard;
@@ -27,9 +28,7 @@ export async function handleAgentChat(req:NextRequest){
   if(!ca.success||!aa.success)return jsonError("已保存模型参数无效，请先校准股本、股价及 Ke/g",422);
   let cfg;try{cfg=resolveLlmConfig(await readLlmDbSettings());}catch{return jsonError("LLM配置地址不受信任",422);}
   if(!cfg)return jsonError(SERVICE_UNAVAILABLE,503,"LLM_UNAVAILABLE");
-  const localPeers=company.industry?await prisma.company.findMany({where:{industry:company.industry,id:{not:companyId}},take:20}):[];
   const metrics=await readMetrics(companyId);
-  const peers=await Promise.all(localPeers.map(async p=>{const m=await readMetrics(p.id);return {...p,ebit:metrics&&m?.period===metrics.period?m.ebit??undefined:undefined,ebitda:metrics&&m?.period===metrics.period?m.ebitda??undefined:undefined};}));
   const announcements=await prisma.announcement.findMany({where:{companyId},orderBy:{publishAt:"desc"},take:5,select:{title:true,publishAt:true,rawText:true}});
   const signal=AbortSignal.any([req.signal,AbortSignal.timeout(90000)]);
   const configured=Number(process.env.AGENT_MAX_STEPS)||5;
@@ -40,7 +39,9 @@ export async function handleAgentChat(req:NextRequest){
     const observe=(name:string,result:unknown)=>{evidence.push(result);trace.push({name,result});};
     let reply="",completed=false;
     try{
-      const tools=createValuationTools({companyId,assumptions:aa.data,company:{...ca.data,ebit:metrics?.ebit??undefined,ebitda:metrics?.ebitda??undefined},peers,cfg,signal,announcements},observe,status);
+      let peerRun: ReturnType<typeof calculatePeerValuation> | undefined;
+      const tools=createValuationTools({companyId,assumptions:aa.data,company:{...ca.data,ebit:metrics?.ebit??undefined,ebitda:metrics?.ebitda??undefined},
+        peerValuation:()=>peerRun??=calculatePeerValuation(company),cfg,signal,announcements},observe,status);
       status("假设分析师：读取与审视增长率、Ke 假设…");
       const context={company:ca.data,assumptions:aa.data,review:reviewAssumptions(aa.data,ca.data),announcements,source:"已保存数据；财报与市场参数仍需人工校准"};
       observe("get_financial_context",context);
