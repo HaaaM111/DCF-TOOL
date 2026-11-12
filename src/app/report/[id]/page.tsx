@@ -31,6 +31,7 @@ import {
 } from "@ant-design/icons";
 import { useParams, useRouter } from "next/navigation";
 import AppHeader from "@/components/app-header";
+import OperatingValuationPanel from "@/components/operating-valuation-panel";
 import { ValueDonut, FcfBars, TrendChart, ConfidenceChart } from "@/components/charts";
 import {
   PeerCompareChart,
@@ -541,6 +542,8 @@ export default function ReportPage() {
         <Title level={5}>20 年自由现金流推演 vs 折现现值对比图（亿元）</Title>
         {f && <FcfBars rows={f.rows} />}
       </Card>
+
+      <OperatingValuationPanel key={c.ticker} ticker={c.ticker} />
 
       {/* 二、逆向 DCF */}
       {sens && (
