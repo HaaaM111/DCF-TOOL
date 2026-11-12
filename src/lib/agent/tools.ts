@@ -12,10 +12,11 @@ import { analyzeCompanyAnnouncements } from "@/lib/announcement/analyze-service"
 import { parseFinancialDocument } from "./document-tool";
 import type { LlmConfig } from "@/lib/ai-client";
 import type { DcfAssumptions,CompanyBasics } from "@/types/dcf";
-import { analyzeOperatingValuation, type OperatingAnalysisInput } from "@/lib/operating-scenarios";
+import { analyzeOperatingValuation } from "@/lib/operating-scenarios";
+import { operatingInputAudit, type OperatingModelInput } from "@/lib/operating-model-input";
 import { calculateOperatingValuation } from "@/lib/operating-valuation";
 import type { PrimaryValuation } from "@/lib/primary-valuation";
-export interface ToolContext {companyId:string;assumptions:DcfAssumptions|null;primary:PrimaryValuation;operatingInput:OperatingAnalysisInput|null;company:CompanyBasics&Comparable&{debt?:number;kd?:number;taxRate?:number};peerValuation:()=>ReturnType<typeof calculatePeerValuation>;cfg:LlmConfig;signal:AbortSignal;announcements:unknown[]}
+export interface ToolContext {companyId:string;assumptions:DcfAssumptions|null;primary:PrimaryValuation;operatingInput:OperatingModelInput|null;company:CompanyBasics&Comparable&{debt?:number;kd?:number;taxRate?:number};peerValuation:()=>ReturnType<typeof calculatePeerValuation>;cfg:LlmConfig;signal:AbortSignal;announcements:unknown[]}
 export function createValuationTools(ctx:ToolContext,observe:(name:string,result:unknown)=>void,status:(text:string)=>void){
   const legacy = ctx.primary.kind === "legacy" ? ctx.assumptions : null;
   const operating = ctx.operatingInput;
@@ -29,7 +30,7 @@ export function createValuationTools(ctx:ToolContext,observe:(name:string,result
     calculate_dcf:tool({description:"读取主估值口径。已发布经营底稿用于 FCFF、ReOI 与 AOIG 勾稽，简化模型仅作参考。",inputSchema:z.object({}).strict(),execute:execute("calculate_dcf","正在计算 DCF…",()=>{
       if (operating) {
         const result=calculateOperatingValuation(operating);
-        return {primary:ctx.primary,prices:result.prices,bridge:result.bridge,terminal:result.terminal,reconciliation:result.reconciliation};
+        return {primary:ctx.primary,prices:result.prices,bridge:result.bridge,terminal:result.terminal,reconciliation:result.reconciliation,inputAudit:operatingInputAudit(operating)};
       }
       return legacy ? { primary: ctx.primary, legacy: calcDcf(legacy,ctx.company) } : { ...unavailable, primary: ctx.primary };
     })}),

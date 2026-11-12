@@ -3,7 +3,7 @@
 import { useId, useState } from "react";
 import { Alert, App, Button, Card, Collapse, Descriptions, Input, Popconfirm, Segmented, Space, Table, Typography } from "antd";
 import { SensitivityHeatmap } from "./validation-charts";
-import type { OperatingAnalysis, OperatingAnalysisInput } from "@/lib/operating-scenarios";
+import type { OperatingModelAnalysis } from "@/lib/operating-model-input";
 import type { OperatingPublication } from "@/lib/primary-valuation";
 
 const { Paragraph, Text } = Typography;
@@ -12,8 +12,9 @@ const money = new Intl.NumberFormat("zh-CN", { minimumFractionDigits: 2, maximum
 const pct = new Intl.NumberFormat("zh-CN", { style: "percent", maximumFractionDigits: 2 });
 const units = { ones: ["元", "股"], millions: ["百万元", "百万股"], hundredMillions: ["亿元", "亿股"] };
 
-function ValuationResult({ result }: { result: OperatingAnalysis }) {
+function ValuationResult({ result }: { result: OperatingModelAnalysis }) {
   const { input, prices, bridge, terminal, reconciliation } = result;
+  const { opening: openingAudit, forecast: forecastAudit } = result.inputAudit;
   const [method, setMethod] = useState<"coherentPrice" | "workbookPrice">("coherentPrice");
   const [amountUnit, shareUnit] = units[input.scale];
   const amount = (v: number) => money.format(v);
@@ -27,6 +28,25 @@ function ValuationResult({ result }: { result: OperatingAnalysis }) {
         description={`最大差额 ${reconciliation.maximumGap.toExponential(2)} ${input.currency}/股。勾稽检验采用同一组预测和终值假设。`}
         showIcon
       />
+      {(openingAudit || forecastAudit) && <Collapse items={[{
+        key: "input-audit",
+        label: `报表桥接与分部预测（${input.currency} ${amountUnit}）`,
+        children: <Space orientation="vertical" className="w-full">
+          {openingAudit && <Text>
+            期初净经营资产 {amount(openingAudit.openingNoa)}，净金融负债 {amount(openingAudit.netFinancialObligations)}，
+            勾稽归母净资产 {amount(openingAudit.parentBookEquity)}，与输入报表差额 {amount(openingAudit.parentBookEquityDifference)}。
+          </Text>}
+          {forecastAudit && <Table size="small" rowKey="year" pagination={false} scroll={{ x: 660 }} dataSource={forecastAudit}
+            columns={[
+              { title: "年度", dataIndex: "year" },
+              { title: "分部合计收入", dataIndex: "revenue", align: "right", render: amount },
+              { title: "分部税后经营利润", dataIndex: "segmentOperatingIncome", align: "right", render: amount },
+              { title: "其他经营损益", dataIndex: "otherAfterTaxOperatingIncome", align: "right", render: amount },
+              { title: "资产周转率", dataIndex: "assetTurnover", align: "right", render: (v: number) => `${amount(v)}×` },
+              { title: "期末 NOA", dataIndex: "closingNoa", align: "right", render: amount },
+            ]} />}
+        </Space>,
+      }]} />}
       {result.retrospective && <Alert type="warning" showIcon title="使用了估值锚点之后可得的资料" description="结果适用于事后复算。历史时点评估需要冻结在估值锚点当日已可得的资料。" />}
       {input.quote && !result.marketComparable && <Alert type="warning" showIcon
         title="市价比较与隐含增长率已停用"
@@ -110,7 +130,7 @@ function ValuationResult({ result }: { result: OperatingAnalysis }) {
             ...(["p5", "median", "p95", "mean"] as const).map((key) => ({
               title: { p5: "P5", median: "P50", p95: "P95", mean: "均值" }[key],
               key, align: "right" as const,
-              render: (_: unknown, row: { stats: NonNullable<OperatingAnalysis["simulation"]>["workbook"] }) =>
+              render: (_: unknown, row: { stats: NonNullable<OperatingModelAnalysis["simulation"]>["workbook"] }) =>
                 row.stats ? price(row.stats[key]) : "有效样本不足",
             })),
           ]} />
@@ -145,7 +165,7 @@ export default function OperatingValuationPanel({ ticker, companyId, publication
 }) {
   const fileId = useId();
   const [draft, setDraft] = useState("");
-  const [result, setResult] = useState<OperatingAnalysis | null>(null);
+  const [result, setResult] = useState<OperatingModelAnalysis | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const { message } = App.useApp();
@@ -159,13 +179,15 @@ export default function OperatingValuationPanel({ ticker, companyId, publication
 
   function fillExample() {
     const source = { name: "虚拟示例", availableOn: "2025-12-31" };
-    const example: OperatingAnalysisInput = {
+    const example = {
       ticker: ticker.toUpperCase(), baseYear: 2025, informationCutoff: "2025-12-31", currency: "CNY", scale: "millions",
-      openingSource: source, forecastSource: source, openingNoa: 1000, netFinancialObligations: -30,
+      openingSource: source, forecastSource: source,
+      openingBalance: { periodEnd: "2025-12-31", operatingAssets: 1200, operatingLiabilities: 200,
+        financialAssets: 80, financialLiabilities: 50, minorityBookEquity: 12, parentBookEquity: 1018 },
       minorityInterest: 12, shares: 100, wacc: 0.095, terminalGrowth: 0.028,
-      forecast: [
-        { year: 2026, afterTaxOperatingIncome: 116, closingNoa: 1040 },
-        { year: 2027, afterTaxOperatingIncome: 123, closingNoa: 1090 },
+      forecastDrivers: [
+        { year: 2026, assetTurnover: 1.2, segments: [{ name: "主营业务", revenue: 1200, afterTaxOperatingMargin: 0.10 }] },
+        { year: 2027, assetTurnover: 1.25, segments: [{ name: "主营业务", revenue: 1300, afterTaxOperatingMargin: 0.105 }] },
       ],
       scenarios: { simulation: { samples: 10000, seed: 42, waccStd: 0.01, growthStd: 0.006, minimumSpread: 0.01 } },
     };
@@ -210,7 +232,13 @@ export default function OperatingValuationPanel({ ticker, companyId, publication
       const response = await fetch(endpoint, { cache: "no-store", signal: AbortSignal.timeout(10000) });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error);
-      edit(JSON.stringify(body.input, null, 2));
+      const editable = { ...body.input };
+      if (editable.forecastDrivers) delete editable.forecast;
+      if (editable.openingBalance) {
+        delete editable.openingNoa;
+        delete editable.netFinancialObligations;
+      }
+      edit(JSON.stringify(editable, null, 2));
     } catch {
       setError("读取已发布底稿失败");
     } finally {
@@ -241,7 +269,7 @@ export default function OperatingValuationPanel({ ticker, companyId, publication
   return (
     <Card title="经营价值勾稽 · FCFF / ReOI / AOIG" className="mb-4">
       <Space orientation="vertical" size="middle" className="w-full">
-        <Text type="secondary">使用年度税后经营利润和期末净经营资产（NOA）复算。金额与股数使用同一数量级，9.5% 填 0.095。</Text>
+        <Text type="secondary">可导入年度税后经营利润和期末净经营资产，也可由分部收入、利润率和资产周转率生成。金额与股数使用同一数量级，9.5% 填 0.095。</Text>
         {publication && <Text>已发布底稿 {publication.revision.slice(0, 12)} · 估值锚点 {publication.valuationDate} · 资料截止 {publication.informationCutoff}</Text>}
         <Collapse items={[{
           key: "input",

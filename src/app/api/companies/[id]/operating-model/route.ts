@@ -3,11 +3,11 @@ import { z } from "zod";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
 import { idSchema } from "@/lib/agent/schemas";
 import { getOperatingPublication, getOperatingRevision, publishOperatingModel } from "@/lib/operating-model-store";
-import { operatingAnalysisSchema } from "@/lib/operating-scenarios";
+import { operatingModelInputSchema } from "@/lib/operating-model-input";
 
 type Context = { params: Promise<{ id: string }> };
 const publishSchema = z.strictObject({
-  input: operatingAnalysisSchema,
+  input: operatingModelInputSchema,
   expectedRevision: z.string().regex(/^[a-f0-9]{64}$/).nullable(),
 });
 
@@ -27,7 +27,10 @@ export async function POST(req: NextRequest, context: Context) {
   if (guard) return guard;
   const id = idSchema.safeParse((await context.params).id);
   const parsed = publishSchema.safeParse(await req.json().catch(() => null));
-  if (!id.success || !parsed.success) return jsonError("公司编号或经营估值输入无效", 422);
+  if (!id.success) return jsonError("公司编号无效", 422);
+  if (!parsed.success) {
+    return jsonError(parsed.error.issues.slice(0, 6).map(({ path, message }) => `${path.join(".")} ${message}`).join("；"), 422);
+  }
   const result = await publishOperatingModel(id.data, parsed.data.input, parsed.data.expectedRevision);
   if ("error" in result) {
     if (result.error === "conflict") return jsonError("主估值已更新，请重新加载当前底稿", 409);

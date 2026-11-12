@@ -2,7 +2,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { prisma } from "./prisma";
 import { calculateOperatingValuation } from "./operating-valuation";
-import { operatingAnalysisSchema, type OperatingAnalysisInput } from "./operating-scenarios";
+import { operatingModelInputSchema, type OperatingModelInput } from "./operating-model-input";
 import { operatingPublicationSchema, type OperatingPublication } from "./primary-valuation";
 
 export const activeOperatingKey = (id: string) => `operating_model_active:${id}`;
@@ -20,13 +20,14 @@ export async function getOperatingPublication(companyId: string) {
 
 export async function getOperatingRevision(companyId: string, revision: string) {
   const row = await prisma.appSetting.findUnique({ where: { key: operatingRevisionPrefix(companyId) + revision } });
-  return row ? operatingAnalysisSchema.parse(JSON.parse(row.value)) : null;
+  return row ? operatingModelInputSchema.parse(JSON.parse(row.value)) : null;
 }
 
-export async function publishOperatingModel(companyId: string, input: OperatingAnalysisInput, expectedRevision: string | null) {
+export async function publishOperatingModel(companyId: string, input: OperatingModelInput, expectedRevision: string | null) {
   const result = calculateOperatingValuation(input);
   const serialized = JSON.stringify(input);
-  const revision = createHash("sha256").update(result.model).update("\0").update(serialized).digest("hex");
+  const inputVersion = input.openingBalance || input.forecastDrivers ? "operating-drivers-v1" : result.model;
+  const revision = createHash("sha256").update(inputVersion).update("\0").update(serialized).digest("hex");
   const scale = { ones: 1, millions: 1e6, hundredMillions: 1e8 }[input.scale];
   if (!result.reconciliation.passed) return { error: "reconciliation" } as const;
 
