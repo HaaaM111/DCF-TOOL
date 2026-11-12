@@ -14,7 +14,7 @@
 
 ## 同行比较
 
-报告与估值智能体调用同一同行服务。科博达用汽车电子业务相关的德赛西威、华阳集团和均胜电子。其他 A 股标的按已记录的细分行业精确匹配。同行使用同一收盘日、不复权 A 股收盘价、同一年度报告及人民币口径。市值按 A 股收盘价乘年报总股本估算，双重上市公司存在价差，股本变动后也需要复核。PE 使用归母净利润，PB 使用归母净资产，PS 使用营业收入。每种倍数需三家有效同行，估值以中位数为主。缺少归母口径、净现金或其他所需字段时显示数据不足。
+报告与估值智能体调用同一同行服务。科博达用汽车电子业务相关的德赛西威、华阳集团和均胜电子。其他 A 股标的按已记录的细分行业精确匹配。同行使用同一收盘日、不复权 A 股收盘价、同一年度报告及人民币口径。北京时间 15:00 前使用最近已收盘的日线。市值按 A 股收盘价乘年报总股本估算，双重上市公司存在价差，股本变动后也需要复核。PE 使用归母净利润，PB 使用归母净资产，PS 使用营业收入。每种倍数需三家有效同行，估值以中位数为主。缺少归母口径、净现金或其他所需字段时显示数据不足。
 
 底稿中的 EV/次年税后经营利润与 EV/基期 NOA 使用明确的市值日、资料日期和同行名单，可选中位数折价。这两个倍数按经营价值桥接回股权价值。导入文件中的同行说明由使用者提供。
 
@@ -26,9 +26,10 @@
 | [Investor’s Last Exam，2026 年 10 月预印本](https://arxiv.org/abs/2610.38342) | 把资料可得日、市场日期和估值锚点显式写入估值底稿，标注事后复算。 |
 | [FinFIRST，2026 年 9 月预印本](https://arxiv.org/abs/2609.25192) | 对齐证券、币种、期间和定义，逐个展示同行筛选原因及行情与财务来源。 |
 | [Forma，2026 年 8 月预印本](https://arxiv.org/abs/2608.11327) | 借鉴会计勾稽和场景一致性的思路，收入冲击同时影响经营利润和营运资产。 |
+| [Nissim 与 Penman 的财务比率与权益估值研究](https://business.columbia.edu/faculty/research/ratio-analysis-and-equity-valuation-research-practice) | 从经营与融资分解出发，用经营资产、剩余经营收益及现金流交叉核对。 |
 | [Damodaran 的估值示例](https://pages.stern.nyu.edu/~adamodar/pdfiles/eqnotes/dcfegs.pdf)与[可比倍数讲义](https://pages.stern.nyu.edu/adamodar/New_Home_Page/lectures/multintr.htm) | 对模型驱动因子抽样，用可比公司的估值中位数作主要口径。 |
 | [Financial Modeling Agent](https://github.com/Ocisly14/financial_modeling_agent) | 借鉴财报、假设、计算与敏感性分层。模型和 API 保留为 TypeScript，智能体消费确定性工具结果。 |
-| [OpenBB Platform](https://docs.openbb.co/platform) | 借鉴数据提供方适配与统一输出，让页面和智能体共享同行数据核验。 |
+| [OpenBB Platform](https://docs.openbb.co/odp/python/concepts/extensions) | 借鉴数据提供方适配与统一输出，让页面和智能体共享同行数据核验。 |
 
 ## 本地验证
 

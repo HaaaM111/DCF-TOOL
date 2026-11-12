@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { analyzeOperatingValuation, operatingAnalysisSchema, workbookScenarioPrice } from "../src/lib/operating-scenarios";
-import { selectPeerCandidates } from "../src/lib/peer-selection";
+import { mainlandCloseWindow, selectPeerCandidates } from "../src/lib/peer-selection";
 
 const data = {
   ticker: "100001.SH", baseYear: 2025, informationCutoff: "2026-04-30", currency: "CNY", scale: "millions",
@@ -60,4 +60,9 @@ test("peer selection uses the reviewed Koboda group and excludes mismatched sect
   ];
   assert.deepEqual(selectPeerCandidates({ ticker: "603786.SH", industry: "" }, candidates).map((p) => p.ticker), ["002920.SZ", "002906.SZ", "600699.SH"]);
   assert.deepEqual(selectPeerCandidates({ ticker: data.ticker, industry: "汽车零部件" }, candidates).map((p) => p.ticker), ["100002.SZ"]);
+});
+
+test("mainland quote window excludes today's daily bar before the close", () => {
+  assert.deepEqual(mainlandCloseWindow(new Date("2026-11-12T06:59:59Z")), { start: "2026-11-01", end: "2026-11-11" });
+  assert.deepEqual(mainlandCloseWindow(new Date("2026-11-12T07:00:00Z")), { start: "2026-11-02", end: "2026-11-12" });
 });

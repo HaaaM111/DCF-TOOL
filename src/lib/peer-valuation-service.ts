@@ -4,7 +4,7 @@ import { getIndustryPeers } from "./ifind-client";
 import { prisma } from "./prisma";
 import { compareMultiples, type Comparable } from "./relative-multiples";
 import { readMetrics } from "./financial-metrics";
-import { normalizeIndustry, selectPeerCandidates, type PeerCandidate } from "./peer-selection";
+import { mainlandCloseWindow, normalizeIndustry, selectPeerCandidates, type PeerCandidate } from "./peer-selection";
 
 type Company = { id: string; ticker: string; name: string; industry: string };
 
@@ -48,8 +48,7 @@ export async function calculatePeerValuation(company: Company) {
   let quoteDate: string | null = null;
   let sources: { financial: string; quote: string } | null = null;
   if (candidates.length) {
-    const end = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Shanghai" }).format(new Date());
-    const start = new Date(Date.parse(end) - 10 * 86400000).toISOString().slice(0, 10);
+    const { start, end } = mainlandCloseWindow(new Date());
     const snapshot = await readSnapshot(ticker, company.name, start, end, company.id).catch(() => null);
     if (snapshot) {
       period = snapshot.reportDate;

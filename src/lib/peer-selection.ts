@@ -9,6 +9,15 @@ const kobodaPeers: PeerCandidate[] = [
 export const isMainlandTicker = (ticker: string) => /^(\d{6}\.(SH|SZ))$/.test(ticker);
 export const normalizeIndustry = (industry: string) => industry.normalize("NFKC").trim().replace(/\s+/g, "");
 
+export function mainlandCloseWindow(now: Date) {
+  const [date, time] = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Asia/Shanghai", dateStyle: "short", timeStyle: "short", hourCycle: "h23",
+  }).format(now).split(" ");
+  const day = Date.parse(date);
+  const end = time < "15:00" ? day - 86400000 : day;
+  return { start: new Date(end - 10 * 86400000).toISOString().slice(0, 10), end: new Date(end).toISOString().slice(0, 10) };
+}
+
 export function selectPeerCandidates(subject: { ticker: string; industry: string }, pool: {
   ticker: string; name: string; industry: string;
 }[]) {
