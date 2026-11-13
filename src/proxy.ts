@@ -18,7 +18,7 @@ export async function proxy(req: NextRequest) {
     if (isApi) return NextResponse.json({ error: "需要登录" }, { status: 401, headers });
     const login = new URL("/login", req.url);
     if (pathname !== "/") login.searchParams.set("next", pathname + search);
-    return new NextResponse(null, { status: 303, headers: { ...headers, Location: login.pathname + login.search } });
+    return NextResponse.redirect(login, { status: 303, headers });
   }
 
   if ((isApi || !["GET", "HEAD", "OPTIONS"].includes(req.method)) && !permitsRequestOrigin(req)) {

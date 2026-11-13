@@ -143,7 +143,8 @@ const expected = JSON.parse(fs.readFileSync('deployment-state/database-counts.js
   const anonymous = await fetch('http://127.0.0.1:3000/api/companies');
   if (anonymous.status !== 401) throw Error('Authentication failed');
   const dashboard = await fetch('http://127.0.0.1:3000/dashboard', { redirect: 'manual' });
-  if (dashboard.status !== 303 || !dashboard.headers.get('location')?.startsWith('/login?')) throw Error('Login redirect failed');
+  const loginDestination = new URL(dashboard.headers.get('location') ?? '/', 'http://127.0.0.1:3000');
+  if (dashboard.status !== 303 || loginDestination.pathname !== '/login' || loginDestination.searchParams.get('next') !== '/dashboard') throw Error('Login redirect failed');
   const routes = ['/dashboard', '/agent', '/announcements', '/valuation/new'];
   const company = companies[0];
   if (company) {
