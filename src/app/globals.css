@@ -20,6 +20,7 @@
   --text-primary: #0F172A;    /* 主文字 */
   --text-secondary: #64748B;  /* 次要文字 */
   --text-muted: #94A3B8;      /* 弱化文字 */
+  --terminal-accent: #2563eb;
 }
 
 /* 深色模式 */
@@ -397,7 +398,7 @@ body {
 
 /* Incremental terminal theme and responsive presentation. */
 :root {--brand-indigo:#3b82f6;--brand-deep:#2563eb;}
-.dark {--bg:#0f1117;--card-bg:#1a1d27;--border:#2d3748;--text-primary:#e5e7eb;--text-secondary:#9ca3af;--text-muted:#9ca3af;color-scheme:dark;}
+.dark {--bg:#0f1117;--card-bg:#1a1d27;--border:#2d3748;--text-primary:#e5e7eb;--text-secondary:#9ca3af;--text-muted:#9ca3af;--terminal-accent:#3b82f6;color-scheme:dark;}
 html,body{max-width:100%;overflow-x:clip;}
 .font-mono-num,.ant-statistic-content,.ant-table-cell[align=right]{font-family:var(--font-terminal-mono),Consolas,monospace!important;font-variant-numeric:tabular-nums;}
 .terminal-kpis>.ant-col{flex:1 1 180px!important;max-width:none!important;}

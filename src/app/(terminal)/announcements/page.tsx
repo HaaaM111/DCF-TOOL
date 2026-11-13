@@ -488,7 +488,7 @@ export default function AnnouncementsPage() {
         actions={
           <Button
             icon={<RobotOutlined />}
-            href={companyId ? `/agent?companyId=${encodeURIComponent(companyId)}` : "/agent"}
+            onClick={() => router.push(companyId ? "/agent?companyId=" + encodeURIComponent(companyId) : "/agent")}
           >
             智能体分析
           </Button>

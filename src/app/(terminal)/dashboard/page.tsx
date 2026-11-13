@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import {
   Card,
   Row,
@@ -93,6 +94,7 @@ const fmtPct = (n: number, d = 1) =>
   Number.isFinite(n) ? `${n >= 0 ? "+" : ""}${n.toFixed(d)}%` : "-";
 
 export default function DashboardPage() {
+  const router = useRouter();
   const [companies, setCompanies] = useState<Company[]>([]);
   const [baselineCompanies, setBaselineCompanies] = useState<BaselineCompany[]>([]);
   const [baselineLoading, setBaselineLoading] = useState(true);
@@ -354,14 +356,14 @@ export default function DashboardPage() {
           <Button
             size="small"
             type="link"
-            href={`/report/${encodeURIComponent(r.id)}`}
+            onClick={() => router.push("/company/" + encodeURIComponent(r.ticker))}
           >
             详情
           </Button>
           <Button
             size="small"
             type="link"
-            href={`/model/edit?id=${encodeURIComponent(r.id)}`}
+            onClick={() => router.push("/model/edit?id=" + encodeURIComponent(r.id))}
           >
             改假设
           </Button>
@@ -488,7 +490,7 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen">
-      {/* 顶部品牌栏 */}
+      {/* 看板操作 */}
       <AppHeader
         title="DCF 估值穿透与弹性空间测算终端"
         subtitle="正向 20 年 DCF 内在价值 + 逆向终局利润 L 反算 · 安全：服务端二次校验"
@@ -507,7 +509,7 @@ export default function DashboardPage() {
             <Button
               type="primary"
               icon={<PlusOutlined />}
-              href="/model/edit"
+              onClick={() => router.push("/valuation/new")}
             >
               新增估值标的
             </Button>

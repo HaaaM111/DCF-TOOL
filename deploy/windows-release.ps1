@@ -53,6 +53,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Portable runtime failed' }
 
 # Keep provider credentials in a protected server-side file. SQLite paths stay absolute.
 $configuration = [IO.File]::ReadAllText((Resolve-Path -LiteralPath $ConfigurationFile).ProviderPath)
+if ($configuration -notmatch '(?m)^\s*APP_SESSION_SECRET\s*=\s*\S+') { throw 'Private configuration must include APP_SESSION_SECRET' }
 $productionDatabases = @{
     DATABASE_URL = 'file:' + $ProductionRoot.Replace('\', '/') + '/prisma/user.db'
     BASELINE_DATABASE_URL = 'file:' + $ProductionRoot.Replace('\', '/') + '/prisma/baseline.db?mode=ro'
@@ -118,22 +119,39 @@ const fs = require('node:fs');
 const { parseEnv } = require('node:util');
 const env = parseEnv(fs.readFileSync('.env.local', 'utf8'));
 const expected = JSON.parse(fs.readFileSync('deployment-state/database-counts.json', 'utf8'));
-const headers = { authorization: 'Basic ' + Buffer.from('admin:' + env.APP_ACCESS_PASSWORD).toString('base64') };
 (async () => {
-  let response;
+  let login;
   for (let attempt = 0; attempt < 30; attempt++) {
-    try { response = await fetch('http://127.0.0.1:3000/api/companies', { headers, signal: AbortSignal.timeout(2000) });
-      if (response.ok) break;
+    try {
+      login = await fetch('http://127.0.0.1:3000/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: 'admin', password: env.APP_ACCESS_PASSWORD }),
+        signal: AbortSignal.timeout(2000),
+      });
+      if (login.ok) break;
     } catch {}
     await new Promise(resolve => setTimeout(resolve, 500));
   }
+  const cookie = login?.headers.get('set-cookie')?.split(';')[0];
+  if (!login?.ok || !cookie?.startsWith('__Host-valueinsight-session=')) throw Error('Session login failed');
+  const headers = { cookie };
+  const response = await fetch('http://127.0.0.1:3000/api/companies', { headers, signal: AbortSignal.timeout(5000) });
   if (!response?.ok) throw Error('Authenticated API failed');
   const { companies } = await response.json();
   if (!Array.isArray(companies) || companies.length !== expected.user.Company) throw Error('Database count mismatch');
   const anonymous = await fetch('http://127.0.0.1:3000/api/companies');
   if (anonymous.status !== 401) throw Error('Authentication failed');
-  for (const route of ['/dashboard', '/agent']) {
-    const page = await fetch('http://127.0.0.1:3000' + route, { headers });
+  const dashboard = await fetch('http://127.0.0.1:3000/dashboard', { redirect: 'manual' });
+  if (dashboard.status !== 303 || !dashboard.headers.get('location')?.startsWith('/login?')) throw Error('Login redirect failed');
+  const routes = ['/dashboard', '/agent', '/announcements', '/valuation/new'];
+  const company = companies[0];
+  if (company) {
+    const report = '/company/' + encodeURIComponent(company.ticker);
+    routes.push(report, report + '/sensitivity', report + '/ai-attribution');
+  }
+  for (const route of routes) {
+    const page = await fetch('http://127.0.0.1:3000' + route, { headers, signal: AbortSignal.timeout(10000) });
     if (!page.ok) throw Error('Page check failed');
     await page.arrayBuffer();
   }

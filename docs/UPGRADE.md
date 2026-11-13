@@ -5,15 +5,27 @@
 **安全与兼容升级**
 
 - Next.js 14 → 16.4.6、React 19、AI SDK 7；原版本及初选SDK版本线有安全公告，因此升级对应依赖和异步Route参数。Node要求≥22。
-- `src/proxy.ts`：浏览器Basic登录，用户名admin，密码由服务端`APP_ACCESS_PASSWORD`设置。生产环境未配置密码返回503；开发环境无密码时配置管理接口关闭。使用HTTPS反代部署。
+- `src/proxy.ts` 保护页面和 API，浏览器从 `/login` 登录，账号为 `admin`。服务端需要 `APP_ACCESS_PASSWORD` 和独立的 `APP_SESSION_SECRET`。缺少配置时拒绝访问。生产使用 HTTPS 反代。
+
 - `src/lib/security/urls.ts`：HTTPS精确主机白名单、DNS地址检查和连接地址固定、禁止重定向及私网请求。新增提供商由服务器`LLM_ALLOWED_HOSTS`配置，文档主机单独配置。
 - `src/lib/llm-gateway.ts`：凭据与端点整组选择、默认30秒超时、统一服务不可用降级，支持`LLM_MODEL_NAME`；不显示reasoning_content，不透传供应商错误体。
 - `src/lib/request-schema.ts`和端点schema：Zod、请求体上限、路径/查询/文本/列表限制及危险属性拒绝。配置保存保留未提交字段，变更端点要求新密钥，事务写入。
 - 补充指标、运行轨迹和扩展估值结果复用现有AppSetting JSON存储，避免迁移旧SQLite数据库；旧ValidationResult有效记录继续兼容写入。
 
+### App Shell 验收
+
+在当前工作树设置本地 `.env.local`。保留既有 SQLite 配置，填写 `APP_ACCESS_PASSWORD`，并按 `.env.example` 的命令生成独立的 `APP_SESSION_SECRET`。运行 `npm run dev`，打开 `http://localhost:3000/dashboard`。本地预览使用浏览器的 localhost 安全上下文，生产入口使用 HTTPS。
+
+- 未登录打开内部路径应跳转到登录页，认证后返回原路径。密码错误时应显示表单错误。
+- 看板左侧导航应可在 240 与 64 像素之间切换。窄屏保留图标栏，并可打开导航抽屉。
+- 看板的「详情」进入标的报告。横向页签可切换估值摘要、估值模型、敏感性分析、同行对比、AI 归因和复盘记录。设置页仍为占位页面。
+- 在顶部账户菜单退出后，再访问内部页面应返回登录页。调用受保护的 API 会收到 401。
+
+部署健康检查现通过登录 API 取得会话 Cookie。使用旧版生产启动脚本的部署环境需要同步更新脚本和服务端配置。
+
 **智能体模块**
 
-`src/lib/agent/{schemas,roles,tools,route-handler,grounding,document-tool}.ts`；入口仍是`src/app/api/agent/chat/route.ts`，前端仍是`src/app/agent/page.tsx`。
+`src/lib/agent/{schemas,roles,tools,route-handler,grounding,document-tool}.ts`；入口仍是`src/app/api/agent/chat/route.ts`，前端是`src/app/(terminal)/agent/page.tsx`。
 
 假设分析师先读取后端工具观察，只输出结构化审视与证据缺口。估值执行者使用AI SDK工具循环，默认5轮、最大10轮、单次LLM默认30秒、运行预算90秒，支持取消。工具参数经Zod校验，估值使用绑定公司的已保存参数，不允许模型改写基础数据。用户最新问题已修复为实际发送给后端。
 
@@ -58,7 +70,7 @@ npm run dev
 
 自动测试覆盖金融边界、安全校验、SDK 五轮终止、多工具配对与 UI 消息协议。2026-11-11 的服务器隔离预览已完成真实 iFinD 财务接口、讯飞固定提示词，以及纯虚构标的的双角色交接、DCF 工具执行和流式输出联调。视觉模型尚未配置，其工具返回实验性不可用。多模态提取精度与因果解释质量仍需专项评估。
 
-Windows 正式发布使用 `deploy/windows-release.ps1`。在本机构建 standalone 包，在服务器按 Git 提交创建版本目录，保留 SQLite 文件路径，切换既有 NSSM 服务。脚本在切换前备份两套数据库和服务配置，健康检查失败时恢复原服务配置。应用绑定回环地址，按已确认的 SSH 隧道方案访问。包内必须排除 `.env*` 和数据库文件，配置通过服务器私有文件提供。
+Windows 正式发布使用 `deploy/windows-release.ps1`。在本机构建 standalone 包，在服务器按 Git 提交创建版本目录，保留 SQLite 文件路径，切换既有 NSSM 服务。脚本在切换前备份两套数据库和服务配置，健康检查失败时恢复原服务配置。应用绑定回环地址，通过既有 HTTPS 反向代理访问。包内必须排除 `.env*` 和数据库文件，配置通过服务器私有文件提供。
 
 Windows 打包命令为 `node scripts/package-windows-release.mjs <40位提交SHA> .next-standalone`，构建时设置 `NEXT_BUILD_DIR=.next-standalone`。在项目根目录运行，产物写入已忽略的 `.release-windows`。服务器发布脚本接收提交 SHA、压缩包 SHA256、压缩包路径和私有配置文件路径，运行环境为管理员 PowerShell 与已有 NSSM 服务。
 

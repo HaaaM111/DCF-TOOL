@@ -435,7 +435,7 @@ export default function AgentPage() {
   const activeHistory = history.find((it) => it.company.id === companyId);
 
   return (
-    <div className="agent-shell">
+    <div className="agent-shell" style={{ height: "calc(100dvh - 3.5rem)" }}>
       <AppHeader
         title="智能体对话"
         subtitle="绑定标的 · 基于 DCF 假设与公告信号问答 · 可要求重新拉取公告"
@@ -458,7 +458,7 @@ export default function AgentPage() {
 
         {/* 左侧：历史记录 */}
         <aside
-          className={`agent-sidebar fixed z-30 left-0 top-16 bottom-0 transition-transform duration-200 md:static md:top-0 md:z-auto md:translate-x-0 ${
+          className={`agent-sidebar absolute inset-y-0 left-0 z-30 max-w-full transition-transform duration-200 md:static md:z-auto md:translate-x-0 ${
             mobileOpen ? "translate-x-0" : "-translate-x-full"
           }`}
         >

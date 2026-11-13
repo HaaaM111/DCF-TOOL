@@ -11,6 +11,14 @@ const config: Config = {
       colors: {
         background: "var(--background)",
         foreground: "var(--foreground)",
+        terminal: {
+          canvas: "var(--bg)",
+          surface: "var(--card-bg)",
+          line: "var(--border)",
+          ink: "var(--text-primary)",
+          muted: "var(--text-secondary)",
+          accent: "var(--terminal-accent)",
+        },
       },
     },
   },
