@@ -1,5 +1,4 @@
 "use client";
-import { readUIMessageStream } from "ai";
 
 /**
  * 智能体对话页 —— 独立智能体页面
@@ -30,6 +29,7 @@ import {
   MessageOutlined,
 } from "@ant-design/icons";
 import AppHeader from "@/components/app-header";
+import { readAgentReply } from "@/lib/agent/read-reply";
 
 const { Paragraph, Text } = Typography;
 
@@ -100,9 +100,9 @@ export default function AgentPage() {
   ]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
-  const [toolStatus,setToolStatus]=useState("");
-  const sendController=useRef<AbortController|null>(null);
-  useEffect(()=>()=>sendController.current?.abort(),[]);
+  const [toolStatus, setToolStatus] = useState("");
+  const sendController = useRef<AbortController | null>(null);
+  useEffect(() => () => sendController.current?.abort(), []);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -279,8 +279,15 @@ export default function AgentPage() {
     }
   }, [companies, loadConversations]);
 
-  const onCompanyChange = (v: string) => {
+  const cancelSend = () => {
     sendController.current?.abort();
+    sendController.current = null;
+    setSending(false);
+    setToolStatus("");
+  };
+
+  const onCompanyChange = (v: string) => {
+    cancelSend();
     setCompanyId(v);
     setMobileOpen(false);
     loadConversations(v);
@@ -288,7 +295,7 @@ export default function AgentPage() {
 
   /** 新对话：清除当前标的与消息，回到欢迎态 */
   const newChat = () => {
-    sendController.current?.abort();
+    cancelSend();
     setCompanyId(undefined);
     setMessages([{ role: "assistant", content: DEFAULT_WELCOME }]);
     setInput("");
@@ -302,43 +309,46 @@ export default function AgentPage() {
 
   const handleSend = async () => {
     const text = input.trim();
-    if (!text || sending) return;
+    if (!text || sendController.current) return;
     if (!companyId) {
       message.warning("请先选择标的");
       return;
     }
+    const controller = new AbortController();
+    const isCurrent = () => sendController.current === controller && !controller.signal.aborted;
+    sendController.current = controller;
     const history = [...messages, { role: "user" as const, content: text }];
     setMessages(history);
     setInput("");
     setSending(true);
     try {
       const apiMsgs = history.slice(-20).map((m) => ({ role: m.role, content: m.content }));
-      sendController.current=new AbortController();
       const res = await fetch("/api/agent/chat", {
-        signal:sendController.current.signal,
+        signal: controller.signal,
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ companyId, messages: apiMsgs }),
       });
-      if(!res.ok || !res.body){const data=await res.json();throw Error(data.error||"分析服务暂时不可用，请稍后重试");}
-      setMessages(prev=>[...prev,{role:"assistant",content:""}]);
-      // AI SDK UI protocol carries text and transient tool states together.
-      const reader=res.body.getReader();const decoder=new TextDecoder();let buffer="";
-      const events=new ReadableStream<import("ai").UIMessageChunk>({async start(controller){
-        try{while(true){const {done,value}=await reader.read();if(done)break;buffer+=decoder.decode(value,{stream:true});let i;
-          while((i=buffer.indexOf("\n\n"))>=0){const frame=buffer.slice(0,i);buffer=buffer.slice(i+2);for(const line of frame.split("\n")){if(!line.startsWith("data: "))continue;const raw=line.slice(6);if(raw==="[DONE]")continue;const chunk=JSON.parse(raw);if(chunk.type==="data-status")setToolStatus(chunk.data.label);if(chunk.type==="error")throw Error(chunk.errorText);controller.enqueue(chunk);}}
-        }controller.close();}catch(error){controller.error(error);}finally{reader.releaseLock();}
-      },cancel(){sendController.current?.abort();return reader.cancel();}});
-      for await(const update of readUIMessageStream({stream:events,terminateOnError:true})){
-        const content=update.parts.filter((part):part is import("ai").TextUIPart=>part.type==="text").map(part=>part.text).join("");
-        setMessages(prev=>[...prev.slice(0,-1),{role:"assistant",content}]);
-      }
-      refreshOne(companyId);
+      if (!res.ok || !res.body) throw new Error("Agent request failed");
+
+      await readAgentReply(
+        res.body,
+        (content) => {
+          if (isCurrent()) setMessages([...history, { role: "assistant", content }]);
+        },
+        (label) => {
+          if (isCurrent()) setToolStatus(label);
+        },
+      );
+      if (isCurrent()) void refreshOne(companyId);
     } catch {
-      message.error("请求失败，请稍后重试");
+      if (isCurrent()) message.error("请求失败，请稍后重试");
     } finally {
-      setSending(false);
-      setToolStatus("");
+      if (isCurrent()) {
+        sendController.current = null;
+        setSending(false);
+        setToolStatus("");
+      }
     }
   };
 

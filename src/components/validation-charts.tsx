@@ -26,7 +26,7 @@ export function PeerCompareChart({ methods }: {
       }),
     })),
   };
-  return <ReactECharts className="chart-settle" option={option} style={{ height: 280 }} />;
+  return <ReactECharts option={option} style={{ height: 280 }} />;
 }
 
 /**
@@ -184,5 +184,5 @@ export function SensitivityHeatmap({
     ],
   };
 
-  return <ReactECharts className="chart-settle" option={option} style={{ width: "100%", height: 360 }} notMerge lazyUpdate />;
+  return <ReactECharts option={option} style={{ width: "100%", height: 360 }} notMerge lazyUpdate />;
 }

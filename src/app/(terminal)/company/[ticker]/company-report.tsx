@@ -27,10 +27,8 @@ import {
   CopyOutlined,
   PlusOutlined,
   DeleteOutlined,
-  EditOutlined,
 } from "@ant-design/icons";
 import { useRouter } from "next/navigation";
-import AppHeader from "@/components/app-header";
 import OperatingValuationPanel from "@/components/operating-valuation-panel";
 import { ValueDonut, FcfBars, TrendChart, ConfidenceChart } from "@/components/charts";
 import {
@@ -400,86 +398,60 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
 
   return (
     <div className="min-w-0">
-      <AppHeader
-        title={`${c.name}（${c.ticker}）`}
-        subtitle="深度估值穿透与内在价值拆解报告"
-        actions={
-          <Button
-            icon={<EditOutlined />}
-            onClick={() => router.push("/model/edit?id=" + encodeURIComponent(id))}
-          >
-            改假设
-          </Button>
-        }
-      />
-      <div className="min-w-0 pt-4">
+      <div className="min-w-0">
       {overview && <>
       {/* 核心指标卡 */}
-      <div className="terminal-kpis mb-4 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+      <div className="market-strip research-strip mb-3 grid grid-cols-2 overflow-hidden rounded-md border border-terminal-line bg-terminal-surface sm:grid-cols-3 xl:grid-cols-5">
 
-          <Card>
+          <div className="research-metric min-w-0">
             <Statistic title="当前股价 / 市值" value={c.currentPrice} precision={2} prefix="¥" />
-            <div className="text-xs text-slate-400">{c.marketCap.toFixed(1)} 亿 ｜ 总股本 {c.shares} 亿股</div>
-          </Card>
+            <div className="text-xs text-terminal-muted">{c.marketCap.toFixed(1)} 亿 ｜ 总股本 {c.shares} 亿股</div>
+          </div>
 
-          <Card>
-            <Statistic
-              title="同日隐含上行空间"
-              value={c.upside ?? "—"}
-              precision={1}
-              suffix={c.upside === null ? undefined : "%"}
-              prefix={c.upside !== null && c.upside >= 0 ? "+" : ""}
-            />
-            <div className="text-xs text-slate-400">{c.upside !== null ? publication?.valuationDate : "需同日收盘价及当时可得资料"}</div>
-          </Card>
-
-          <Card>
+          <div className="research-metric min-w-0">
             <Statistic
               title={publication ? "已发布经营估值" : primary.kind === "legacy" ? "简化估值参考" : "主估值待核验"}
               value={c.targetPrice ?? "—"}
               precision={2}
               suffix={c.targetPrice === null ? undefined : `${publication?.currency ?? "CNY"}/股`}
-              styles={{ content: { color: "#2563eb" } }}
             />
-            {publication && <div className="text-xs text-slate-400">
+            {publication && <div className="text-xs text-terminal-muted">
               {publication.retrospective ? "事后复算" : "经营估值"} · {publication.valuationDate}
             </div>}
-          </Card>
+          </div>
 
-          <Card>
-            <Statistic title={publication ? "经营估值 WACC" : "WACC 资本结构诊断"} value={publication ? publication.wacc * 100 : c.assumption ? (reviewAssumptions(c.assumption,c).wacc ?? c.assumption.ke)*100 : "—"} precision={2} suffix="%" styles={{ content: { color: "#7c3aed" } }} />
-            {!publication && <div className="text-xs text-slate-400">Ke {((c.forwardKe ?? 0) * 100).toFixed(1)}% ｜ Kd 税后 {(c.kd * (1 - c.taxRate) * 100).toFixed(2)}%</div>}
-          </Card>
+          <div className="research-metric min-w-0">
+            <Statistic
+              title="同日隐含上行空间"
+              value={c.upside ?? "—"}
+              precision={1}
+              suffix={c.upside === null ? undefined : "%"}
+              prefix={c.upside !== null && c.upside > 0 ? "+" : ""}
+              styles={{ content: { color: c.upside === null || c.upside === 0 ? undefined : c.upside > 0 ? "var(--pos-green)" : "var(--neg-red)" } }}
+            />
+            <div className="text-xs text-terminal-muted">{c.upside !== null ? publication?.valuationDate : "需同日收盘价及当时可得资料"}</div>
+          </div>
 
-          <Card>
+          <div className="research-metric min-w-0">
+            <Statistic title={publication ? "经营估值 WACC" : "WACC 资本结构诊断"} value={publication ? publication.wacc * 100 : c.assumption ? (reviewAssumptions(c.assumption,c).wacc ?? c.assumption.ke)*100 : "—"} precision={2} suffix="%" />
+            {!publication && <div className="text-xs text-terminal-muted">Ke {((c.forwardKe ?? 0) * 100).toFixed(1)}% ｜ Kd 税后 {(c.kd * (1 - c.taxRate) * 100).toFixed(2)}%</div>}
+          </div>
+
+          <div className="research-metric min-w-0">
             <Statistic title={publication ? "终值 / 经营价值" : "派现终值 / 股权价值"}
               value={publication ? publication.terminalValueShare === null ? "—" : publication.terminalValueShare * 100 : f?.composition.total ? f.pvTerminal / f.composition.total * 100 : "—"}
               precision={1} suffix="%" />
-          </Card>
+          </div>
       </div>
 
       {primary.kind !== "operating" && <Alert className="mb-4" type="warning" showIcon title={primary.reason} />}
 
-      {/* 口径对照 */}
-      <Alert
-        className="mb-4"
-        type="info"
-        showIcon
-        title="存量简化模型口径"
-        description={
-          <ul className="mb-0">
-            <li>正向 Y20（{f?.fcfY20.toFixed(1)} 亿）= 基于 baseFcf 按 20 年增长率推演出的第 20 年自由现金流（FCF 口径）。</li>
-            <li>终局利润估计（{(c.terminalProfitEst ?? 0).toFixed(0)} 亿）= 用户对第 20 年净利润的主观判断，用于逆向反算。</li>
-            <li>股东回报口径 = 派现折现 + 留存现金（按 2% 复利累积至第 20 年再折现）+ 净现金。</li>
-          </ul>
-        }
-      />
-
       <div className={g ? "grid items-start gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]" : undefined}>
       {/* 股价 vs DCF 估值趋势图 */}
         <Card
-          title="股价变动与 DCF 估值趋势（双轴 · 可缩放）"
-          extra={<Tag color="blue">左轴：股价 ｜ 右轴：目标价</Tag>}
+          size="small"
+          title="股价走势"
+          extra={<span className="text-xs text-terminal-muted">历史收盘价</span>}
           className="mb-4"
         >
           {prices.length > 0 ? <TrendChart
@@ -494,6 +466,7 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
       {g && (
         <Card
           className="mb-4"
+          size="small"
           title="Gordon 镜像自洽校验"
           extra={
             g.isApplicable === false ? <Tag color="default">不适用</Tag> : g.isConsistent ? (
@@ -561,6 +534,22 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
 
       {section === "models" && <>
       <OperatingValuationPanel key={c.id} ticker={c.ticker} companyId={c.id} publication={publication} onPublished={() => { void load(); }} />
+
+      {/* 口径对照 */}
+      <Alert
+        className="mb-3"
+        type="info"
+        showIcon
+        title="存量简化模型口径"
+        description={
+          <ul className="mb-0">
+            <li>正向 Y20（{f?.fcfY20.toFixed(1)} 亿）= 基于 baseFcf 按 20 年增长率推演出的第 20 年自由现金流（FCF 口径）。</li>
+            <li>终局利润估计（{(c.terminalProfitEst ?? 0).toFixed(0)} 亿）= 用户对第 20 年净利润的主观判断，用于逆向反算。</li>
+            <li>股东回报口径 = 派现折现 + 留存现金（按 2% 复利累积至第 20 年再折现）+ 净现金。</li>
+          </ul>
+        }
+      />
+
 
       {/* 一、正向 DCF 价值拆解 */}
       <Card
@@ -806,7 +795,7 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
               validation.validation.sensitivityHeatmap.length > 0 ? (
                 <SensitivityHeatmap matrix={validation.validation.sensitivityHeatmap} rateLabel={validation.validation.sensitivityRate} currency={validation.validation.sensitivityCurrency} />
               ) : (
-                <div className="text-center py-8 text-slate-400">估值输入待核验</div>
+                <div className="text-center py-8 text-terminal-muted">估值输入待核验</div>
               )}
             </Card>}
           </>
@@ -865,9 +854,9 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
         {c.timeline?.length ? (
           <div className="space-y-3">
             {c.timeline.map((n) => (
-              <div key={n.id} className="p-3 bg-slate-50 rounded-lg border flex justify-between">
+              <div key={n.id} className="flex justify-between rounded-md border border-terminal-line bg-terminal-canvas p-3">
                 <div>
-                  <div className="text-xs text-slate-400">{new Date(n.date).toLocaleDateString()}</div>
+                  <div className="text-xs text-terminal-muted">{new Date(n.date).toLocaleDateString()}</div>
                   <div className="mt-1">{n.content}</div>
                 </div>
                 <Button size="small" danger icon={<DeleteOutlined />} onClick={() => deleteNote(n.id)} />
@@ -898,20 +887,20 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
 
         <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
           <Card size="small" title="扩张性投入代理指标">
-            <div className="text-2xl font-bold text-green-600">{c.da>0 ? `${(Math.max(0,c.capex-c.da)/c.da*100).toFixed(1)}%` : "数据不足"}</div>
-            <div className="text-xs text-slate-500 mt-1">
+            <div className="font-mono text-xl font-semibold txt-pos">{c.da>0 ? `${(Math.max(0,c.capex-c.da)/c.da*100).toFixed(1)}%` : "数据不足"}</div>
+            <div className="text-xs text-terminal-muted mt-1">
               算式：折旧 {c.da.toFixed(0)} 亿（Capex/D&A {(c.capex / c.da).toFixed(2)}）→ 扩张性投入代理值为 max(Capex−D&A,0)/D&A，不能直接等同于可释放现金
             </div>
           </Card>
           <Card size="small" title="首年模型股息 / 市值">
-            <div className="text-2xl font-bold text-green-600">{c.marketCap>0?`${((f?.rows[0]?.dividend??0)/c.marketCap*100).toFixed(1)}%`:"数据不足"}</div>
-            <div className="text-xs text-slate-500 mt-1">
+            <div className="font-mono text-xl font-semibold txt-pos">{c.marketCap>0?`${((f?.rows[0]?.dividend??0)/c.marketCap*100).toFixed(1)}%`:"数据不足"}</div>
+            <div className="text-xs text-terminal-muted mt-1">
               算式：年分红 {(f?.rows[0]?.dividend ?? 0).toFixed(0)} 亿 ÷ 市值 {c.marketCap.toFixed(0)} 亿 = 以上工具计算值
             </div>
           </Card>
           <Card size="small" title="派现终值现值 / 市值">
-            <div className="text-2xl font-bold text-green-600">{c.marketCap>0?`${((f?.pvTerminal??0)/c.marketCap*100).toFixed(1)}%`:"数据不足"}</div>
-            <div className="text-xs text-slate-500 mt-1">
+            <div className="font-mono text-xl font-semibold txt-pos">{c.marketCap>0?`${((f?.pvTerminal??0)/c.marketCap*100).toFixed(1)}%`:"数据不足"}</div>
+            <div className="text-xs text-terminal-muted mt-1">
               算式：第20年FCF {(f?.fcfY20 ?? 0).toFixed(0)} 亿 → 永续终值 {(f?.terminalValue ?? 0).toFixed(0)} 亿（Ke {(c.forwardKe * 100).toFixed(1)}%）→ 折现20年 = {(f?.pvTerminal ?? 0).toFixed(0)} 亿 ÷ 市值 = 以上工具计算值
             </div>
           </Card>

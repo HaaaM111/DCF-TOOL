@@ -22,6 +22,17 @@ function ValuationResult({ result }: { result: OperatingModelAnalysis }) {
   const benchmarkDifference = result.benchmarkDifference;
   return (
     <Space orientation="vertical" size="middle" className="w-full" aria-live="polite">
+      <Descriptions size="small" bordered column={{ xs: 1, sm: 2, lg: 3 }} items={[
+        { key: "fcff", label: "FCFF 折现", children: price(prices.fcff) },
+        { key: "reoi", label: "剩余经营收益", children: price(prices.reoi) },
+        { key: "aoig", label: "异常经营收益增长", children: price(prices.aoig) },
+        { key: "valuation", label: "年末折现锚点", children: result.valuationDate },
+        { key: "cutoff", label: "资料截止日", children: input.informationCutoff },
+        { key: "rates", label: "WACC / 永续 g", children: `${pct.format(input.wacc)} / ${pct.format(input.terminalGrowth)}` },
+        { key: "opening", label: "基期来源", children: `${input.openingSource.name} · ${input.openingSource.availableOn}` },
+        { key: "forecast", label: "预测来源", children: `${input.forecastSource.name} · ${input.forecastSource.availableOn}` },
+        { key: "terminal", label: "终值占经营价值", children: terminal.operatingValueShare === null ? "—" : pct.format(terminal.operatingValueShare) },
+      ]} />
       <Alert
         type={reconciliation.passed ? "success" : "error"}
         title={reconciliation.passed ? "三模型公式勾稽通过" : "三模型公式勾稽失败"}
@@ -53,17 +64,6 @@ function ValuationResult({ result }: { result: OperatingModelAnalysis }) {
         description={`报价日 ${input.quote.date}。市价校验需要同日价格，并使用估值锚点当日已可得的资料。`}
       />}
       {bridge.equityValue <= 0 && <Alert type="warning" showIcon title="模型股权价值为非正值，请复核持续经营假设和权益桥接" />}
-      <Descriptions size="small" bordered column={{ xs: 1, sm: 2, lg: 3 }} items={[
-        { key: "fcff", label: "FCFF 折现", children: price(prices.fcff) },
-        { key: "reoi", label: "剩余经营收益", children: price(prices.reoi) },
-        { key: "aoig", label: "异常经营收益增长", children: price(prices.aoig) },
-        { key: "valuation", label: "年末折现锚点", children: result.valuationDate },
-        { key: "cutoff", label: "资料截止日", children: input.informationCutoff },
-        { key: "rates", label: "WACC / 永续 g", children: `${pct.format(input.wacc)} / ${pct.format(input.terminalGrowth)}` },
-        { key: "opening", label: "基期来源", children: `${input.openingSource.name} · ${input.openingSource.availableOn}` },
-        { key: "forecast", label: "预测来源", children: `${input.forecastSource.name} · ${input.forecastSource.availableOn}` },
-        { key: "terminal", label: "终值占经营价值", children: terminal.operatingValueShare === null ? "—" : pct.format(terminal.operatingValueShare) },
-      ]} />
       <Paragraph className="break-words" style={{ marginBottom: 0 }}>
         经营价值 {amount(bridge.operatingValue)} − 净金融负债（{amount(bridge.netFinancialObligations)}）
         {" "}− 少数股东权益 {amount(bridge.minorityInterest)} = 归母股权价值 {amount(bridge.equityValue)}
@@ -267,14 +267,21 @@ export default function OperatingValuationPanel({ ticker, companyId, publication
   }
 
   return (
-    <Card title="经营价值勾稽 · FCFF / ReOI / AOIG" className="mb-4">
+    <Card size="small" title="经营估值模型" className="mb-3"
+      extra={<span className="font-mono text-xs text-terminal-muted">FCFF / ReOI / AOIG</span>}>
       <Space orientation="vertical" size="middle" className="w-full">
-        <Text type="secondary">可导入年度税后经营利润和期末净经营资产，也可由分部收入、利润率和资产周转率生成。金额与股数使用同一数量级，9.5% 填 0.095。</Text>
-        {publication && <Text>已发布底稿 {publication.revision.slice(0, 12)} · 估值锚点 {publication.valuationDate} · 资料截止 {publication.informationCutoff}</Text>}
+        {publication && <Descriptions size="small" bordered column={{ xs: 1, sm: 2, xl: 4 }} items={[
+          { key: "price", label: "已发布目标价", children: <span className="font-mono">{money.format(publication.price)} {publication.currency}/股</span> },
+          { key: "anchor", label: "估值锚点", children: <span className="font-mono">{publication.valuationDate}</span> },
+          { key: "cutoff", label: "资料截止", children: <span className="font-mono">{publication.informationCutoff}</span> },
+          { key: "revision", label: "底稿版本", children: <span className="font-mono">{publication.revision.slice(0, 12)}</span> },
+        ]} />}
+        {result && <ValuationResult result={result} />}
         <Collapse items={[{
           key: "input",
-          label: "录入经营预测或导入 JSON",
+          label: "经营预测与假设",
           children: <Space orientation="vertical" className="w-full">
+            <Text type="secondary">可录入年度税后经营利润与期末净经营资产，或导入分部收入、利润率和资产周转率。金额与股数使用同一数量级，9.5% 填 0.095。</Text>
             <Space wrap>
               <Button onClick={fillExample} disabled={loading}>填入虚拟示例</Button>
               {publication && <Button onClick={loadPublished} disabled={loading}>加载已发布底稿</Button>}
@@ -305,7 +312,6 @@ export default function OperatingValuationPanel({ ticker, companyId, publication
           </Space>,
         }]} />
         {error && <Alert type="error" title={error} showIcon />}
-        {result && <ValuationResult result={result} />}
         {result?.reconciliation.passed && result.input.forecastSource.name !== "虚拟示例" && (
           <Popconfirm title="发布为主估值？" description="发布后看板、报告和智能体将读取本版底稿。"
             okText="发布" cancelText="取消" onConfirm={publish}>

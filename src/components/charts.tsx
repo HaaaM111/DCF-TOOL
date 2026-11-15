@@ -55,7 +55,7 @@ export function ValueDonut({ comp }: { comp: ValueComposition }) {
     ],
   };
 
-  return <ReactECharts className="chart-settle" option={option} style={{ height: 300 }} />;
+  return <ReactECharts option={option} style={{ height: 300 }} />;
 }
 
 /** 20 年 FCF 推演 vs 折现现值 柱状图 */
@@ -85,7 +85,7 @@ export function FcfBars({ rows }: { rows: { year: number; fcf: number; pvFcf: nu
       },
     ],
   };
-  return <ReactECharts className="chart-settle" option={option} style={{ height: 300 }} />;
+  return <ReactECharts option={option} style={{ height: 300 }} />;
 }
 
 /**
@@ -150,27 +150,15 @@ export function TrendChart({
         name: "收盘价",
         type: "line",
         data: closeData,
-        smooth: true,
-        symbol: "none",
+        showSymbol: false,
         lineStyle: { width: 2, color: "#3b82f6" },
-        areaStyle: {
-          color: {
-            type: "linear",
-            x: 0, y: 0, x2: 0, y2: 1,
-            colorStops: [
-              { offset: 0, color: "rgba(30,58,95,0.25)" },
-              { offset: 1, color: "rgba(30,58,95,0.02)" },
-            ],
-          },
-        },
       },
       {
         name: "DCF 目标价",
         type: "line",
         yAxisIndex: 1,
         data: valData,
-        smooth: true,
-        symbol: "none",
+        symbol: "circle",
         lineStyle: { width: 2, color: "#10B981", type: "dashed" },
       },
       // 置信区间带（用两个面积图叠加实现）
@@ -203,7 +191,7 @@ export function TrendChart({
     ],
   };
 
-  return <ReactECharts className="chart-settle" option={option} style={{ height: 340 }} />;
+  return <ReactECharts option={option} style={{ height: 340 }} />;
 }
 
 /**
@@ -270,5 +258,5 @@ export function ConfidenceChart({
     ],
   };
 
-  return <ReactECharts className="chart-settle" option={option} style={{ height: 280 }} />;
+  return <ReactECharts option={option} style={{ height: 280 }} />;
 }

@@ -315,14 +315,14 @@ export default function AnnouncementsPage() {
       title: "发布时间",
       dataIndex: "publishAt",
       width: 150,
-      render: (v: string) => <span className="text-slate-500">{fmtTime(v)}</span>,
+      render: (v: string) => <span className="font-mono text-terminal-muted">{fmtTime(v)}</span>,
     },
     {
       title: "公告标题",
       dataIndex: "title",
       width: 420,
       render: (v: string, r) => (
-        <a href={r.pdfUrl} target="_blank" rel="noreferrer" className="text-blue-600">
+        <a href={r.pdfUrl} target="_blank" rel="noreferrer" className="text-terminal-link">
           {v}
         </a>
       ),
@@ -341,14 +341,14 @@ export default function AnnouncementsPage() {
       title: "发布时间",
       dataIndex: "publishAt",
       width: 150,
-      render: (v: string) => <span className="text-slate-500">{fmtTime(v)}</span>,
+      render: (v: string) => <span className="text-terminal-muted">{fmtTime(v)}</span>,
     },
     {
       title: "公告标题",
       dataIndex: "title",
       width: 420,
       render: (v: string, r) => (
-        <a href={r.pdfUrl} target="_blank" rel="noreferrer" className="text-blue-600">
+        <a href={r.pdfUrl} target="_blank" rel="noreferrer" className="text-terminal-link">
           {v}
         </a>
       ),
@@ -368,7 +368,7 @@ export default function AnnouncementsPage() {
           <Tag color="green">已分析</Tag>
         ) : (
           <a
-            className="text-blue-600"
+            className="text-terminal-link"
             onClick={(e) => {
               e.preventDefault();
               router.push(`/agent?companyId=${encodeURIComponent(r.companyId)}`);
@@ -397,7 +397,7 @@ export default function AnnouncementsPage() {
   const expandableRender = (r: AnnouncementItem) => {
     if (!r.signals.length) {
       return (
-        <div className="py-2 text-slate-400 text-sm">
+        <div className="py-2 text-terminal-muted text-sm">
           该公告尚未在智能体中分析。前往「智能体对话」页要求分析即可生成预期差信号。
         </div>
       );
@@ -405,7 +405,7 @@ export default function AnnouncementsPage() {
     return (
       <div className="py-2">
         {r.signals.map((s) => (
-          <Card key={s.id} size="small" className="mb-2" style={{ maxWidth: 900 }}>
+          <Card key={s.id} size="small" className="mb-2 w-full max-w-[900px]">
             <Space wrap className="mb-2">
               <Tag color={EXPECTATION_COLORS[s.expectation] ?? "default"}>
                 {s.expectation}
@@ -422,8 +422,8 @@ export default function AnnouncementsPage() {
             </Space>
             <Paragraph className="mb-1">{s.summary || "-"}</Paragraph>
             {s.evidence && (
-              <div className="text-sm text-slate-500 border-l-2 border-slate-300 pl-3 mb-2">
-                <div className="text-xs text-slate-400 mb-1">原文证据：</div>
+              <div className="text-sm text-terminal-muted border-l-2 border-terminal-line pl-3 mb-2">
+                <div className="text-xs text-terminal-muted mb-1">原文证据：</div>
                 {s.evidence.split("\n").map((line, i) => (
                   <div key={i}>“{line}”</div>
                 ))}
@@ -481,7 +481,7 @@ export default function AnnouncementsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-w-0">
       <AppHeader
         title="公告中心"
         subtitle="拉取候选 → 勾选存储入库 · 预期差分析在「智能体对话」页完成"
@@ -495,7 +495,7 @@ export default function AnnouncementsPage() {
         }
       />
 
-      <div className="p-6">
+      <div className="terminal-page">
         <Card className="mb-4">
           <Space wrap>
             <Select

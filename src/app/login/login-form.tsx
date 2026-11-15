@@ -2,7 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 
-const field = "h-10 w-full rounded-md border border-terminal-line bg-terminal-canvas px-3 text-sm text-terminal-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-terminal-accent";
+const field = "h-9 w-full rounded-md border border-terminal-line bg-terminal-canvas px-3 text-sm text-terminal-ink shadow-none outline-none focus:border-terminal-accent-hover";
 
 export default function LoginForm({ destination, configured }: { destination: string; configured: boolean }) {
   const [error, setError] = useState("");
@@ -37,16 +37,16 @@ export default function LoginForm({ destination, configured }: { destination: st
   return (
     <form method="post" action="/api/auth/login" onSubmit={submit} className="space-y-4">
       <div>
-        <label htmlFor="username" className="mb-1.5 block text-sm">账号</label>
+        <label htmlFor="username" className="mb-2 block text-sm font-medium text-terminal-muted">账号</label>
         <input id="username" name="username" autoComplete="username" required maxLength={80} className={field} />
       </div>
       <div>
-        <label htmlFor="password" className="mb-1.5 block text-sm">密码</label>
+        <label htmlFor="password" className="mb-2 block text-sm font-medium text-terminal-muted">密码</label>
         <input id="password" name="password" type="password" autoComplete="current-password" required maxLength={512} className={field} />
       </div>
       {(error || !configured) && <p role="alert" className="break-words text-sm text-[var(--neg-red)]">{error || "登录服务尚未配置"}</p>}
       <button type="submit" disabled={busy || !configured}
-        className="h-10 w-full rounded-md bg-terminal-accent text-sm font-semibold text-white hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terminal-accent disabled:cursor-not-allowed disabled:opacity-60">
+        className="h-9 w-full rounded-md bg-terminal-accent text-sm font-semibold text-white enabled:hover:bg-terminal-accent-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terminal-accent-hover disabled:cursor-not-allowed disabled:opacity-60">
         {busy ? "登录中…" : "登录"}
       </button>
     </form>

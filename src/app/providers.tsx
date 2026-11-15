@@ -28,40 +28,78 @@ interface ThemeCtx {
 const ThemeContext = createContext<ThemeCtx>({ mode: "dark", toggle: () => {} });
 export const useTheme = () => useContext(ThemeContext);
 
-/**
- * Ant Design 主题配置（专业金融终端配色）
- * 主色：深蓝 #1E3A5F；靛蓝 #3b82f6；正向绿 #10B981；警示红 #EF4444；琥珀 #F59E0B
- */
 function buildTheme(mode: ThemeMode) {
   const isDark = mode === "dark";
+  const fieldBackground = isDark ? "#0b0e14" : "#f8fafc";
+  const field = {
+    colorBgContainer: fieldBackground,
+    activeBorderColor: "#3b82f6",
+    hoverBorderColor: isDark ? "#526276" : "#94a3b8",
+    activeShadow: "none",
+    errorActiveShadow: "none",
+    warningActiveShadow: "none",
+  };
   return {
     algorithm: isDark ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
     token: {
-      colorPrimary: "#3b82f6",
-      colorSuccess: "#10B981",
-      colorError: "#EF4444",
+      colorPrimary: "#2563eb",
+      colorPrimaryHover: "#3b82f6",
+      colorSuccess: isDark ? "#34d399" : "#047857",
+      colorError: isDark ? "#fb7185" : "#be123c",
       colorWarning: "#F59E0B",
-      colorInfo: "#1E3A5F",
-      borderRadius: 8,
+      colorInfo: "#3b82f6",
+      borderRadius: 6,
+      borderRadiusLG: 6,
+      controlHeight: 36,
+      controlHeightSM: 28,
+      controlOutlineWidth: 0,
+      fontSize: 14,
       fontFamily:
-        '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif',
-      colorBgLayout: isDark ? "#0f1117" : "#F8FAFC",
-      colorBgContainer: isDark ? "#1a1d27" : "#FFFFFF",
-      colorBorder: isDark ? "#2d3748" : "#E2E8F0",
-      colorText: isDark ? "#e5e7eb" : "#0f1117",
-      colorTextSecondary: isDark ? "#9ca3af" : "#64748B",
+        'Inter, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif',
+      colorBgLayout: isDark ? "#0b0e14" : "#F8FAFC",
+      colorBgContainer: isDark ? "#151a23" : "#FFFFFF",
+      colorBorder: isDark ? "#2a3441" : "#E2E8F0",
+      colorText: isDark ? "#e2e8f0" : "#0f172a",
+      colorTextSecondary: isDark ? "#8b9eb0" : "#64748B",
+      colorTextPlaceholder: isDark ? "#8192a3" : "#64748b",
+      colorLink: isDark ? "#60a5fa" : "#2563eb",
     },
     components: {
       Card: {
-        borderRadiusLG: 12,
-        boxShadowTertiary: isDark
-          ? "0 1px 3px rgba(0,0,0,0.3)"
-          : "0 1px 2px 0 rgba(0,0,0,0.04)",
+        headerHeight: 40,
+        headerHeightSM: 36,
+        headerFontSize: 14,
+        headerFontSizeSM: 14,
+        headerPadding: 14,
+        headerPaddingSM: 12,
+        bodyPadding: 14,
+        bodyPaddingSM: 12,
+        boxShadowTertiary: "none",
       },
+      Button: {
+        defaultBg: "transparent",
+        defaultHoverBg: isDark ? "#1e2533" : "#edf2f8",
+        primaryColor: "#ffffff",
+        defaultShadow: "none",
+        primaryShadow: "none",
+        dangerShadow: "none",
+      },
+      Input: field,
+      InputNumber: field,
+      Select: { selectorBg: fieldBackground, activeBorderColor: "#3b82f6", activeOutlineColor: "transparent" },
+      DatePicker: field,
       Table: {
-        headerBg: isDark ? "#0f1117" : "#F8FAFC",
-        headerColor: isDark ? "#9ca3af" : "#64748B",
-        rowHoverBg: isDark ? "#2d3748" : "#F0F7FF",
+        headerBg: isDark ? "#151a23" : "#f1f5f9",
+        headerColor: isDark ? "#8b9eb0" : "#475569",
+        headerSplitColor: isDark ? "#2a3441" : "#e2e8f0",
+        borderColor: isDark ? "#2a3441" : "#e2e8f0",
+        rowHoverBg: isDark ? "#1e2533" : "#edf2f8",
+        cellPaddingBlock: 8,
+        cellPaddingBlockMD: 8,
+        cellPaddingBlockSM: 8,
+        cellPaddingInline: 12,
+        cellPaddingInlineMD: 12,
+        cellPaddingInlineSM: 12,
       },
       Tag: {
         borderRadiusSM: 4,

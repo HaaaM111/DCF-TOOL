@@ -69,8 +69,9 @@ export async function handleAgentChat(req:NextRequest){
         if(part.type==="text-delta"){
           pending+=part.text;let index;
           while((index=pending.search(/[。！？\n]/))>=0){emit(pending.slice(0,index+1));pending=pending.slice(index+1);}
-        }else if(part.type==="error")throw Error(SERVICE_UNAVAILABLE);
+        }else if(part.type==="error"||part.type==="abort")throw Error(SERVICE_UNAVAILABLE);
       }
+      signal.throwIfAborted();
       if(pending)emit(pending);
       if(!reply)emit("已达到本轮工具调用上限。已完成工具："+trace.filter(x=>x.name!=="analyst_handoff").map(x=>x.name).join("、")+"。请缩小问题范围后继续，未生成最终估值判断。");
       writer.write({type:"text-end",id:textId});completed=true;status("完成；请复核假设与证据后使用估值");

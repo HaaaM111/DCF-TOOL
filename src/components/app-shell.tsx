@@ -5,9 +5,10 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { App, Drawer, Dropdown } from "antd";
 import {
-  DashboardOutlined, FileAddOutlined, FileSearchOutlined, LogoutOutlined, MenuFoldOutlined, MenuOutlined,
+  BulbFilled, BulbOutlined, DashboardOutlined, FileAddOutlined, FileSearchOutlined, LogoutOutlined, MenuFoldOutlined, MenuOutlined,
   MenuUnfoldOutlined, RobotOutlined, SettingOutlined, UserOutlined,
 } from "@ant-design/icons";
+import { useTheme } from "@/app/providers";
 import { companySections } from "@/app/(terminal)/company/[ticker]/sections";
 import { TerminalBrand } from "./terminal-brand";
 
@@ -20,18 +21,18 @@ const navigation = [
   { href: "/agent", label: "智能体对话", icon: RobotOutlined },
   { href: "/settings", label: "设置", icon: SettingOutlined },
 ];
-const control = "inline-flex h-9 items-center justify-center gap-2 rounded-md border border-terminal-line px-2.5 text-sm text-terminal-ink hover:bg-terminal-canvas focus-visible:outline focus-visible:outline-2 focus-visible:outline-terminal-accent";
+const control = "inline-grid h-8 w-8 shrink-0 place-items-center rounded-md border border-terminal-line bg-transparent text-[15px] text-terminal-muted hover:bg-terminal-hover hover:text-terminal-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-terminal-accent-hover";
 
 function Navigation({ pathname, collapsed, onSelect }: { pathname: string; collapsed?: boolean; onSelect?: () => void }) {
-  return <nav aria-label="主导航" className="space-y-1 px-2 py-3">
+  return <nav aria-label="主导航" className="space-y-1 px-1.5 py-3 md:px-2">
     {navigation.map(({ href, label, icon: Icon }) => {
       const active = pathname === href || pathname.startsWith(href + "/");
       return <Link key={href} href={href} onClick={onSelect} aria-current={active ? "page" : undefined}
         aria-label={label} title={collapsed ? label : undefined}
-        className={`flex h-10 items-center gap-3 rounded-md text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-terminal-accent
-          ${active ? "bg-terminal-canvas text-terminal-ink ring-1 ring-inset ring-terminal-accent" : "text-terminal-muted hover:bg-terminal-canvas hover:text-terminal-ink"}
+        className={`relative flex h-9 items-center gap-3 rounded-md text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-terminal-accent-hover
+          ${active ? "bg-terminal-hover font-medium text-terminal-ink dark:text-white before:absolute before:inset-y-1 before:left-0 before:w-[3px] before:rounded-r-sm before:bg-terminal-accent-hover" : "text-terminal-muted hover:bg-terminal-hover hover:text-terminal-ink"}
           ${collapsed ? "justify-center" : "px-3"}`}>
-        <Icon aria-hidden="true" />
+        <Icon aria-hidden="true" className="shrink-0 text-base" />
         {!collapsed && <span>{label}</span>}
       </Link>;
     })}
@@ -43,6 +44,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [drawer, setDrawer] = useState(false);
   const { message } = App.useApp();
+  const { mode, toggle } = useTheme();
+  const themeLabel = mode === "dark" ? "切换浅色" : "切换深色";
   const current = navigation.find(({ href }) => pathname === href || pathname.startsWith(href + "/"));
   const companySuffix = pathname.split("/").slice(3).join("/");
   const companyModule = Object.values(companySections).find(({ suffix }) => suffix.slice(1) === companySuffix);
@@ -63,9 +66,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
   return (
     <AppShellContext.Provider value={true}>
       <a href="#terminal-content" className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:bg-terminal-surface focus:p-3">跳至内容</a>
-      <div className="grid min-h-dvh grid-cols-[48px_minmax(0,1fr)] bg-terminal-canvas text-terminal-ink md:grid-cols-[var(--sidebar-width)_minmax(0,1fr)]"
+      <div className="grid min-h-dvh grid-cols-[48px_minmax(0,1fr)] bg-terminal-canvas font-sans text-terminal-ink md:grid-cols-[var(--sidebar-width)_minmax(0,1fr)]"
         style={{ "--sidebar-width": collapsed ? "64px" : "240px" } as CSSProperties}>
-        <aside className="sticky top-0 h-dvh self-start overflow-y-auto border-r border-terminal-line bg-terminal-surface md:hidden">
+        <aside className="sticky top-0 h-dvh self-start overflow-y-auto border-r border-terminal-line bg-terminal-canvas md:hidden">
           <div className="flex h-14 items-center justify-center border-b border-terminal-line">
             <button type="button" aria-label="打开导航" aria-expanded={drawer} onClick={() => setDrawer(true)} className={control}>
               <MenuOutlined />
@@ -73,7 +76,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
           </div>
           <Navigation pathname={pathname} collapsed />
         </aside>
-        <aside className="sticky top-0 hidden h-dvh self-start overflow-y-auto border-r border-terminal-line bg-terminal-surface md:block">
+        <aside className="sticky top-0 hidden h-dvh self-start overflow-y-auto border-r border-terminal-line bg-terminal-canvas md:block">
           <div className={`flex h-14 items-center border-b border-terminal-line ${collapsed ? "justify-center" : "px-4"}`}>
             <Link href="/dashboard" aria-label="DCF 估值终端总览"><TerminalBrand compact={collapsed} /></Link>
           </div>
@@ -86,18 +89,29 @@ export default function AppShell({ children }: { children: ReactNode }) {
                 onClick={() => setCollapsed(!collapsed)} className={`${control} hidden md:inline-flex`}>
                 {collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
               </button>
-              <h1 className="truncate text-sm font-semibold sm:text-base">{title}</h1>
+              <h1 className="truncate text-sm font-semibold">{title}</h1>
             </div>
-            <Dropdown trigger={["click"]} menu={{ items: [{ key: "logout", label: "退出登录", icon: <LogoutOutlined /> }],
-              onClick: () => { void logout(); } }}>
-              <button type="button" aria-label="账户菜单" className={control}><UserOutlined /> admin</button>
+            <div className="flex shrink-0 items-center gap-2">
+            <button type="button" aria-label={themeLabel} title={themeLabel} className={control} onClick={toggle}>
+              {mode === "dark" ? <BulbFilled aria-hidden="true" /> : <BulbOutlined aria-hidden="true" />}
+            </button>
+            <Dropdown trigger={["click"]} placement="bottomRight" classNames={{ root: "terminal-account-menu" }}
+              menu={{ items: [{ key: "logout", label: "退出登录", icon: <LogoutOutlined /> }],
+                onClick: () => { void logout(); } }}>
+              <button type="button" aria-label="账户菜单" title="admin" className={control}>
+                <UserOutlined aria-hidden="true" />
+              </button>
             </Dropdown>
+            </div>
           </header>
           <main id="terminal-content" tabIndex={-1} className="min-w-0">{children}</main>
         </div>
       </div>
       <Drawer title={<TerminalBrand />} placement="left" size={240} open={drawer} onClose={() => setDrawer(false)}
-        styles={{ body: { padding: 0, background: "var(--card-bg)" }, header: { background: "var(--card-bg)" } }}>
+        styles={{
+          body: { padding: 0, background: "var(--bg)" },
+          header: { background: "var(--bg)", borderBottom: "1px solid var(--border)" },
+        }}>
         <Navigation pathname={pathname} onSelect={() => setDrawer(false)} />
       </Drawer>
     </AppShellContext.Provider>

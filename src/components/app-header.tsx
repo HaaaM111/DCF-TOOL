@@ -37,13 +37,7 @@ export default function AppHeader({ title, subtitle, actions }: AppHeaderProps) 
   const withinShell = useContext(AppShellContext);
 
   const activeKey = NAV_ITEMS.find((n) => pathname.startsWith(n.key))?.key;
-  if (withinShell) return <div className="flex flex-wrap items-center gap-2 border-b border-terminal-line px-4 py-3 md:px-6">
-    {actions}
-    <Tooltip title={mode === "dark" ? "切换浅色" : "切换深色"}>
-      <Button aria-label={mode === "dark" ? "切换浅色" : "切换深色"}
-        icon={mode === "dark" ? <BulbFilled /> : <BulbOutlined />} onClick={toggle} />
-    </Tooltip>
-  </div>;
+  if (withinShell) return actions ? <div className="terminal-toolbar">{actions}</div> : null;
 
   return (
     <div className="brand-header px-6 py-3 flex items-center justify-between gap-x-4 gap-y-2 flex-wrap">

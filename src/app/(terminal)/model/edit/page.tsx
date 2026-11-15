@@ -8,7 +8,6 @@ import {
   Row,
   Col,
   Button,
-  Space,
   Divider,
   Tag,
   Alert,
@@ -17,11 +16,11 @@ import {
   App,
   Spin,
   Select,
+  Tabs,
 } from "antd";
 import type { DefaultOptionType } from "antd/es/select";
 import {
   ThunderboltOutlined,
-  CheckCircleTwoTone,
   WarningFilled,
   ReloadOutlined,
 } from "@ant-design/icons";
@@ -112,6 +111,7 @@ function ModelEditContent() {
   const params = useSearchParams();
   const editId = params.get("id");
 
+  const [activeSection, setActiveSection] = useState("basics");
   const [form, setForm] = useState<FormState>(defaults);
   const [loading, setLoading] = useState(false);
   const [calc, setCalc] = useState<DcfOutput | null>(null);
@@ -150,7 +150,7 @@ function ModelEditContent() {
               label: (
                 <div className="flex items-center justify-between">
                   <span className="font-medium">{s.name}</span>
-                  <span className="text-xs text-slate-400 ml-3 font-mono-num">
+                  <span className="text-xs text-terminal-muted ml-3 font-mono-num">
                     {s.ticker}
                   </span>
                 </div>
@@ -416,13 +416,20 @@ function ModelEditContent() {
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
 
+  const selectSection = (section: string) => {
+    setActiveSection(section);
+    window.scrollTo(0, 0);
+  };
+
   // 保存
   const handleSave = async () => {
     if (cashNeedsReview) {
+      selectSection("basics");
       message.error("请核验并填写同一期报表的货币资金");
       return;
     }
     if (!form.name || !form.ticker) {
+      selectSection("basics");
       message.error("标的简称与股票代码为必填");
       return;
     }
@@ -506,481 +513,490 @@ function ModelEditContent() {
         title={`${editId ? "编辑" : "新增"}上市公司估值模型`}
         subtitle="正向 20 年 DCF 内在价值 + 逆向终局利润 L 反算 · 实时计算"
       />
-      <div className="p-6 max-w-[1400px] mx-auto">
-
-      {/* 实时结果横幅 */}
-      {calc && (
-        <Card className="mb-4" style={{ borderTop: "3px solid #1d4ed8" }}>
-          <Row gutter={[24, 16]} align="middle">
-            <Col span={6}>
-              <Statistic
-                title="目标价"
-                value={f?.adjustedTargetPrice}
-                precision={2}
-                prefix="¥"
-                styles={{ content: { color: "#1d4ed8" } }}
-              />
-              <div className={f && f.adjustedUpside >= 0 ? "txt-pos" : "txt-neg"}>
-                上涨空间 {f?.adjustedUpside.toFixed(1)}%
+      <div className="terminal-page">
+        <Tabs
+          size="small"
+          tabBarGutter={16}
+          activeKey={activeSection}
+          onChange={selectSection}
+          destroyOnHidden={false}
+          renderTabBar={(props, TabBar) => (
+            <div className="model-tab-toolbar">
+              <TabBar {...props} />
+              <div className="model-tab-actions flex shrink-0 items-center gap-2">
+                <Button size="small" icon={<ReloadOutlined />} onClick={() => setForm(defaults)}>重置</Button>
+                <Button size="small" type="primary" loading={saving} onClick={handleSave}>保存模型</Button>
               </div>
-            </Col>
-            <Col span={6}>
-              <Statistic
-                title="反算 L (隐含终局利润)"
-                value={r?.l}
-                precision={1}
-                suffix="亿"
-                styles={{ content: { color: "#2563EB" } }}
-              />
-              <div className="text-xs text-slate-500">
-                L/E3 = {r?.lE3.toFixed(2)}x ｜ 隐含 CAGR {r?.impliedCagr.toFixed(1)}%
-              </div>
-            </Col>
-            <Col span={6}>
-              <Statistic
-                title="隐含 Ke vs 正向 Ke"
-                value={r?.impliedKe}
-                precision={3}
-                suffix=""
-                styles={{ content: { color: g?.isConsistent ? "#16a34a" : "#dc2626" } }}
-              />
-              <div className="text-xs">
-                正向 Ke {(form.ke * 100).toFixed(1)}% ｜{" "}
-                <span className={g?.isConsistent ? "txt-pos" : "txt-neg"}>
-                  {g?.isConsistent ? "自洽" : `不自治(${g?.deviation.toFixed(0)}%)`}
-                </span>
-              </div>
-            </Col>
-            <Col span={6}>
-              <Statistic
-                title="CRP 幅度"
-                value={form.crpBps}
-                suffix="bps"
-                styles={{ content: { color: "#d97706" } }}
-              />
-              <div className="text-xs text-slate-500">
-                公允 Ke ≈ {(fairKe * 100).toFixed(2)}%
-              </div>
-            </Col>
-          </Row>
-        </Card>
-      )}
-
-      <Row gutter={[24, 24]}>
-        {/* 左侧：表单 */}
-        <Col xs={24} lg={16}>
-          {/* 基础数据抓取 */}
-          <Card title="基础数据抓取" className="mb-4 fin-card">
-            <Row gutter={[12, 12]}>
-              <Col xs={24} md={10}>
-                <Text type="secondary">搜索标的（代码或名称）</Text>
-                <Select
-                  showSearch
-                  value={form.ticker || undefined}
-                  placeholder="输入 600104 或 上汽集团…"
-                  filterOption={false}
-                  onSearch={searchStocks}
-                  onChange={(val) => handleStockSelect(val)}
-                  onClear={() => set("ticker", "")}
-                  options={searchOptions}
-                  loading={searching}
-                  allowClear
-                  style={{ width: "100%" }}
-                  notFoundContent={searching ? "搜索中…" : "无匹配标的"}
-                />
-              </Col>
-              <Col xs={24} md={8}>
-                <Text type="secondary">标的简称</Text>
-                <Input
-                  placeholder="如 上汽集团"
-                  value={form.name}
-                  onChange={(e) => set("name", e.target.value)}
-                />
-              </Col>
-              <Col xs={24} md={6}>
-                <Text type="secondary">&nbsp;</Text>
-                <Button
-                  type="primary"
-                  icon={<ThunderboltOutlined />}
-                  onClick={() => fetchBasics()}
-                  loading={fetchingBasics}
-                  block
-                >
-                  一键抓取基础数据
-                </Button>
-              </Col>
-            </Row>
-            {form.currentPrice > 0 && (
-              <Alert
-                className="mt-3"
-                type="success"
-                showIcon
-                title={
-                  <span className="font-mono-num">
-                    现金 {form.cash}亿 ｜ 负债 {form.debt}亿 ｜ 股本 {form.shares}亿 ｜ E0 {form.e0}亿 ｜
-                    FCF {form.baseFcf.toFixed(1)}亿 ｜ Capex/D&amp;A {derived.capexDa.toFixed(2)}
-                  </span>
-                }
-              />
-            )}
-          </Card>
-
-          {/* baseFcf 校验区 */}
-          <Card
-            title={<span>📌 起始自由现金流 baseFcf 专属校验区</span>}
-            className="mb-4"
-          >
-            <Row gutter={16}>
-              <Col span={6}>
-                <Text type="secondary">经营现金流净额 CFO (亿元)</Text>
-                <InputNumber
-                  style={{ width: "100%" }}
-                  value={form.cfo}
-                  onChange={(v) => set("cfo", v ?? 0)}
-                />
-              </Col>
-              <Col span={6}>
-                <Text type="secondary">资本开支 Capex (亿元)</Text>
-                <InputNumber
-                  style={{ width: "100%" }}
-                  value={form.capex}
-                  onChange={(v) => set("capex", v ?? 0)}
-                />
-              </Col>
-              <Col span={6}>
-                <Text type="secondary">折旧摊销 D&A (亿元)</Text>
-                <InputNumber
-                  style={{ width: "100%" }}
-                  value={form.da}
-                  onChange={(v) => set("da", v ?? 0)}
-                />
-              </Col>
-              <Col span={6}>
-                <Text type="secondary">
-                  起始 FCF baseFcf (亿元)
-                  <span className="ml-1 text-blue-600">👈 采用方案后可见</span>
-                </Text>
-                <InputNumber
-                  style={{ width: "100%" }}
-                  value={form.baseFcf}
-                  onChange={(v) => {
-                    set("baseFcf", v ?? 0);
-                    setAdoptedScheme(null);
-                  }}
-                />
-              </Col>
-            </Row>
-            <Alert
-              className="mt-3"
-              type="info"
-              showIcon
-              title={
-                <>
-                  <Text strong>
-                    采用的 baseFcf ={" "}
-                    <span className="font-mono-num text-blue-700">
-                      {form.baseFcf.toFixed(2)} 亿
-                    </span>
-                  </Text>
-                  <span className="ml-3 text-slate-500">
-                    （当年实际 CFO−Capex = {derived.baseFcfCalc.toFixed(2)} 亿）
-                  </span>
-                  <span className="ml-3">Capex/D&amp;A = {derived.capexDa.toFixed(2)}</span>
-                </>
-              }
-            />
-            {/* 金融类现金流预警 */}
-            <Alert
-              className="mt-2"
-              type="warning"
-              showIcon
-              icon={<WarningFilled />}
-              title="金融类现金流警报：占 CFO 约 27%"
-              description="金融类现金流（财务子公司）会扭曲真实经营 FCF，建议剔除后作为起点。"
-            />
-            <Alert
-              className="mt-2"
-              type="warning"
-              showIcon
-              icon={<WarningFilled />}
-              title="CFO 质量警报：营运资本释放造成了约 25% 的 CFO 增量"
-              description="营运资本释放不可持续，剔除后更能反映常态盈利能力。"
-            />
-            <Divider>推荐起点方案（点选即用，无需手算）</Divider>
-            <Row gutter={[12, 12]}>
-              {schemes.map((s) => {
-                const isAdopted = adoptedScheme === s.id;
-                return (
-                  <Col span={24} key={s.id}>
-                    <div
-                      className={`scheme-card p-3 rounded-lg border flex items-center justify-between transition-all ${
-                        isAdopted
-                          ? "bg-[#F0FDF4] border-[#10B981] shadow-md ring-2 ring-green-200"
-                          : s.recommended
-                            ? "bg-amber-50/40 border-amber-300"
-                            : "bg-slate-50 border-slate-200"
-                      }`}
-                      onClick={() => handleAdoptScheme(s.id, s.value)}
-                      role="button"
-                      tabIndex={0}
-                    >
-                      <div className="flex-1">
-                        <div className="font-medium flex items-center flex-wrap">
-                          {s.label}
-                          {s.recommended && (
-                            <Tag
-                              color="gold"
-                              className="ml-2"
-                              style={{ fontWeight: 600 }}
-                            >
-                              👑 强烈推荐
-                            </Tag>
-                          )}
-                          {isAdopted && (
-                            <Tag color="green" className="ml-1">
-                              已采用
-                            </Tag>
-                          )}
-                        </div>
-                        <div className="text-xs text-slate-400">{s.desc}</div>
-                      </div>
-                      <div className="text-right ml-3">
-                        <div className="text-lg font-bold font-mono-num text-blue-700">
-                          {s.value.toFixed(2)} 亿
-                        </div>
+            </div>
+          )}
+          items={[
+            {
+              key: "basics",
+              label: "基础财务",
+              children: (
+                <div className="grid min-w-0 gap-3">
+                  <Card title="基础数据抓取" size="small" className="fin-card">
+                    <Row gutter={[12, 12]}>
+                      <Col xs={24} md={10}>
+                        <Text type="secondary">搜索标的（代码或名称）</Text>
+                        <Select
+                          showSearch
+                          value={form.ticker || undefined}
+                          placeholder="输入 600104 或 上汽集团…"
+                          filterOption={false}
+                          onSearch={searchStocks}
+                          onChange={(val) => handleStockSelect(val)}
+                          onClear={() => set("ticker", "")}
+                          options={searchOptions}
+                          loading={searching}
+                          allowClear
+                          style={{ width: "100%" }}
+                          notFoundContent={searching ? "搜索中…" : "无匹配标的"}
+                        />
+                      </Col>
+                      <Col xs={24} md={8}>
+                        <Text type="secondary">标的简称</Text>
+                        <Input
+                          placeholder="如 上汽集团"
+                          value={form.name}
+                          onChange={(e) => set("name", e.target.value)}
+                        />
+                      </Col>
+                      <Col xs={24} md={6}>
+                        <Text type="secondary">&nbsp;</Text>
                         <Button
-                          size="small"
-                          type={isAdopted ? "primary" : "default"}
-                          ghost={!isAdopted}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleAdoptScheme(s.id, s.value);
-                          }}
+                          type="primary"
+                          icon={<ThunderboltOutlined />}
+                          onClick={() => fetchBasics()}
+                          loading={fetchingBasics}
+                          block
                         >
-                          {isAdopted ? "已采用" : "采用"}
+                          一键抓取基础数据
                         </Button>
-                      </div>
-                    </div>
-                  </Col>
-                );
-              })}
-            </Row>
-          </Card>
-
-          {/* 基础行情与净现金资产 */}
-          <SupplementalFinancials companyId={editId ?? undefined}/>
-          <Card title="1. 基础行情与净现金资产" className="mb-4">
-            <Row gutter={[16, 16]}>
-              <Col span={8}>
-                <Text type="secondary">标的简称</Text>
-                <Input value={form.name} onChange={(e) => set("name", e.target.value)} />
-              </Col>
-              <Col span={8}>
-                <Text type="secondary">股票代码</Text>
-                <Input value={form.ticker} onChange={(e) => set("ticker", e.target.value)} />
-              </Col>
-              <Col span={8}>
-                <Text type="secondary">可比公司细分行业</Text>
-                <Input maxLength={50} value={form.industry} onChange={(e) => set("industry", e.target.value)} placeholder="如汽车零部件" />
-              </Col>
-              <Col span={8}>
-                <Text type="secondary">当前股价 (元)</Text>
-                <InputNumber style={{ width: "100%" }} value={form.currentPrice} onChange={(v) => set("currentPrice", v ?? 0)} />
-              </Col>
-              <Col span={8}>
-                <Text type="secondary">总股本 (亿股)</Text>
-                <InputNumber style={{ width: "100%" }} value={form.shares} onChange={(v) => set("shares", v ?? 0)} />
-              </Col>
-              <Col span={8}>
-                <Text type="secondary">货币资金 (亿元)</Text>
-                <InputNumber style={{ width: "100%" }} status={cashNeedsReview ? "warning" : undefined}
-                  value={cashNeedsReview ? null : form.cash} onChange={(v) => {
-                    setCashNeedsReview(v === null);
-                    if (v !== null) set("cash", v);
-                  }} />
-              </Col>
-              <Col span={8}>
-                <Text type="secondary">有息负债 (亿元)</Text>
-                <InputNumber style={{ width: "100%" }} value={form.debt} onChange={(v) => set("debt", v ?? 0)} />
-              </Col>
-              <Col span={8}>
-                <Text type="secondary">净现金调整项 (亿元)</Text>
-                <InputNumber style={{ width: "100%" }} value={form.netCashAdj} onChange={(v) => set("netCashAdj", v ?? 0)} />
-              </Col>
-              <Col span={8}>
-                <Text type="secondary">净现金合计 (自动计算)</Text>
-                <Input value={derived.netCash.toFixed(2)} disabled />
-              </Col>
-              <Col span={8}>
-                <Text type="secondary">E0 归母净利润 (亿元)</Text>
-                <InputNumber style={{ width: "100%" }} value={form.e0} onChange={(v) => set("e0", v ?? 0)} />
-              </Col>
-              <Col span={8}>
-                <Text type="secondary">港币/人民币汇率</Text>
-                <InputNumber style={{ width: "100%" }} value={form.fxRate} onChange={(v) => set("fxRate", v ?? 1)} />
-              </Col>
-              <Col span={8}>
-                <Text type="secondary">有息债务成本 Kd (%)</Text>
-                <InputNumber style={{ width: "100%" }} value={form.kd * 100} onChange={(v) => set("kd", (v ?? 0) / 100)} />
-              </Col>
-              <Col span={8}>
-                <Text type="secondary">企业所得税率 Tax (%)</Text>
-                <InputNumber style={{ width: "100%" }} value={form.taxRate * 100} onChange={(v) => set("taxRate", (v ?? 0) / 100)} />
-              </Col>
-            </Row>
-          </Card>
-
-          {/* 20年自由现金流推演 */}
-          <Card title="2. 20年自由现金流推演与模板" className="mb-4">
-            <Row gutter={[16, 16]}>
-              <Col span={8}>
-                <Text type="secondary">前 5 年复合增速 (%)</Text>
-                <InputNumber style={{ width: "100%" }} value={form.g1 * 100} onChange={(v) => set("g1", (v ?? 0) / 100)} />
-              </Col>
-              <Col span={8}>
-                <Text type="secondary">6-10 年复合增速 (%)</Text>
-                <InputNumber style={{ width: "100%" }} value={form.g2 * 100} onChange={(v) => set("g2", (v ?? 0) / 100)} />
-              </Col>
-              <Col span={8}>
-                <Text type="secondary">11-20 年复合增速 (%)</Text>
-                <InputNumber style={{ width: "100%" }} value={form.g3 * 100} onChange={(v) => set("g3", (v ?? 0) / 100)} />
-              </Col>
-              <Col span={8}>
-                <Text type="secondary">第 20 年永续增长率 g (%)</Text>
-                <InputNumber style={{ width: "100%" }} value={form.perpetualG * 100} onChange={(v) => set("perpetualG", (v ?? 0) / 100)} />
-              </Col>
-              <Col span={8}>
-                <Text type="secondary">股权要求回报率 Ke (%)</Text>
-                <InputNumber style={{ width: "100%" }} value={form.ke * 100} onChange={(v) => set("ke", (v ?? 0) / 100)} />
-              </Col>
-              <Col span={8}>
-                <Text type="secondary">前 10 年派现率 (%)</Text>
-                <InputNumber style={{ width: "100%" }} value={form.payoutRate1 * 100} onChange={(v) => set("payoutRate1", (v ?? 0) / 100)} />
-              </Col>
-              <Col span={8}>
-                <Text type="secondary">10 年后派现率 (%)</Text>
-                <InputNumber style={{ width: "100%" }} value={form.payoutRate2 * 100} onChange={(v) => set("payoutRate2", (v ?? 0) / 100)} />
-              </Col>
-            </Row>
-          </Card>
-
-          {/* 逆向财务穿透 */}
-          <Card title="3. 逆向财务穿透与市场隐含终局参数" className="mb-4">
-            <Row gutter={[16, 16]}>
-              <Col span={8}>
-                <Text type="secondary">E1 当年预期 (亿元)</Text>
-                <InputNumber style={{ width: "100%" }} value={form.e1} onChange={(v) => set("e1", v ?? 0)} />
-              </Col>
-              <Col span={8}>
-                <Text type="secondary">E2 次年预期 (亿元)</Text>
-                <InputNumber style={{ width: "100%" }} value={form.e2} onChange={(v) => set("e2", v ?? 0)} />
-              </Col>
-              <Col span={8}>
-                <Text type="secondary">E3 第三年预期 (亿元)</Text>
-                <InputNumber style={{ width: "100%" }} value={form.e3} onChange={(v) => set("e3", v ?? 0)} />
-              </Col>
-              <Col span={8}>
-                <Text type="secondary">逆向反算折现率 r (%)</Text>
-                <InputNumber style={{ width: "100%" }} value={form.reverseR * 100} onChange={(v) => set("reverseR", (v ?? 0) / 100)} />
-              </Col>
-              <Col span={8}>
-                <Text type="secondary">终局退出乘数 Exit PE</Text>
-                <InputNumber style={{ width: "100%" }} value={form.exitPe} onChange={(v) => set("exitPe", v ?? 0)} />
-              </Col>
-              <Col span={8}>
-                <Text type="secondary">过渡期年化增速 g (%)</Text>
-                <InputNumber style={{ width: "100%" }} value={form.transitionG * 100} onChange={(v) => set("transitionG", (v ?? 0) / 100)} />
-              </Col>
-              <Col span={8}>
-                <Text type="secondary">我的终局利润估计 (亿元)</Text>
-                <InputNumber style={{ width: "100%" }} value={form.terminalProfitEst} onChange={(v) => set("terminalProfitEst", v ?? 0)} />
-              </Col>
-            </Row>
-          </Card>
-
-          <Space>
-            <Button type="primary" size="large" loading={saving} onClick={handleSave}>
-              <CheckCircleTwoTone /> 保存模型
-            </Button>
-            <Button size="large" icon={<ReloadOutlined />} onClick={() => setForm(defaults)}>
-              重置
-            </Button>
-          </Space>
-        </Col>
-
-        {/* 右侧：实时结果 + 环形图 */}
-        <Col xs={24} lg={8}>
-          <div className="sticky top-4">
-            <Card title="价值构成透视（分红修正口径）" extra={calcLoading ? <Spin size="small" /> : null}>
-              {calc && f ? (
-                <>
-                  <ValueDonut comp={f.composition} />
-                  <Divider />
-                  <Row gutter={[8, 8]}>
-                    <Col span={12}>
-                      <Statistic title="显性期现值" value={f.pvExplicitFcf} precision={1} suffix="亿" />
-                    </Col>
-                    <Col span={12}>
-                      <Statistic title="永续价值现值" value={f.pvTerminal} precision={1} suffix="亿" />
-                    </Col>
-                    <Col span={12}>
-                      <Statistic title="留存现金累积" value={f.pvRetained} precision={1} suffix="亿" />
-                    </Col>
-                    <Col span={12}>
-                      <Statistic title="净现金" value={f.composition.netCash} precision={1} suffix="亿" />
-                    </Col>
-                  </Row>
-                  <Divider />
-                  <Statistic
-                    title="DCF 实体价值 EV"
-                    value={f.originalEv}
-                    precision={1}
-                    suffix="亿"
-                    styles={{ content: { color: "#1d4ed8" } }}
-                  />
-                  <div className="text-xs text-slate-400 mt-1">
-                    股权价值 = EV + 净现金 = {f.adjustedEquityValue.toFixed(1)} 亿
-                  </div>
-                </>
-              ) : (
-                <div className="text-center text-slate-400 py-12">
-                  填写左侧参数后实时计算
+                      </Col>
+                    </Row>
+                    {form.currentPrice > 0 && (
+                      <Alert
+                        className="mt-3"
+                        type="success"
+                        showIcon
+                        title={
+                          <span className="font-mono-num">
+                            现金 {form.cash}亿 ｜ 负债 {form.debt}亿 ｜ 股本 {form.shares}亿 ｜ E0 {form.e0}亿 ｜
+                            FCF {form.baseFcf.toFixed(1)}亿 ｜ Capex/D&amp;A {derived.capexDa.toFixed(2)}
+                          </span>
+                        }
+                      />
+                    )}
+                  </Card>
+                  <SupplementalFinancials companyId={editId ?? undefined}/>
+                  <Card size="small" title="基础行情与净现金资产">
+                    <Row gutter={[12, 12]}>
+                      <Col xs={12} md={8}>
+                        <Text type="secondary">标的简称</Text>
+                        <Input value={form.name} onChange={(e) => set("name", e.target.value)} />
+                      </Col>
+                      <Col xs={12} md={8}>
+                        <Text type="secondary">股票代码</Text>
+                        <Input value={form.ticker} onChange={(e) => set("ticker", e.target.value)} />
+                      </Col>
+                      <Col xs={12} md={8}>
+                        <Text type="secondary">可比公司细分行业</Text>
+                        <Input maxLength={50} value={form.industry} onChange={(e) => set("industry", e.target.value)} placeholder="如汽车零部件" />
+                      </Col>
+                      <Col xs={12} md={8}>
+                        <Text type="secondary">当前股价 (元)</Text>
+                        <InputNumber style={{ width: "100%" }} value={form.currentPrice} onChange={(v) => set("currentPrice", v ?? 0)} />
+                      </Col>
+                      <Col xs={12} md={8}>
+                        <Text type="secondary">总股本 (亿股)</Text>
+                        <InputNumber style={{ width: "100%" }} value={form.shares} onChange={(v) => set("shares", v ?? 0)} />
+                      </Col>
+                      <Col xs={12} md={8}>
+                        <Text type="secondary">货币资金 (亿元)</Text>
+                        <InputNumber style={{ width: "100%" }} status={cashNeedsReview ? "warning" : undefined}
+                          value={cashNeedsReview ? null : form.cash} onChange={(v) => {
+                            setCashNeedsReview(v === null);
+                            if (v !== null) set("cash", v);
+                          }} />
+                      </Col>
+                      <Col xs={12} md={8}>
+                        <Text type="secondary">有息负债 (亿元)</Text>
+                        <InputNumber style={{ width: "100%" }} value={form.debt} onChange={(v) => set("debt", v ?? 0)} />
+                      </Col>
+                      <Col xs={12} md={8}>
+                        <Text type="secondary">净现金调整项 (亿元)</Text>
+                        <InputNumber style={{ width: "100%" }} value={form.netCashAdj} onChange={(v) => set("netCashAdj", v ?? 0)} />
+                      </Col>
+                      <Col xs={12} md={8}>
+                        <Text type="secondary">净现金合计 (自动计算)</Text>
+                        <Input value={derived.netCash.toFixed(2)} disabled />
+                      </Col>
+                      <Col xs={12} md={8}>
+                        <Text type="secondary">E0 归母净利润 (亿元)</Text>
+                        <InputNumber style={{ width: "100%" }} value={form.e0} onChange={(v) => set("e0", v ?? 0)} />
+                      </Col>
+                      <Col xs={12} md={8}>
+                        <Text type="secondary">港币/人民币汇率</Text>
+                        <InputNumber style={{ width: "100%" }} value={form.fxRate} onChange={(v) => set("fxRate", v ?? 1)} />
+                      </Col>
+                      <Col xs={12} md={8}>
+                        <Text type="secondary">有息债务成本 Kd (%)</Text>
+                        <InputNumber style={{ width: "100%" }} value={form.kd * 100} onChange={(v) => set("kd", (v ?? 0) / 100)} />
+                      </Col>
+                      <Col xs={12} md={8}>
+                        <Text type="secondary">企业所得税率 Tax (%)</Text>
+                        <InputNumber style={{ width: "100%" }} value={form.taxRate * 100} onChange={(v) => set("taxRate", (v ?? 0) / 100)} />
+                      </Col>
+                    </Row>
+                  </Card>
                 </div>
-              )}
-            </Card>
-
-            {/* CRP 调整 */}
-            <Card title="Ke 调整（CRP 风险溢价）" className="mt-4">
-              <Row gutter={[12, 12]}>
-                <Col span={12}>
-                  <Text type="secondary">CRP 名称</Text>
-                  <Input value={form.crpName} onChange={(e) => set("crpName", e.target.value)} placeholder="如：地缘风险" />
-                </Col>
-                <Col span={12}>
-                  <Text type="secondary">CRP 幅度 (bps)</Text>
-                  <InputNumber style={{ width: "100%" }} value={form.crpBps} onChange={(v) => set("crpBps", v ?? 0)} />
-                </Col>
-              </Row>
-              <Alert
-                className="mt-3"
-                type="info"
-                showIcon
-                title={`公允 Ke = ${(form.ke * 100).toFixed(2)}% + ${form.crpBps}bps = ${(fairKe * 100).toFixed(2)}%`}
-              />
-            </Card>
-
-            {g && !g.isConsistent && (
-              <Alert
-                className="mt-4"
-                type="error"
-                showIcon
-                title="Gordon 镜像不自洽"
-                description={g.reason}
-              />
-            )}
-          </div>
-        </Col>
-      </Row>
+              ),
+            },
+            {
+              key: "forecast",
+              label: "现金流预测",
+              children: (
+                <div className="grid min-w-0 gap-3">
+                  <Card
+                    size="small" title="起始自由现金流校验"
+                  >
+                    <Row gutter={[12, 12]}>
+                      <Col xs={12} md={6}>
+                        <Text type="secondary">经营现金流净额 CFO (亿元)</Text>
+                        <InputNumber
+                          style={{ width: "100%" }}
+                          value={form.cfo}
+                          onChange={(v) => set("cfo", v ?? 0)}
+                        />
+                      </Col>
+                      <Col xs={12} md={6}>
+                        <Text type="secondary">资本开支 Capex (亿元)</Text>
+                        <InputNumber
+                          style={{ width: "100%" }}
+                          value={form.capex}
+                          onChange={(v) => set("capex", v ?? 0)}
+                        />
+                      </Col>
+                      <Col xs={12} md={6}>
+                        <Text type="secondary">折旧摊销 D&A (亿元)</Text>
+                        <InputNumber
+                          style={{ width: "100%" }}
+                          value={form.da}
+                          onChange={(v) => set("da", v ?? 0)}
+                        />
+                      </Col>
+                      <Col xs={12} md={6}>
+                        <Text type="secondary">
+                          起始 FCF baseFcf (亿元)
+                          <span className="ml-1 text-terminal-link">采用方案后可见</span>
+                        </Text>
+                        <InputNumber
+                          style={{ width: "100%" }}
+                          value={form.baseFcf}
+                          onChange={(v) => {
+                            set("baseFcf", v ?? 0);
+                            setAdoptedScheme(null);
+                          }}
+                        />
+                      </Col>
+                    </Row>
+                    <Alert
+                      className="mt-3"
+                      type="info"
+                      showIcon
+                      title={
+                        <>
+                          <Text strong>
+                            采用的 baseFcf ={" "}
+                            <span className="font-mono-num text-terminal-link">
+                              {form.baseFcf.toFixed(2)} 亿
+                            </span>
+                          </Text>
+                          <span className="ml-3 text-terminal-muted">
+                            （当年实际 CFO−Capex = {derived.baseFcfCalc.toFixed(2)} 亿）
+                          </span>
+                          <span className="ml-3">Capex/D&amp;A = {derived.capexDa.toFixed(2)}</span>
+                        </>
+                      }
+                    />
+                    {/* 金融类现金流预警 */}
+                    <Alert
+                      className="mt-2"
+                      type="warning"
+                      showIcon
+                      icon={<WarningFilled />}
+                      title="金融类现金流警报：占 CFO 约 27%"
+                      description="金融类现金流（财务子公司）会扭曲真实经营 FCF，建议剔除后作为起点。"
+                    />
+                    <Alert
+                      className="mt-2"
+                      type="warning"
+                      showIcon
+                      icon={<WarningFilled />}
+                      title="CFO 质量警报：营运资本释放造成了约 25% 的 CFO 增量"
+                      description="营运资本释放不可持续，剔除后更能反映常态盈利能力。"
+                    />
+                    <Divider>推荐起点方案（点选即用，无需手算）</Divider>
+                    <Row gutter={[12, 12]}>
+                      {schemes.map((s) => {
+                        const isAdopted = adoptedScheme === s.id;
+                        return (
+                          <Col xs={24} xl={8} key={s.id}>
+                            <div
+                              className={`scheme-card flex flex-wrap items-center justify-between gap-2 rounded-md border bg-terminal-canvas p-3 ${
+                                isAdopted
+                                  ? "border-terminal-accent-hover bg-terminal-hover"
+                                  : s.recommended
+                                    ? "border-terminal-line"
+                                    : "bg-terminal-canvas border-terminal-line"
+                              }`}
+                              onClick={() => handleAdoptScheme(s.id, s.value)}
+                              role="button"
+                              tabIndex={0}
+                            >
+                              <div className="flex-1">
+                                <div className="font-medium flex items-center flex-wrap">
+                                  {s.label}
+                                  {s.recommended && (
+                                    <Tag
+                                      color="gold"
+                                      className="ml-2"
+                                      style={{ fontWeight: 600 }}
+                                    >
+                                      推荐
+                                    </Tag>
+                                  )}
+                                  {isAdopted && (
+                                    <Tag color="green" className="ml-1">
+                                      已采用
+                                    </Tag>
+                                  )}
+                                </div>
+                                <div className="text-xs text-terminal-muted">{s.desc}</div>
+                              </div>
+                              <div className="text-right ml-3">
+                                <div className="text-lg font-bold font-mono-num text-terminal-link">
+                                  {s.value.toFixed(2)} 亿
+                                </div>
+                                <Button
+                                  size="small"
+                                  type={isAdopted ? "primary" : "default"}
+                                  ghost={!isAdopted}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleAdoptScheme(s.id, s.value);
+                                  }}
+                                >
+                                  {isAdopted ? "已采用" : "采用"}
+                                </Button>
+                              </div>
+                            </div>
+                          </Col>
+                        );
+                      })}
+                    </Row>
+                  </Card>
+                  <Card size="small" title="20 年自由现金流预测">
+                    <Row gutter={[12, 12]}>
+                      <Col xs={12} md={8}>
+                        <Text type="secondary">前 5 年复合增速 (%)</Text>
+                        <InputNumber style={{ width: "100%" }} value={form.g1 * 100} onChange={(v) => set("g1", (v ?? 0) / 100)} />
+                      </Col>
+                      <Col xs={12} md={8}>
+                        <Text type="secondary">6-10 年复合增速 (%)</Text>
+                        <InputNumber style={{ width: "100%" }} value={form.g2 * 100} onChange={(v) => set("g2", (v ?? 0) / 100)} />
+                      </Col>
+                      <Col xs={12} md={8}>
+                        <Text type="secondary">11-20 年复合增速 (%)</Text>
+                        <InputNumber style={{ width: "100%" }} value={form.g3 * 100} onChange={(v) => set("g3", (v ?? 0) / 100)} />
+                      </Col>
+                      <Col xs={12} md={8}>
+                        <Text type="secondary">第 20 年永续增长率 g (%)</Text>
+                        <InputNumber style={{ width: "100%" }} value={form.perpetualG * 100} onChange={(v) => set("perpetualG", (v ?? 0) / 100)} />
+                      </Col>
+                      <Col xs={12} md={8}>
+                        <Text type="secondary">股权要求回报率 Ke (%)</Text>
+                        <InputNumber style={{ width: "100%" }} value={form.ke * 100} onChange={(v) => set("ke", (v ?? 0) / 100)} />
+                      </Col>
+                      <Col xs={12} md={8}>
+                        <Text type="secondary">前 10 年派现率 (%)</Text>
+                        <InputNumber style={{ width: "100%" }} value={form.payoutRate1 * 100} onChange={(v) => set("payoutRate1", (v ?? 0) / 100)} />
+                      </Col>
+                      <Col xs={12} md={8}>
+                        <Text type="secondary">10 年后派现率 (%)</Text>
+                        <InputNumber style={{ width: "100%" }} value={form.payoutRate2 * 100} onChange={(v) => set("payoutRate2", (v ?? 0) / 100)} />
+                      </Col>
+                    </Row>
+                  </Card>
+                  <Card title="Ke 调整（CRP 风险溢价）" size="small">
+                    <Row gutter={[12, 12]}>
+                      <Col span={12}>
+                        <Text type="secondary">CRP 名称</Text>
+                        <Input value={form.crpName} onChange={(e) => set("crpName", e.target.value)} placeholder="如：地缘风险" />
+                      </Col>
+                      <Col span={12}>
+                        <Text type="secondary">CRP 幅度 (bps)</Text>
+                        <InputNumber style={{ width: "100%" }} value={form.crpBps} onChange={(v) => set("crpBps", v ?? 0)} />
+                      </Col>
+                    </Row>
+                    <Alert
+                      className="mt-3"
+                      type="info"
+                      showIcon
+                      title={`公允 Ke = ${(form.ke * 100).toFixed(2)}% + ${form.crpBps}bps = ${(fairKe * 100).toFixed(2)}%`}
+                    />
+                  </Card>
+                </div>
+              ),
+            },
+            {
+              key: "market",
+              label: "市场反算",
+              children: (
+                <div className="grid min-w-0 gap-3">
+                  <Card size="small" title="市场隐含终局参数">
+                    <Row gutter={[12, 12]}>
+                      <Col xs={12} md={8}>
+                        <Text type="secondary">E1 当年预期 (亿元)</Text>
+                        <InputNumber style={{ width: "100%" }} value={form.e1} onChange={(v) => set("e1", v ?? 0)} />
+                      </Col>
+                      <Col xs={12} md={8}>
+                        <Text type="secondary">E2 次年预期 (亿元)</Text>
+                        <InputNumber style={{ width: "100%" }} value={form.e2} onChange={(v) => set("e2", v ?? 0)} />
+                      </Col>
+                      <Col xs={12} md={8}>
+                        <Text type="secondary">E3 第三年预期 (亿元)</Text>
+                        <InputNumber style={{ width: "100%" }} value={form.e3} onChange={(v) => set("e3", v ?? 0)} />
+                      </Col>
+                      <Col xs={12} md={8}>
+                        <Text type="secondary">逆向反算折现率 r (%)</Text>
+                        <InputNumber style={{ width: "100%" }} value={form.reverseR * 100} onChange={(v) => set("reverseR", (v ?? 0) / 100)} />
+                      </Col>
+                      <Col xs={12} md={8}>
+                        <Text type="secondary">终局退出乘数 Exit PE</Text>
+                        <InputNumber style={{ width: "100%" }} value={form.exitPe} onChange={(v) => set("exitPe", v ?? 0)} />
+                      </Col>
+                      <Col xs={12} md={8}>
+                        <Text type="secondary">过渡期年化增速 g (%)</Text>
+                        <InputNumber style={{ width: "100%" }} value={form.transitionG * 100} onChange={(v) => set("transitionG", (v ?? 0) / 100)} />
+                      </Col>
+                      <Col xs={12} md={8}>
+                        <Text type="secondary">我的终局利润估计 (亿元)</Text>
+                        <InputNumber style={{ width: "100%" }} value={form.terminalProfitEst} onChange={(v) => set("terminalProfitEst", v ?? 0)} />
+                      </Col>
+                    </Row>
+                  </Card>
+                </div>
+              ),
+            },
+            {
+              key: "result",
+              label: "估值结果",
+              children: (
+                <div className="grid min-w-0 gap-3">
+                  {calc && (
+                    <Card size="small" className="terminal-kpis">
+                      <Row gutter={[12, 12]} align="middle">
+                        <Col xs={12} lg={6}>
+                          <Statistic
+                            title="目标价"
+                            value={f?.adjustedTargetPrice}
+                            precision={2}
+                            prefix="¥"
+                          />
+                          <div className={f && f.adjustedUpside >= 0 ? "font-mono txt-pos" : "font-mono txt-neg"}>
+                            上涨空间 {f?.adjustedUpside.toFixed(1)}%
+                          </div>
+                        </Col>
+                        <Col xs={12} lg={6}>
+                          <Statistic
+                            title="反算 L (隐含终局利润)"
+                            value={r?.l}
+                            precision={1}
+                            suffix="亿"
+                          />
+                          <div className="text-xs text-terminal-muted">
+                            L/E3 = {r?.lE3.toFixed(2)}x ｜ 隐含 CAGR {r?.impliedCagr.toFixed(1)}%
+                          </div>
+                        </Col>
+                        <Col xs={12} lg={6}>
+                          <Statistic
+                            title="隐含 Ke vs 正向 Ke"
+                            value={r?.impliedKe}
+                            precision={3}
+                            suffix=""
+                            styles={{ content: { color: g?.isConsistent ? "var(--pos-green)" : "var(--neg-red)" } }}
+                          />
+                          <div className="text-xs">
+                            正向 Ke {(form.ke * 100).toFixed(1)}% ｜{" "}
+                            <span className={g?.isConsistent ? "txt-pos" : "txt-neg"}>
+                              {g?.isConsistent ? "自洽" : `不自治(${g?.deviation.toFixed(0)}%)`}
+                            </span>
+                          </div>
+                        </Col>
+                        <Col xs={12} lg={6}>
+                          <Statistic
+                            title="CRP 幅度"
+                            value={form.crpBps}
+                            suffix="bps"
+                          />
+                          <div className="text-xs text-terminal-muted">
+                            公允 Ke ≈ {(fairKe * 100).toFixed(2)}%
+                          </div>
+                        </Col>
+                      </Row>
+                    </Card>
+                  )}
+                  <Card size="small" title="估值结果 · 价值构成" extra={calcLoading ? <Spin size="small" /> : null}>
+                    {calc && f ? (
+                      <>
+                        <ValueDonut comp={f.composition} />
+                        <Divider />
+                        <Row gutter={[8, 8]}>
+                          <Col span={12}>
+                            <Statistic title="显性期现值" value={f.pvExplicitFcf} precision={1} suffix="亿" />
+                          </Col>
+                          <Col span={12}>
+                            <Statistic title="永续价值现值" value={f.pvTerminal} precision={1} suffix="亿" />
+                          </Col>
+                          <Col span={12}>
+                            <Statistic title="留存现金累积" value={f.pvRetained} precision={1} suffix="亿" />
+                          </Col>
+                          <Col span={12}>
+                            <Statistic title="净现金" value={f.composition.netCash} precision={1} suffix="亿" />
+                          </Col>
+                        </Row>
+                        <Divider />
+                        <Statistic
+                          title="DCF 实体价值 EV"
+                          value={f.originalEv}
+                          precision={1}
+                          suffix="亿"
+                        />
+                        <div className="text-xs text-terminal-muted mt-1">
+                          股权价值 = EV + 净现金 = {f.adjustedEquityValue.toFixed(1)} 亿
+                        </div>
+                      </>
+                    ) : (
+                      <div className="text-center text-terminal-muted py-12">
+                        填写基础财务与估值假设后查看实时结果
+                      </div>
+                    )}
+                  </Card>
+                  {g && !g.isConsistent && (
+                    <Alert
+                      type="error"
+                      showIcon
+                      title="Gordon 镜像不自洽"
+                      description={g.reason}
+                    />
+                  )}
+                </div>
+              ),
+            },
+          ]}
+        />
       </div>
     </div>
   );

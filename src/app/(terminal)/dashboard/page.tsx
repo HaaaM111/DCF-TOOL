@@ -2,10 +2,9 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   Card,
-  Row,
-  Col,
   Statistic,
   Tag,
   Table,
@@ -22,7 +21,6 @@ import {
   ImportOutlined,
   ExportOutlined,
   ReloadOutlined,
-  FileTextOutlined,
   SearchOutlined,
 } from "@ant-design/icons";
 import AppHeader from "@/components/app-header";
@@ -101,6 +99,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [quadrantFilter, setQuadrantFilter] = useState<string>("");
   const [keyword, setKeyword] = useState("");
+  const [selectedId, setSelectedId] = useState<string>();
   const [importModalOpen, setImportModalOpen] = useState(false);
   const { message } = App.useApp();
 
@@ -159,6 +158,7 @@ export default function DashboardPage() {
     ...q,
     count: companies.filter((c) => c.quadrant === q.key).length,
   }));
+  const selected = filtered.find((company) => company.id === selectedId) ?? filtered[0];
 
   const handleDelete = async (id: string, name: string) => {
     Modal.confirm({
@@ -219,22 +219,26 @@ export default function DashboardPage() {
   // 表格列定义（表头与公司名列冻结，支持横向滚动）
   const columns: ColumnType<Company>[] = [
     {
-      title: "标的简称",
+      title: "标的",
       dataIndex: "name",
       fixed: "left",
-      width: 130,
+      width: 120,
       render: (_, r) => (
         <div>
-          <div className="font-semibold text-slate-800">{r.name}</div>
-          <div className="text-xs text-slate-400">{r.ticker}</div>
+          <button type="button" onClick={() => setSelectedId(r.id)} aria-pressed={selected?.id === r.id}
+            className="block w-full truncate text-left font-medium text-terminal-ink hover:text-terminal-link focus-visible:outline focus-visible:outline-terminal-accent" title={r.name}>
+            {r.name}
+          </button>
+          <div className="font-mono text-[11px] text-terminal-muted">{r.ticker}</div>
         </div>
       ),
     },
     {
       title: "最新市价",
       dataIndex: "currentPrice",
-      width: 90,
+      width: 82,
       className: "font-mono-num",
+      align: "right",
       render: (v: number) => (
         <span>¥{fmt(v, 2)}</span>
       ),
@@ -242,17 +246,18 @@ export default function DashboardPage() {
     {
       title: "主估值",
       dataIndex: "upside",
-      width: 130,
+      align: "right",
+      width: 124,
       render: (_: number | null, r) => {
         const primary = r.primaryValuation;
         if (primary.kind === "unavailable") return <Tooltip title={primary.reason}><Tag color="orange">待核验</Tag></Tooltip>;
         if (primary.kind === "legacy") return <Tooltip title={primary.reason}>
-          <span>¥{fmt(primary.price, 2)} <span className="text-xs text-slate-400">简化参考</span></span>
+          <span className="whitespace-nowrap"><span className="font-mono">¥{fmt(primary.price, 2)}</span> <span className="text-[10px] text-terminal-muted">简化参考</span></span>
         </Tooltip>;
         return <div>
-          <div>{fmt(primary.price, 2)} {primary.publication.currency}/股</div>
-          <div className="text-xs text-slate-400">{primary.publication.retrospective ? "事后复算" : "经营估值"} · {primary.publication.valuationDate}</div>
-          {primary.upside !== null && <div className={primary.upside >= 0 ? "txt-pos" : "txt-neg"}>{fmtPct(primary.upside)} 同日</div>}
+          <div className="font-mono">{fmt(primary.price, 2)} {primary.publication.currency}/股</div>
+          <div className="text-xs text-terminal-muted">{primary.publication.retrospective ? "事后复算" : "经营估值"} · {primary.publication.valuationDate}</div>
+          {primary.upside !== null && <div className={primary.upside >= 0 ? "font-mono txt-pos" : "font-mono txt-neg"}>{fmtPct(primary.upside)} 同日</div>}
         </div>;
       },
     },
@@ -264,7 +269,7 @@ export default function DashboardPage() {
         <Tooltip title={`原版空间 ${fmtPct(v)}`}>
           <div className={v >= 0 ? "txt-pos" : "txt-neg"}>{fmtPct(v)}</div>
           {r.lastEvalDate && (
-            <div className="text-xs text-slate-400">
+            <div className="text-xs text-terminal-muted">
               {new Date(r.lastEvalDate).toLocaleDateString()}
             </div>
           )}
@@ -276,6 +281,7 @@ export default function DashboardPage() {
       dataIndex: "terminalProfitY20",
       width: 130,
       className: "font-mono-num",
+      align: "right",
       render: (v: number) => <span>{fmt(v, 1)} 亿</span>,
     },
     {
@@ -283,13 +289,15 @@ export default function DashboardPage() {
       dataIndex: "terminalFcfE3",
       width: 100,
       className: "font-mono-num",
+      align: "right",
       render: (v: number) => <span>{fmt(v, 2)}x</span>,
     },
     {
-      title: "★市场隐含终局利润(L)",
+      title: "隐含终局利润 L",
       dataIndex: "impliedL",
-      width: 140,
+      width: 124,
       className: "font-mono-num",
+      align: "right",
       render: (v: number) => <span className="txt-mid">{fmt(v, 1)} 亿</span>,
     },
     {
@@ -297,6 +305,7 @@ export default function DashboardPage() {
       dataIndex: "impliedLE3",
       width: 110,
       className: "font-mono-num",
+      align: "right",
       render: (v: number) => (
         <span className={v >= 0 ? "txt-neg" : "txt-pos"}>{fmt(v, 2)}x</span>
       ),
@@ -306,6 +315,7 @@ export default function DashboardPage() {
       dataIndex: "impliedCagr",
       width: 130,
       className: "font-mono-num",
+      align: "right",
       render: (v: number) => <span>{fmt(v, 1)}%</span>,
     },
     {
@@ -313,6 +323,7 @@ export default function DashboardPage() {
       dataIndex: "terminalProfitEst",
       width: 120,
       className: "font-mono-num",
+      align: "right",
       render: (v: number) => <span>{fmt(v, 1)} 亿</span>,
     },
     {
@@ -320,6 +331,7 @@ export default function DashboardPage() {
       dataIndex: "transitionG",
       width: 110,
       className: "font-mono-num",
+      align: "right",
       render: (v: number) => <span>{fmt(v * 100, 2)}%</span>,
     },
     {
@@ -327,12 +339,13 @@ export default function DashboardPage() {
       dataIndex: "wacc",
       width: 80,
       className: "font-mono-num",
+      align: "right",
       render: (v: number) => <span>{fmt(v * 100, 2)}%</span>,
     },
     {
       title: "叙事分级诊断",
       dataIndex: "diagnosis",
-      width: 150,
+      width: 132,
       render: (v: string) => (
         <Tag color={v.includes("现金") ? "green" : v.includes("高") ? "red" : "blue"}>
           {v || "-"}
@@ -344,15 +357,16 @@ export default function DashboardPage() {
       dataIndex: "marketCap",
       width: 110,
       className: "font-mono-num",
+      align: "right",
       render: (v: number) => <span>{fmt(v, 1)}</span>,
     },
     {
       title: "操作",
       key: "action",
       fixed: "right",
-      width: 220,
+      width: 150,
       render: (_, r) => (
-        <Space size={8} wrap={false} style={{ whiteSpace: "nowrap" }}>
+        <Space size={2} wrap={false} style={{ whiteSpace: "nowrap" }}>
           <Button
             size="small"
             type="link"
@@ -389,8 +403,8 @@ export default function DashboardPage() {
       width: 150,
       render: (_, r) => (
         <div>
-          <div className="font-semibold text-slate-800">{r.name}</div>
-          <div className="text-xs text-slate-400">{r.ticker}</div>
+          <div className="font-medium text-terminal-ink">{r.name}</div>
+          <div className="font-mono text-[11px] text-terminal-muted">{r.ticker}</div>
         </div>
       ),
     },
@@ -399,6 +413,7 @@ export default function DashboardPage() {
       dataIndex: "currentPrice",
       width: 90,
       className: "font-mono-num",
+      align: "right",
       render: (v: number) => <span>¥{fmt(v, 2)}</span>,
     },
     {
@@ -406,6 +421,7 @@ export default function DashboardPage() {
       dataIndex: "shares",
       width: 100,
       className: "font-mono-num",
+      align: "right",
       render: (v: number) => <span>{fmt(v, 2)}</span>,
     },
     {
@@ -413,6 +429,7 @@ export default function DashboardPage() {
       dataIndex: "marketCap",
       width: 100,
       className: "font-mono-num",
+      align: "right",
       render: (v: number) => <span>{fmt(v, 1)}</span>,
     },
     {
@@ -420,6 +437,7 @@ export default function DashboardPage() {
       dataIndex: "cash",
       width: 100,
       className: "font-mono-num",
+      align: "right",
       render: (v: number) => <span>{fmt(v, 1)}</span>,
     },
     {
@@ -427,6 +445,7 @@ export default function DashboardPage() {
       dataIndex: "debt",
       width: 100,
       className: "font-mono-num",
+      align: "right",
       render: (v: number) => <span>{fmt(v, 1)}</span>,
     },
     {
@@ -434,6 +453,7 @@ export default function DashboardPage() {
       dataIndex: "netCash",
       width: 100,
       className: "font-mono-num",
+      align: "right",
       render: (v: number) => (
         <span className={v >= 0 ? "txt-pos" : "txt-neg"}>{fmt(v, 1)}</span>
       ),
@@ -443,6 +463,7 @@ export default function DashboardPage() {
       dataIndex: "e0",
       width: 90,
       className: "font-mono-num",
+      align: "right",
       render: (v: number) => <span>{fmt(v, 1)}</span>,
     },
     {
@@ -450,6 +471,7 @@ export default function DashboardPage() {
       dataIndex: "revenue",
       width: 100,
       className: "font-mono-num",
+      align: "right",
       render: (v: number) => <span>{fmt(v, 1)}</span>,
     },
     {
@@ -457,6 +479,7 @@ export default function DashboardPage() {
       dataIndex: "bookValue",
       width: 100,
       className: "font-mono-num",
+      align: "right",
       render: (v: number) => <span>{fmt(v, 1)}</span>,
     },
     {
@@ -464,6 +487,7 @@ export default function DashboardPage() {
       dataIndex: "cfo",
       width: 90,
       className: "font-mono-num",
+      align: "right",
       render: (v: number) => <span>{fmt(v, 1)}</span>,
     },
     {
@@ -471,6 +495,7 @@ export default function DashboardPage() {
       dataIndex: "capex",
       width: 90,
       className: "font-mono-num",
+      align: "right",
       render: (v: number) => <span>{fmt(v, 1)}</span>,
     },
     {
@@ -478,6 +503,7 @@ export default function DashboardPage() {
       dataIndex: "da",
       width: 90,
       className: "font-mono-num",
+      align: "right",
       render: (v: number) => <span>{fmt(v, 1)}</span>,
     },
     {
@@ -489,17 +515,16 @@ export default function DashboardPage() {
   ];
 
   return (
-    <div className="min-h-screen">
+    <div className="valuation-dashboard min-h-screen bg-terminal-canvas text-terminal-ink">
       {/* 看板操作 */}
       <AppHeader
         title="DCF 估值穿透与弹性空间测算终端"
         subtitle="正向 20 年 DCF 内在价值 + 逆向终局利润 L 反算 · 安全：服务端二次校验"
         actions={
-          <Space wrap size={8}>
+          <Space wrap size={6}>
             <Button icon={<ReloadOutlined />} onClick={loadData}>
-              一键刷新
+              刷新
             </Button>
-            <Button icon={<FileTextOutlined />}>另存为 HTML</Button>
             <Button icon={<ImportOutlined />} onClick={() => setImportModalOpen(true)}>
               导入 JSON
             </Button>
@@ -517,82 +542,25 @@ export default function DashboardPage() {
         }
       />
 
-      <div className="p-6">
-        {/* 指标卡 + 四象限 */}
-        <Row gutter={[16, 16]} className="mb-4">
-          <Col xs={24} sm={8}>
-            <Card>
-              <Statistic
-                title="重点监控标的总数"
-                value={total}
-                suffix="家"
-                styles={{ content: { color: "#1d4ed8" } }}
-              />
-              <div className="text-xs text-slate-400 mt-1">
-                覆盖 A/H 股核心制造标的
-              </div>
-            </Card>
-          </Col>
-          <Col xs={24} sm={8}>
-            <Card>
-              <Statistic
-                title="已发布经营估值"
-                value={operatingCount}
-                suffix={`/ ${total} 家`}
-              />
-              <div className="text-xs text-slate-400 mt-1">
-                {missingCount} 家待核验
-              </div>
-            </Card>
-          </Col>
-          <Col xs={24} sm={8}>
-            <Card title="四象限诊断 · 点击筛选">
-              <Space wrap>
-                {quadrantCounts.map((q) => {
-                  const active = quadrantFilter === q.key;
-                  const bg = q.color === "green" ? "#16a34a" : "#dc2626";
-                  return (
-                    <Tag.CheckableTag
-                      key={q.key}
-                      checked={active}
-                      onChange={(checked) =>
-                        setQuadrantFilter(checked ? q.key : "")
-                      }
-                      style={{
-                        padding: "4px 10px",
-                        borderRadius: 12,
-                        background: active ? bg : "#fff",
-                        color: active ? "#fff" : "#475569",
-                        border: `1px solid ${active ? bg : "#e2e8f0"}`,
-                      }}
-                    >
-                      {q.key}
-                      <span className="ml-1 font-bold">{q.count}</span>家
-                    </Tag.CheckableTag>
-                  );
-                })}
-              </Space>
-            </Card>
-          </Col>
-        </Row>
+      <div className="terminal-page grid gap-2">
+        <section aria-label="估值概况" className="market-strip grid grid-cols-3 overflow-hidden rounded-md border border-terminal-line bg-terminal-surface">
+          <Statistic title="监控标的" value={total} />
+          <Statistic title="已发布经营估值" value={operatingCount} suffix={"/ " + total} />
+          <Statistic title="待核验" value={missingCount} />
+        </section>
 
-        {/* 排行榜表格 */}
-        <Card
-          title={
-            <span>
-              📊 估值穿透全景排行榜
-              <span className="text-xs text-slate-400 ml-2 font-normal">
-                （核心列优先 · 展开行查看完整指标）
-              </span>
-            </span>
-          }
+        <div className="grid min-w-0 items-start gap-2 xl:grid-cols-[minmax(0,1fr)_264px]">
+        <div className="grid min-w-0 gap-2">
+        <Card size="small" className="terminal-watchlist min-w-0" title="估值监控列表"
           extra={
             <Input
               prefix={<SearchOutlined />}
-              placeholder="搜索代码、标的简称…"
+              aria-label="搜索代码或标的简称"
+              placeholder="搜索代码或标的简称"
+              size="small"
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
-              style={{ width: 240 }}
+              className="w-full max-w-[13rem]"
               allowClear
             />
           }
@@ -602,37 +570,62 @@ export default function DashboardPage() {
             columns={columns.filter(col=> !col.dataIndex || ["name","currentPrice","upside","impliedL","diagnosis"].includes(String(col.dataIndex)))}
             expandable={{expandedRowRender:r=><div className="detail-grid">{columns.filter(col=>col.dataIndex).map(col=><div key={String(col.dataIndex)}><span>{String(col.title)}</span><strong>{String(r[col.dataIndex as keyof Company]??"—")}</strong></div>)}</div>}}
             dataSource={filtered}
+            rowClassName={(company) => company.id === selected?.id ? "watchlist-selected" : ""}
             loading={loading}
-            scroll={{ y: 520 }}
-            size="middle"
+            scroll={{ x: 680, y: 420 }}
+            size="small"
             className="fin-table dashboard-primary-table"
             pagination={{ pageSize: 20, showSizeChanger: true }}
           />
         </Card>
 
-        {/* 基准库档案对照（只读参考） */}
-        <Card
-          className="mt-4"
-          title={
-            <span>
-              🏛 基准库档案对照
-              <span className="text-xs text-slate-400 ml-2 font-normal">
-                （只读参考 · 上方排行榜为你的用户库数据，此处为基准库原始档案，便于对照差异）
-              </span>
-            </span>
-          }
-        >
+        <Card size="small" title="基准库档案" extra={<span className="text-xs text-terminal-muted">只读参考</span>}>
           <Table
             rowKey="id"
             columns={baselineColumns.filter(col=>!col.dataIndex || ["name","ticker","currentPrice","e0","revenue"].includes(String(col.dataIndex)))}
             dataSource={baselineCompanies}
             loading={baselineLoading}
-            scroll={{ y: 400 }}
+            scroll={{ x: 460, y: 320 }}
             size="small"
             className="fin-table"
             pagination={false}
           />
         </Card>
+        </div>
+        <aside aria-label="标的监控面板" className="grid min-w-0 gap-2 sm:grid-cols-2 xl:grid-cols-1">
+        <Card size="small" title="标的快照" className="min-w-0">
+          {selected ? <>
+            <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+              <Link href={`/company/${encodeURIComponent(selected.ticker)}`} className="font-semibold text-terminal-link hover:underline">{selected.name}</Link>
+              <span className="font-mono text-xs text-terminal-muted">{selected.ticker}</span>
+            </div>
+            <dl className="snapshot-grid">
+              <dt>最新市价</dt><dd>¥{fmt(selected.currentPrice, 2)}</dd>
+              <dt>主估值</dt><dd>{selected.primaryValuation.kind === "unavailable" ? "待核验" : `${fmt(selected.primaryValuation.price, 2)} ${selected.primaryValuation.kind === "operating" ? selected.primaryValuation.publication.currency : "元"}/股`}</dd>
+              <dt>同日潜在空间</dt><dd className={selected.upside === null || selected.upside === 0 ? undefined : selected.upside > 0 ? "txt-pos" : "txt-neg"}>{selected.upside === null ? "—" : fmtPct(selected.upside)}</dd>
+              <dt>市值</dt><dd>{fmt(selected.marketCap)} 亿</dd>
+              <dt>净现金</dt><dd>{fmt(selected.netCash)} 亿</dd>
+              <dt>估值日期</dt><dd>{selected.primaryValuation.kind === "operating" ? selected.primaryValuation.publication.valuationDate : "—"}</dd>
+            </dl>
+          </> : <span className="text-xs text-terminal-muted">没有符合条件的标的</span>}
+        </Card>
+        <Card size="small" title="估值诊断" className="min-w-0">
+          <div aria-label="估值诊断筛选" className="grid grid-cols-2 gap-1.5 sm:grid-cols-4 xl:grid-cols-1">
+            {quadrantCounts.map((quadrant) => (
+              <button key={quadrant.key} type="button"
+                aria-pressed={quadrantFilter === quadrant.key}
+                onClick={() => setQuadrantFilter(quadrantFilter === quadrant.key ? "" : quadrant.key)}
+                className="flex min-w-0 items-center gap-2 rounded-md border border-terminal-line px-2.5 py-2 text-left text-xs text-terminal-muted hover:bg-terminal-hover hover:text-terminal-ink focus-visible:outline focus-visible:outline-terminal-accent-hover aria-pressed:border-terminal-accent-hover aria-pressed:bg-terminal-hover aria-pressed:text-terminal-ink">
+                <span aria-hidden="true" className={quadrant.color === "green" ? "size-1.5 shrink-0 rounded-full bg-terminal-positive" : "size-1.5 shrink-0 rounded-full bg-terminal-negative"} />
+                <span className="flex-1">{quadrant.key}</span>
+                <span className="font-mono text-terminal-ink">{quadrant.count}</span>
+              </button>
+            ))}
+          </div>
+        </Card>
+        </aside>
+        </div>
+
       </div>
 
       {/* 导入弹窗 */}
@@ -649,7 +642,7 @@ export default function DashboardPage() {
         >
           <Button icon={<ImportOutlined />}>选择 JSON 文件</Button>
         </Upload>
-        <p className="text-xs text-slate-400 mt-3">
+        <p className="text-xs text-terminal-muted mt-3">
           文件需符合系统 Schema，最大 5MB。重复 ticker 将被跳过。
         </p>
       </Modal>
