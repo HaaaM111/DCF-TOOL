@@ -10,6 +10,7 @@ import {
 } from "@ant-design/icons";
 import { useRouter } from "next/navigation";
 import AppHeader from "@/components/app-header";
+import { ClickPowerUp } from "@/components/evil-buttons/click-powerup";
 import { QUADRANT_VIEWS, WatchlistQuadrant } from "@/components/research-charts";
 import type { QuadrantCompany, QuadrantView } from "@/components/research-charts";
 
@@ -395,19 +396,28 @@ export default function HomePage() {
                 </Empty>
               )}
             </div>
-            <nav className="research-links home-shortcuts" aria-label="研究入口">
-              <button type="button" onClick={() => router.push("/dashboard")}>
-                <span><strong>估值看板</strong></span>
-                <ArrowRightOutlined />
-              </button>
-              <button type="button" onClick={() => router.push("/announcements")}>
-                <span><strong>公告中心</strong></span>
-                <ArrowRightOutlined />
-              </button>
-              <button type="button" onClick={() => router.push("/agent")}>
-                <span><strong>智能体对话</strong></span>
-                <ArrowRightOutlined />
-              </button>
+            <nav className="home-shortcuts" aria-label="研究入口">
+              <ClickPowerUp
+                className="home-powerup"
+                accentColor="var(--brand)"
+                onClick={() => router.push("/dashboard")}
+              >
+                估值看板
+              </ClickPowerUp>
+              <ClickPowerUp
+                className="home-powerup"
+                accentColor="var(--brand)"
+                onClick={() => router.push("/announcements")}
+              >
+                公告中心
+              </ClickPowerUp>
+              <ClickPowerUp
+                className="home-powerup"
+                accentColor="var(--brand)"
+                onClick={() => router.push("/agent")}
+              >
+                智能体对话
+              </ClickPowerUp>
             </nav>
           </section>
         </section>

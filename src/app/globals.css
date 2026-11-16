@@ -1208,59 +1208,266 @@ select {
   overflow: visible;
 }
 .home-quadrant .quadrant-chart-wrap {
-  border-bottom: 0;
+  border-bottom: 1px solid var(--line);
 }
 
 .home-shortcuts {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0;
+  gap: 14px;
   width: auto;
   min-width: 0;
   margin: 18px 0 0;
-  overflow: hidden;
+  padding-top: 1px;
+  overflow: visible;
   border: 0;
-  border-top: 1px solid var(--line);
-  border-radius: 0;
   background: transparent;
   box-shadow: none;
 }
-.home-shortcuts button:focus-visible {
-  outline-offset: -3px;
-}
-.home-shortcuts button {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+.home-shortcuts .home-powerup {
   width: 100%;
+}
+
+/* ClickPowerUp: 四角括线在悬停时张开，点击时闪光并向外爆开。 */
+.click-powerup {
+  --powerup: #2cd4bd;
+  --powerup-hatch: color-mix(in oklab, var(--ink) 9%, transparent);
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-height: 48px;
-  padding: 8px 14px;
+  padding: 12px 22px;
   border: 0;
-  border-right: 1px solid var(--line);
-  background: transparent;
+  background: var(--paper);
   color: var(--ink);
-  text-align: left;
   cursor: pointer;
+  appearance: none;
+  isolation: isolate;
+  text-align: center;
+  text-decoration: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  box-shadow:
+    0 1px 2px rgba(18, 18, 15, 0.05),
+    0 2px 6px -3px rgba(18, 18, 15, 0.07),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.03);
+  transition: box-shadow 220ms ease;
 }
-.home-shortcuts button:last-child {
-  border-right: 0;
+.dark .click-powerup {
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
-.home-shortcuts button:hover {
-  background: var(--brand-soft);
+.click-powerup:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 3px;
+}
+.click-powerup:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.click-powerup-face {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: var(--paper);
+}
+.click-powerup-hatch {
+  position: absolute;
+  inset: 0;
+  background-image: repeating-linear-gradient(
+    315deg,
+    var(--powerup-hatch) 0,
+    var(--powerup-hatch) 1px,
+    transparent 1px,
+    transparent 7px
+  );
+}
+.click-powerup-panel {
+  position: absolute;
+  inset: 0;
+  background: var(--ink);
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.click-powerup.is-hover .click-powerup-panel,
+.click-powerup.is-tap .click-powerup-panel,
+.click-powerup.is-powered .click-powerup-panel {
+  transform: scaleX(1);
+}
+.click-powerup-flash {
+  position: absolute;
+  inset: 0;
+  background: var(--powerup);
+  opacity: 0;
+  transition: opacity 300ms ease;
+}
+.click-powerup.is-powered .click-powerup-flash {
+  opacity: 1;
+  transition-duration: 80ms;
+}
+.click-powerup-corner {
+  position: absolute;
+  z-index: 2;
+  width: 10px;
+  height: 10px;
+  border: 0 solid var(--ink);
+  opacity: 0.45;
+  pointer-events: none;
+  transition:
+    transform 260ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 260ms ease,
+    border-color 200ms ease;
+}
+.click-powerup-corner.corner-tl {
+  top: 0;
+  left: 0;
+  border-top-width: 1px;
+  border-left-width: 1px;
+}
+.click-powerup-corner.corner-tr {
+  top: 0;
+  right: 0;
+  border-top-width: 1px;
+  border-right-width: 1px;
+}
+.click-powerup-corner.corner-bl {
+  bottom: 0;
+  left: 0;
+  border-bottom-width: 1px;
+  border-left-width: 1px;
+}
+.click-powerup-corner.corner-br {
+  right: 0;
+  bottom: 0;
+  border-right-width: 1px;
+  border-bottom-width: 1px;
+}
+.click-powerup.is-hover .click-powerup-corner,
+.click-powerup.is-tap .click-powerup-corner,
+.click-powerup.is-powered .click-powerup-corner {
+  opacity: 1;
+}
+.click-powerup.is-hover .corner-tl {
+  transform: translate(-4px, -4px);
+}
+.click-powerup.is-hover .corner-tr {
+  transform: translate(4px, -4px);
+}
+.click-powerup.is-hover .corner-bl {
+  transform: translate(-4px, 4px);
+}
+.click-powerup.is-hover .corner-br {
+  transform: translate(4px, 4px);
+}
+.click-powerup.is-tap .corner-tl {
+  transform: translate(2px, 2px);
+}
+.click-powerup.is-tap .corner-tr {
+  transform: translate(-2px, 2px);
+}
+.click-powerup.is-tap .corner-bl {
+  transform: translate(2px, -2px);
+}
+.click-powerup.is-tap .corner-br {
+  transform: translate(-2px, -2px);
+}
+.click-powerup.is-powered .click-powerup-corner {
+  border-color: var(--powerup);
+}
+.click-powerup.is-powered .corner-tl {
+  transform: translate(-6px, -6px);
+}
+.click-powerup.is-powered .corner-tr {
+  transform: translate(6px, -6px);
+}
+.click-powerup.is-powered .corner-bl {
+  transform: translate(-6px, 6px);
+}
+.click-powerup.is-powered .corner-br {
+  transform: translate(6px, 6px);
+}
+.click-powerup-label {
+  position: relative;
+  z-index: 3;
+  display: inline-block;
   color: var(--ink);
-}
-.home-shortcuts strong {
-  font-size: 14px;
-  font-weight: 600;
-}
-.home-shortcuts svg {
-  color: var(--muted);
-  flex-shrink: 0;
   font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  line-height: 1.2;
+  transform-origin: center;
+  transition:
+    color 160ms ease,
+    transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
 }
-.home-shortcuts button:hover svg {
-  color: var(--brand);
+.click-powerup.is-hover .click-powerup-label,
+.click-powerup.is-tap .click-powerup-label,
+.click-powerup.is-powered .click-powerup-label {
+  color: var(--canvas);
+}
+.click-powerup.is-tap .click-powerup-label {
+  transform: scale(0.94);
+}
+.click-powerup-burst {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+}
+.click-powerup-burst-corner {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border: 0 solid var(--powerup);
+  animation: click-powerup-burst 520ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.click-powerup-burst-corner.burst-tl {
+  top: 0;
+  left: 0;
+  border-top-width: 1px;
+  border-left-width: 1px;
+  --burst-x: -12px;
+  --burst-y: -12px;
+}
+.click-powerup-burst-corner.burst-tr {
+  top: 0;
+  right: 0;
+  border-top-width: 1px;
+  border-right-width: 1px;
+  --burst-x: 12px;
+  --burst-y: -12px;
+}
+.click-powerup-burst-corner.burst-bl {
+  bottom: 0;
+  left: 0;
+  border-bottom-width: 1px;
+  border-left-width: 1px;
+  --burst-x: -12px;
+  --burst-y: 12px;
+}
+.click-powerup-burst-corner.burst-br {
+  right: 0;
+  bottom: 0;
+  border-right-width: 1px;
+  border-bottom-width: 1px;
+  --burst-x: 12px;
+  --burst-y: 12px;
+}
+@keyframes click-powerup-burst {
+  0% {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
+  65% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--burst-x), var(--burst-y)) scale(1.12);
+  }
 }
 
 /* 首页可点击元素的统一悬停反馈 */
@@ -1299,13 +1506,6 @@ select {
   scale: 1.03;
 }
 .home-shell .ant-btn.news-showcase-refresh:hover {
-  scale: 1.06;
-}
-.home-shell .home-shortcuts button > span {
-  transform-origin: center;
-  transition: scale 180ms ease;
-}
-.home-shell .home-shortcuts button:hover > span {
   scale: 1.06;
 }
 .home-shell .quadrant-chart-wrap .svg-chart g[role="button"] > circle:nth-of-type(2) {
@@ -1359,16 +1559,7 @@ select {
 @media (max-width: 640px) {
   .home-shortcuts {
     grid-template-columns: 1fr;
-    grid-template-rows: repeat(3, auto);
-  }
-  .home-shortcuts button {
-    min-height: 48px;
-    padding: 8px 14px;
-    border-right: 0;
-    border-bottom: 1px solid var(--line);
-  }
-  .home-shortcuts button:last-child {
-    border-bottom: 0;
+    gap: 10px;
   }
 }
 
@@ -1385,7 +1576,6 @@ select {
   .home-shell .focus-report-link,
   .home-shell .quadrant-title-trigger,
   .home-shell .company-select,
-  .home-shell .home-shortcuts button > span,
   .home-shell .quadrant-chart-wrap .svg-chart g[role="button"] > circle:nth-of-type(2) {
     transition: none;
   }
@@ -1397,8 +1587,7 @@ select {
   .home-shell .quadrant-title-trigger:hover,
   .home-shell .company-select:hover,
   .home-shell .ant-btn:not(:disabled):hover,
-  .home-shell .news-showcase-refresh:hover,
-  .home-shell .home-shortcuts button:hover > span {
+  .home-shell .news-showcase-refresh:hover {
     scale: none;
   }
   .home-shell .home-news-more a.news-item:hover,
@@ -1411,5 +1600,18 @@ select {
   .home-shell .quadrant-chart-wrap .svg-chart g[role="button"]:hover > circle:nth-of-type(2),
   .home-shell .quadrant-chart-wrap .svg-chart g[role="button"]:focus-visible > circle:nth-of-type(2) {
     transform: none;
+  }
+  .click-powerup,
+  .click-powerup-label,
+  .click-powerup-corner,
+  .click-powerup-panel,
+  .click-powerup-flash {
+    transition: none;
+  }
+  .click-powerup.is-tap .click-powerup-label {
+    transform: none;
+  }
+  .click-powerup-burst {
+    display: none;
   }
 }
