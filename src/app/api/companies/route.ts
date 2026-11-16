@@ -1,7 +1,3 @@
-/**
- * GET  /api/companies  —— 获取全部标的（含假设与评估快照），供排行榜使用
- * POST /api/companies  —— 新增估值标的（写用户库：公司档案 + 假设 + 快照 + 报告留痕）
- */
 import { NextRequest } from "next/server";
 import { Prisma } from "@/generated/prisma/client";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
@@ -51,13 +47,11 @@ export async function POST(req: NextRequest) {
   }
   const c = cParsed.data;
 
-  // 同代码去重：ticker 唯一，已存在则返回冲突
   const dup = await prisma.company.findUnique({ where: { ticker: c.ticker } });
   if (dup) {
     return jsonError(`该股票代码（${c.ticker}）已存在，请直接编辑现有标的`, 409, "DUPLICATE_TICKER");
   }
 
-  // 创建公司档案（用户库）
   const created = await prisma.company.create({
     data: {
       name: c.name,

@@ -1,7 +1,3 @@
-/**
- * GET /api/announcements —— 公告列表查询（含预期差信号）
- * 参数：companyId / category / days（近 N 天，按 publishAt 过滤）/ page / pageSize，按 publishAt 倒序
- */
 import { NextRequest } from "next/server";
 import { guardRequest, jsonOk } from "@/lib/api";
 import { prisma } from "@/lib/prisma";

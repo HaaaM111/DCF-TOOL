@@ -9,8 +9,29 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        background: "var(--background)",
-        foreground: "var(--foreground)",
+        /* 极简机构风色板 */
+        canvas: "var(--canvas)",
+        side: "var(--side)",
+        paper: "var(--paper)",
+        ink: "var(--ink)",
+        body: "var(--body)",
+        muted: "var(--muted)",
+        quiet: "var(--quiet)",
+        line: "var(--line)",
+        "line-strong": "var(--line-strong)",
+        brand: "var(--brand)",
+        "brand-deep": "var(--brand-deep)",
+        "brand-soft": "var(--brand-soft)",
+        brick: "var(--brick)",
+        /* 兼容旧变量引用 */
+        background: "var(--canvas)",
+        foreground: "var(--ink)",
+      },
+      fontFamily: {
+        sans: ["Inter", "Segoe UI", "PingFang SC", "Microsoft YaHei", "sans-serif"],
+      },
+      borderRadius: {
+        inst: "5px",
       },
     },
   },

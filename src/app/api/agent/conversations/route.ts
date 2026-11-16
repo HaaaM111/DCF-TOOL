@@ -1,11 +1,3 @@
-/**
- * 智能体对话记录接口
- * ------------------------------------------------------------------
- * GET  /api/agent/conversations?companyId=xxx —— 读取某标的全部对话（正序，最多 200 条）
- * POST /api/agent/conversations { companyId, messages:[{role,content}] } —— 追加对话
- *   前端在成功交互后调用：落库 user 消息 + assistant 回复，刷新不丢。
- * 安全：role 白名单（user/assistant）；content 截断 4000 + XSS 过滤后存储。
- */
 import { NextRequest } from "next/server";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
 import { prisma } from "@/lib/prisma";

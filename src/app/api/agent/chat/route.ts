@@ -1,14 +1,3 @@
-/**
- * POST /api/agent/chat —— 智能体对话主入口
- * ------------------------------------------------------------------
- * 能力：固定绑定某标的；系统上下文 = 该公司 DCF 假设 + 已入库公告信号；
- *      工具 sync_announcements：用户要求拉取/更新公告时由模型调用（仅采集入库）；
- *      工具 analyze_announcements：用户要求分析公告/查看信号时由模型调用，
- *        对该公司未分析公告生成预期差信号（复用 analyze-service），结果回传后二轮取最终回答。
- * 对话持久化：由前端在成功交互后调用 POST /api/agent/conversations 落库（本路由不落库）。
- * 降级：未配置 LLM API（env/DB 均无 key）→ 返回 llmReady:false + 引导文案，不报错。
- * 安全：reply 经 XSS 过滤；key 仅服务端；工具循环最多 1 轮防死循环。
- */
 import { NextRequest } from "next/server";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
 import { prisma } from "@/lib/prisma";
@@ -26,8 +15,8 @@ import { analyzeCompanyAnnouncements } from "@/lib/announcement/analyze-service"
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const MAX_HISTORY = 20; // 发送给模型的历史消息条数上限
-const MAX_MSG_CHARS = 4000; // 单条消息截断
+const MAX_HISTORY = 20;
+const MAX_MSG_CHARS = 4000;
 const MAX_TOKENS = 900;
 
 const SYNC_TOOL: ToolDef = {
@@ -74,7 +63,6 @@ interface ClientMsg {
   content: string;
 }
 
-/** 组装系统提示：角色 + 当前标的 DCF 假设 + 近期公告信号 */
 async function buildSystemPrompt(
   companyId: string,
   company: { name: string; ticker: string },
@@ -141,7 +129,6 @@ async function buildSystemPrompt(
   ].join("\n");
 }
 
-/** 解析工具调用并返回 { toolContent, toolSummary }；抛错则返回失败 JSON */
 async function runTool(
   toolCall: ToolCall,
   companyId: string,
@@ -277,7 +264,6 @@ export async function POST(req: NextRequest) {
     let toolUsed = false;
     let toolSummary: Record<string, unknown> | null = null;
 
-    // 工具调用：最多执行一轮（防循环）
     const toolCall = first.toolCalls.find((t) => t.function?.name);
     if (toolCall) {
       toolUsed = true;
@@ -296,7 +282,6 @@ export async function POST(req: NextRequest) {
       if (second?.content) {
         reply = second.content;
       } else if (!reply) {
-        // 模型第二轮也失败：用工具真实结果兜底回答
         reply = toolSummary?.ok
           ? toolSummary.analyzed != null
             ? `分析完成：尝试 ${toolSummary.attempted} 条，产生信号 ${toolSummary.signals} 条，跳过 ${toolSummary.skipped} 条（失败 ${toolSummary.failed} 条）。`

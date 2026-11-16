@@ -1,32 +1,20 @@
-/**
- * 巨潮资讯（cninfo）公告客户端 —— A股公告采集模块
- * ------------------------------------------------------------------
- * 接口均已实测（2026-10-09）：
- *   - orgId 查询：POST /new/information/topSearch/query（按代码查，沪深通用）
- *     （注：/new/data/sse_stock.json 已 404，不依赖股票列表文件）
- *   - 公告查询：POST /new/hisAnnouncement/query
- *     stock 参数逗号需 URL 编码（URLSearchParams 自动处理）
- *   - PDF 全文：http://static.cninfo.com.cn/ + adjunctUrl
- * 安全设计：仅服务端使用；响应用 zod 校验，字段漂移时在此单点兜底。
- */
 import { z } from "zod";
 
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0";
 const REFERER = "http://www.cninfo.com.cn/";
-const ORG_ID_CACHE_TTL_MS = 10 * 60 * 1000; // orgId 缓存 10 分钟
-const MAX_PAGES = 3; // 按需场景翻页上限（pageSize=30，足够覆盖近 30 天）
+const ORG_ID_CACHE_TTL_MS = 10 * 60 * 1000;
+const MAX_PAGES = 3;
 
 export type Market = "SZ" | "SH";
 
-/** 公告查询接口返回的原始字段 */
 export interface CninfoAnnouncement {
-  announcementId: string; // 去重键
+  announcementId: string;
   title: string;
-  publishAt: Date; // 毫秒时间戳转换
-  pdfUrl: string; // 全文 PDF 地址
+  publishAt: Date;
+  pdfUrl: string;
   secCode: string;
   secName: string;
-  adjunctSizeKb: number; // PDF 大小（KB），超大文件多为扫描件
+  adjunctSizeKb: number;
 }
 
 const topSearchSchema = z.array(
@@ -55,7 +43,6 @@ function sleep(ms: number): Promise<void> {
 let orgIdCache: Map<string, string> = new Map();
 let orgIdCacheAt = 0;
 
-/** 按证券代码查询巨潮 orgId（沪深通用），10 分钟内存缓存 */
 export async function fetchOrgId(secCode: string): Promise<string | null> {
   if (Date.now() - orgIdCacheAt > ORG_ID_CACHE_TTL_MS) {
     orgIdCache = new Map();
@@ -87,12 +74,10 @@ export async function fetchOrgId(secCode: string): Promise<string | null> {
   return null;
 }
 
-/** 市场 -> 巨潮 column 参数（szse 深市 / sse 沪市） */
 export function columnOf(market: Market): "szse" | "sse" {
   return market === "SZ" ? "szse" : "sse";
 }
 
-/** 拉某公司一段时间内的公告（自动翻页至 hasMore=false 或翻页上限） */
 export async function fetchAnnouncements(
   secCode: string,
   orgId: string,

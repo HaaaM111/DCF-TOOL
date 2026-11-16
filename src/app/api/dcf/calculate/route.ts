@@ -1,11 +1,3 @@
-/**
- * POST /api/dcf/calculate
- * 接收模型假设与公司基础数据，后端执行 DCF 计算并返回结果。
- * 安全：
- *   - 速率限制 + CORS
- *   - Zod 校验所有入参
- *   - 后端计算为权威值，前端展示结果必须与此一致（VERIFY_CALCULATION 开关）
- */
 import { NextRequest } from "next/server";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
 import { assumptionsSchema, companySchema } from "@/lib/validation";
@@ -35,7 +27,6 @@ export async function POST(req: NextRequest) {
 
   const { assumptions: rawA, company: rawC } = body as Record<string, unknown>;
 
-  // 入参校验
   const aParsed = assumptionsSchema.safeParse(rawA);
   const cParsed = companySchema.safeParse(rawC);
   if (!aParsed.success || !cParsed.success) {
@@ -49,7 +40,6 @@ export async function POST(req: NextRequest) {
   const a = aParsed.data;
   const c = cParsed.data;
 
-  // 调用纯函数计算引擎
   const output = calcDcf(a, {
     currentPrice: c.currentPrice,
     shares: c.shares,
@@ -57,7 +47,6 @@ export async function POST(req: NextRequest) {
     e0: c.e0,
   });
 
-  // 分类与诊断（后端权威生成，前端不得自行计算这些标签）
   const quadrant = classifyQuadrant(output.reverse, a);
   const diagnosis = diagnoseNarrative(output.reverse, output.gordon, {
     currentPrice: c.currentPrice,

@@ -1,7 +1,3 @@
-/**
- * GET /api/baseline —— 基准库公司档案（只读参考，供界面底部对照展示）
- * 仅返回档案字段；该接口只读，不提供任何写入能力。
- */
 import { NextRequest } from "next/server";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
 import { prismaBase } from "@/lib/prisma";

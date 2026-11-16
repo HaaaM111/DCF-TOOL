@@ -1,78 +1,119 @@
 "use client";
 
-import { Button, Tooltip, Typography } from "antd";
+import { Button, Dropdown } from "antd";
 import {
   BulbFilled,
   BulbOutlined,
-  DashboardOutlined,
-  FileSearchOutlined,
-  RobotOutlined,
+  DesktopOutlined,
 } from "@ant-design/icons";
 import { useRouter, usePathname } from "next/navigation";
 import { useTheme } from "@/app/providers";
+import type { ThemeMode } from "@/app/providers";
 import type { ReactNode } from "react";
 
-const { Title } = Typography;
-
 const NAV_ITEMS = [
-  { key: "/dashboard", label: "估值看板", icon: <DashboardOutlined /> },
-  { key: "/announcements", label: "公告中心", icon: <FileSearchOutlined /> },
-  { key: "/agent", label: "智能体对话", icon: <RobotOutlined /> },
+  { key: "/", label: "首页" },
+  { key: "/dashboard", label: "估值看板" },
+  { key: "/announcements", label: "公告中心" },
+  { key: "/agent", label: "智能体对话" },
+];
+
+const THEME_OPTIONS: { key: ThemeMode; label: string; icon: ReactNode }[] = [
+  { key: "system", label: "跟随系统", icon: <DesktopOutlined /> },
+  { key: "light", label: "浅色模式", icon: <BulbOutlined /> },
+  { key: "dark", label: "深色模式", icon: <BulbFilled /> },
 ];
 
 interface AppHeaderProps {
   title: ReactNode;
   subtitle?: ReactNode;
   actions?: ReactNode;
+  children?: ReactNode;
+  fluid?: boolean;
 }
 
-/**
- * 全站统一顶栏：纯色深蓝、克制的导航 + 页面操作区 + 主题切换。
- * 仅承载视觉与导航，不包含业务逻辑。
- */
-export default function AppHeader({ title, subtitle, actions }: AppHeaderProps) {
+export default function AppHeader({
+  title,
+  subtitle,
+  actions,
+  children,
+  fluid = false,
+}: AppHeaderProps) {
   const router = useRouter();
   const pathname = usePathname();
-  const { mode, toggle } = useTheme();
+  const { mode, setMode } = useTheme();
 
-  const activeKey = NAV_ITEMS.find((n) => pathname.startsWith(n.key))?.key;
+  const activeKey = NAV_ITEMS.find((n) =>
+    n.key === "/" ? pathname === "/" : pathname.startsWith(n.key),
+  )?.key;
+  const visibleNavItems = pathname === "/" ? NAV_ITEMS.filter((n) => n.key === "/") : NAV_ITEMS;
+
+  const currentTheme =
+    THEME_OPTIONS.find((t) => t.key === mode) ?? THEME_OPTIONS[0];
 
   return (
-    <div className="brand-header px-6 py-3 flex items-center justify-between gap-x-4 gap-y-2 flex-wrap">
-      <div className="flex items-center gap-3 min-w-0">
-        <div className="hidden sm:flex items-center justify-center w-9 h-9 rounded-md bg-white/10 border border-white/20 font-mono-num text-[13px] font-bold">
-          DCF
+    <div className={`app-shell${fluid ? " fluid" : ""}${pathname === "/" ? " home-shell" : ""}`}>
+      <aside className="app-side">
+        <div className="side-brand">
+          <strong>ValueInsight</strong>
         </div>
-        <div className="min-w-0">
-          <Title level={4} style={{ color: "#fff", margin: 0, lineHeight: 1.35 }}>
-            {title}
-          </Title>
-          {subtitle && <div className="header-sub">{subtitle}</div>}
-        </div>
-      </div>
 
-      <div className="flex items-center gap-2 flex-wrap">
-        <div className="header-nav">
-          {NAV_ITEMS.map((n) => (
-            <Button
+        <nav className="side-nav">
+          {visibleNavItems.map((n) => (
+            <a
               key={n.key}
-              size="small"
-              icon={n.icon}
-              className={activeKey === n.key ? "header-nav-active" : ""}
-              onClick={() => router.push(n.key)}
+              className={activeKey === n.key ? "active" : ""}
+              aria-current={activeKey === n.key ? "page" : undefined}
+              href={n.key}
+              onClick={(e) => {
+                e.preventDefault();
+                router.push(n.key);
+              }}
             >
               {n.label}
-            </Button>
+            </a>
           ))}
+        </nav>
+
+        <div className="side-source">
+          <Dropdown
+            menu={{
+              items: THEME_OPTIONS,
+              selectable: true,
+              selectedKeys: [mode],
+              onClick: ({ key }) => setMode(key as ThemeMode),
+            }}
+            trigger={["click"]}
+          >
+            <Button
+              size="small"
+              type="text"
+              icon={currentTheme.icon}
+              style={{ marginBottom: 8, padding: "0 8px" }}
+            >
+              {currentTheme.label}
+            </Button>
+          </Dropdown>
+          <div>iFinD · 东财 · 腾讯</div>
         </div>
-        {actions}
-        <Tooltip title={mode === "dark" ? "切换浅色" : "切换深色"}>
-          <Button
-            icon={mode === "dark" ? <BulbFilled /> : <BulbOutlined />}
-            onClick={toggle}
-          />
-        </Tooltip>
-      </div>
+      </aside>
+
+      <main className="app-main">
+        {fluid ? (
+          children
+        ) : (
+          <>
+            <header className="page-heading">
+              <div>
+                <h1>{title}</h1>
+                {subtitle && <p>{subtitle}</p>}
+              </div>
+              {actions && <div className="heading-actions">{actions}</div>}
+            </header>
+            {children}
+          </>
+        )}
+      </main>
     </div>
   );
 }

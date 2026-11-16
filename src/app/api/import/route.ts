@@ -1,8 +1,3 @@
-/**
- * POST /api/import —— 已禁用
- * 批量导入请使用管理脚本：npx tsx scripts/manage-baseline.ts import <file.json>
- * （导出文件可通过 GET /api/export 生成）
- */
 import { NextRequest } from "next/server";
 import { guardRequest, jsonError } from "@/lib/api";
 

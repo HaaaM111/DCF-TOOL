@@ -1,19 +1,20 @@
 "use client";
 
+import { memo, useMemo } from "react";
 import ReactECharts from "echarts-for-react";
 import type { MonteCarloResult, ValueComposition } from "@/types/dcf";
 
-/** 价值构成环形图（终值 / 显性期 / 留存现金 / 净现金） */
-export function ValueDonut({ comp }: { comp: ValueComposition }) {
-  const items = [
-    { name: "终值（20年后永续派现）", value: comp.terminal, color: "#1E3A5F" },
-    { name: "显性期（前20年派现折现）", value: comp.explicit, color: "#4F46E5" },
-    { name: "留存现金累积（按2%复利）", value: comp.retainedCash, color: "#F59E0B" },
-    { name: "净现金 (+) / 净负债 (-)", value: comp.netCash, color: "#10B981" },
-  ];
-  const total = comp.total || 1;
+export const ValueDonut = memo(function ValueDonut({ comp }: { comp: ValueComposition }) {
+  const option = useMemo(() => {
+    const items = [
+      { name: "终值（20年后永续派现）", value: comp.terminal, color: "#244334" },
+      { name: "显性期（前20年派现折现）", value: comp.explicit, color: "#315e49" },
+      { name: "留存现金累积（按2%复利）", value: comp.retainedCash, color: "#a8a08c" },
+      { name: "净现金 (+) / 净负债 (-)", value: comp.netCash, color: "#7d9488" },
+    ];
+    const total = comp.total || 1;
 
-  const option = {
+  return {
     tooltip: {
       trigger: "item",
       formatter: (p: { name: string; value: number; percent: number }) =>
@@ -34,14 +35,14 @@ export function ValueDonut({ comp }: { comp: ValueComposition }) {
         radius: ["52%", "78%"],
         center: ["35%", "50%"],
         avoidLabelOverlap: false,
-        itemStyle: { borderRadius: 4, borderColor: "#fff", borderWidth: 2 },
+        itemStyle: { borderRadius: 4, borderColor: "#f7f8f6", borderWidth: 2 },
         label: {
           show: true,
           position: "center",
           formatter: [`{a|${total.toFixed(0)}}`, "{b|亿 · 股权价值}"].join("\n"),
           rich: {
-            a: { fontSize: 22, fontWeight: "bold", color: "#0f172a", lineHeight: 30 },
-            b: { fontSize: 11, color: "#94a3b8" },
+            a: { fontSize: 22, fontWeight: "bold", color: "#202c26", lineHeight: 30 },
+            b: { fontSize: 11, color: "#77817a" },
           },
         },
         emphasis: { label: { show: true } },
@@ -54,13 +55,13 @@ export function ValueDonut({ comp }: { comp: ValueComposition }) {
       },
     ],
   };
+  }, [comp]);
 
-  return <ReactECharts option={option} style={{ height: 240 }} />;
-}
+  return <ReactECharts option={option} style={{ height: 240 }} notMerge lazyUpdate />;
+});
 
-/** 20 年 FCF 推演 vs 折现现值 柱状图 */
-export function FcfBars({ rows }: { rows: { year: number; fcf: number; pvFcf: number }[] }) {
-  const option = {
+export const FcfBars = memo(function FcfBars({ rows }: { rows: { year: number; fcf: number; pvFcf: number }[] }) {
+  const option = useMemo(() => ({
     tooltip: { trigger: "axis" },
     legend: { data: ["自由现金流 FCF", "折现后现值 PV"], top: 0 },
     grid: { left: 50, right: 20, top: 40, bottom: 30 },
@@ -75,27 +76,20 @@ export function FcfBars({ rows }: { rows: { year: number; fcf: number; pvFcf: nu
         name: "自由现金流 FCF",
         type: "bar",
         data: rows.map((r) => r.fcf.toFixed(1)),
-        itemStyle: { color: "#4F46E5" },
+        itemStyle: { color: "#315e49" },
       },
       {
         name: "折现后现值 PV",
         type: "bar",
         data: rows.map((r) => r.pvFcf.toFixed(1)),
-        itemStyle: { color: "#A5B4FC" },
+        itemStyle: { color: "#9fb3a7" },
       },
     ],
-  };
-  return <ReactECharts option={option} style={{ height: 300 }} />;
-}
+  }), [rows]);
+  return <ReactECharts option={option} style={{ height: 300 }} notMerge lazyUpdate />;
+});
 
-/**
- * 双轴趋势图：股价（左Y） + DCF 目标价（右Y，面积） + 置信区间带
- * @param prices 历史行情 [{ date, close }]
- * @param valuation 估值序列 [{ date, targetPrice }]，可为空
- * @param p5 置信区间下限（目标价）
- * @param p95 置信区间上限（目标价）
- */
-export function TrendChart({
+export const TrendChart = memo(function TrendChart({
   prices,
   valuation = [],
   p5,
@@ -106,18 +100,17 @@ export function TrendChart({
   p5?: number;
   p95?: number;
 }) {
+  const option = useMemo(() => {
   const dates = prices.map((p) => p.date);
   const closeData = prices.map((p) => p.close);
 
-  // 估值数据对齐到 dates
   const valMap = new Map(valuation.map((v) => [v.date, v.targetPrice]));
   const valData = dates.map((d) => valMap.get(d) ?? null);
 
-  // 置信区间带（若提供 p5/p95）
   const bandLower = p5 != null ? dates.map(() => p5) : [];
   const bandUpper = p95 != null ? dates.map(() => p95) : [];
 
-  const option = {
+  return {
     tooltip: { trigger: "axis" },
     legend: { data: ["收盘价", "DCF 目标价", "置信区间"], top: 0 },
     grid: { left: 55, right: 55, top: 40, bottom: 60 },
@@ -152,14 +145,14 @@ export function TrendChart({
         data: closeData,
         smooth: true,
         symbol: "none",
-        lineStyle: { width: 2, color: "#1E3A5F" },
+        lineStyle: { width: 2, color: "#244334" },
         areaStyle: {
           color: {
             type: "linear",
             x: 0, y: 0, x2: 0, y2: 1,
             colorStops: [
-              { offset: 0, color: "rgba(30,58,95,0.25)" },
-              { offset: 1, color: "rgba(30,58,95,0.02)" },
+              { offset: 0, color: "rgba(36,67,52,0.25)" },
+              { offset: 1, color: "rgba(36,67,52,0.02)" },
             ],
           },
         },
@@ -171,9 +164,8 @@ export function TrendChart({
         data: valData,
         smooth: true,
         symbol: "none",
-        lineStyle: { width: 2, color: "#10B981", type: "dashed" },
+        lineStyle: { width: 2, color: "#315e49", type: "dashed" },
       },
-      // 置信区间带（用两个面积图叠加实现）
       ...(p5 != null && p95 != null
         ? [
             {
@@ -184,7 +176,7 @@ export function TrendChart({
               symbol: "none",
               lineStyle: { opacity: 0 },
               stack: "band",
-              areaStyle: { color: "rgba(79,70,229,0.08)" },
+              areaStyle: { color: "rgba(49,94,73,0.08)" },
               tooltip: { show: false },
               legendHoverLink: false,
             },
@@ -196,32 +188,28 @@ export function TrendChart({
               symbol: "none",
               lineStyle: { opacity: 0 },
               stack: "band",
-              areaStyle: { color: "rgba(79,70,229,0.15)" },
+              areaStyle: { color: "rgba(49,94,73,0.15)" },
             },
           ]
         : []),
     ],
   };
+  }, [prices, valuation, p5, p95]);
 
-  return <ReactECharts option={option} style={{ height: 340 }} />;
-}
+  return <ReactECharts option={option} style={{ height: 340 }} lazyUpdate />;
+});
 
-/**
- * 蒙特卡洛置信区间分布图（直方图 + 当前市价标记线 + 分位线）
- * @param mc 蒙特卡洛结果
- * @param currentPrice 当前市价
- */
-export function ConfidenceChart({
+export const ConfidenceChart = memo(function ConfidenceChart({
   mc,
   currentPrice,
 }: {
   mc: MonteCarloResult;
   currentPrice: number;
 }) {
-  // 用 value 轴 + bar 实现直方图，便于 markLine 按数值精确定位
+  const option = useMemo(() => {
   const barData = mc.histogram.map((h) => [h.bin, h.count]);
 
-  const option = {
+  return {
     tooltip: {
       trigger: "axis",
       formatter: (params: { name: number; value: [number, number] }[]) => {
@@ -246,7 +234,7 @@ export function ConfidenceChart({
         barWidth: "90%",
         itemStyle: {
           color: (p: { value: [number, number] }) => {
-            return p.value[0] < currentPrice ? "#EF4444" : "#10B981";
+            return p.value[0] < currentPrice ? "#9c5a4e" : "#315e49";
           },
         },
         markLine: {
@@ -255,11 +243,11 @@ export function ConfidenceChart({
           data: [
             {
               xAxis: currentPrice,
-              lineStyle: { color: "#1E3A5F", width: 2.5, type: "solid" },
+              lineStyle: { color: "#244334", width: 2.5, type: "solid" },
               label: {
                 formatter: `市价 ¥${currentPrice.toFixed(2)} · ${mc.pricePercentile.toFixed(0)}分位`,
                 position: "insideEndTop",
-                color: "#1E3A5F",
+                color: "#244334",
                 fontSize: 11,
                 fontWeight: "bold",
               },
@@ -269,6 +257,7 @@ export function ConfidenceChart({
       },
     ],
   };
+  }, [mc, currentPrice]);
 
-  return <ReactECharts option={option} style={{ height: 280 }} />;
-}
+  return <ReactECharts option={option} style={{ height: 280 }} notMerge lazyUpdate />;
+});

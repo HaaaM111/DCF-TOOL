@@ -1,9 +1,3 @@
-/**
- * POST /api/announcements/[companyId]/sync —— 拉取候选公告（不入库）
- * ------------------------------------------------------------------
- * 拉取该标的最远 N 天公告，返回候选列表；用户勾选后调 /store 正式入库。
- * 候选在服务端缓存 10 分钟（刷新页面后前端候选丢失，需重新拉取）。
- */
 import { NextRequest } from "next/server";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
 import {

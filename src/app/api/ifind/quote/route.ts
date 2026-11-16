@@ -1,11 +1,3 @@
-/**
- * 最新行情代理（独立路由，分流模式）
- * GET /api/ifind/quote?ticker=600104.SH
- * 返回：{ ticker, close, volume, date, source, mock }
- * 数据链路：东财（免费）→ iFinD → mock
- *
- * 安全：Token 仅在服务端使用，绝不返回前端。
- */
 import { NextRequest } from "next/server";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
 import { resolveQuote } from "@/lib/data-source";

@@ -1,9 +1,3 @@
-/**
- * GET/POST /api/agent/config —— 智能体 LLM 配置读写
- * ------------------------------------------------------------------
- * GET：返回配置状态（baseUrl/model/是否已启用/来源/掩码 key），不回显明文 key
- * POST：写入 AppSetting（服务端存储）；空字符串删除对应项
- */
 import { NextRequest } from "next/server";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
 import { getLlmConfigFromEnv } from "@/lib/ai-client";

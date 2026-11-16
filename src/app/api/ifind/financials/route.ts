@@ -1,12 +1,3 @@
-/**
- * 财务数据代理（独立路由，分流模式）
- * GET /api/ifind/financials?ticker=600104.SH
- * 返回：cfo / capex / da / e0 / shares / debt / totalAssets 等（单位：亿元）
- * 数据链路：iFinD（权威）→ 东财（免费兜底，仅 A 股）→ mock
- * 兜底不完整时 incomplete=true
- *
- * 安全：Token 仅在服务端使用，绝不返回前端。
- */
 import { NextRequest } from "next/server";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
 import { resolveFinancials } from "@/lib/data-source";

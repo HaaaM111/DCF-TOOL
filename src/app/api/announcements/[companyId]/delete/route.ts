@@ -1,8 +1,3 @@
-/**
- * POST /api/announcements/[companyId]/delete —— 批量删除已入库公告
- * ------------------------------------------------------------------
- * body: { ids: string[] }（公告记录 id）；关联预期差信号级联删除。
- */
 import { NextRequest } from "next/server";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
 import { deleteAnnouncements } from "@/lib/announcement/sync-service";

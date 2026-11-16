@@ -1,27 +1,12 @@
-/**
- * 蒙特卡洛模拟引擎
- * ------------------------------------------------------------------
- * 对 DCF 关键参数（三段增速、永续 g、Ke、WACC）进行正态分布采样，
- * 重复 N 次计算目标价，输出置信区间分位数。
- *
- * 采样策略：
- *   - 增速类（g1/g2/g3/perpetualG）：均值=设定值，标准差=均值的 30%（下限截断）
- *   - 折现率（ke/wacc）：均值=设定值，标准差=0.015（150bps）
- *   - 每次采样后重新跑完整 DCF，记录 adjustedTargetPrice
- *
- * 输出：P5 / P25 / 中位数 / P75 / P95 目标价，以及当前市价在分布中的百分位
- */
 
 import { calcDcf } from "./dcf";
 import type { CompanyBasics, DcfAssumptions } from "@/types/dcf";
 
-/** 蒙特卡洛模拟配置 */
 export interface MonteCarloConfig {
-  samples: number; // 采样次数，默认 10000
-  seed?: number; // 随机种子（可选，用于可复现）
+  samples: number;
+  seed?: number;
 }
 
-/** 蒙特卡洛模拟结果 */
 export interface MonteCarloResult {
   samples: number;
   p5: number;
@@ -31,13 +16,10 @@ export interface MonteCarloResult {
   p95: number;
   mean: number;
   stdDev: number;
-  /** 当前市价在分布中的百分位（0~100），越高表示市价越接近分布上沿 */
   pricePercentile: number;
-  /** 直方图数据，用于前端可视化（20 个 bin） */
   histogram: { bin: number; count: number }[];
 }
 
-/** 简易可复现伪随机数生成器（mulberry32） */
 function mulberry32(seed: number) {
   let a = seed >>> 0;
   return function () {
@@ -49,7 +31,6 @@ function mulberry32(seed: number) {
   };
 }
 
-/** 正态分布采样（Box-Muller） */
 function normalSample(rand: () => number, mean: number, std: number): number {
   const u1 = rand();
   const u2 = rand();
@@ -57,12 +38,6 @@ function normalSample(rand: () => number, mean: number, std: number): number {
   return mean + z * std;
 }
 
-/**
- * 执行蒙特卡洛模拟
- * @param a 模型假设
- * @param b 公司基础数据
- * @param config 模拟配置
- */
 export function runMonteCarlo(
   a: DcfAssumptions,
   b: CompanyBasics,
@@ -74,7 +49,6 @@ export function runMonteCarlo(
   const prices: number[] = [];
 
   for (let i = 0; i < samples; i++) {
-    // 采样：增速类标准差 = |均值| * 0.3，最小 0.005
     const g1 = normalSample(rand, a.g1, Math.max(0.005, Math.abs(a.g1) * 0.3));
     const g2 = normalSample(rand, a.g2, Math.max(0.005, Math.abs(a.g2) * 0.3));
     const g3 = normalSample(rand, a.g3, Math.max(0.005, Math.abs(a.g3) * 0.3));
@@ -83,9 +57,7 @@ export function runMonteCarlo(
       a.perpetualG,
       Math.max(0.003, Math.abs(a.perpetualG) * 0.3),
     );
-    // 永续 g 截断：不能 >= ke（否则 Gordon 爆炸），限制在 [-0.05, 0.05]
     const perpetualGClamped = Math.max(-0.05, Math.min(0.05, perpetualG));
-    // 折现率标准差 150bps
     const ke = normalSample(rand, a.ke, 0.015);
     const keClamped = Math.max(0.05, Math.min(0.3, ke));
 
@@ -119,11 +91,9 @@ export function runMonteCarlo(
     };
   }
 
-  // 排序
   prices.sort((x, y) => x - y);
   const n = prices.length;
 
-  // 分位数
   const quantile = (p: number) => {
     const idx = Math.min(n - 1, Math.max(0, Math.floor(p * n)));
     return prices[idx];
@@ -135,12 +105,10 @@ export function runMonteCarlo(
   const p75 = quantile(0.75);
   const p95 = quantile(0.95);
 
-  // 均值与标准差
   const mean = prices.reduce((s, v) => s + v, 0) / n;
   const variance = prices.reduce((s, v) => s + (v - mean) ** 2, 0) / n;
   const stdDev = Math.sqrt(variance);
 
-  // 当前市价在分布中的百分位
   const currentPrice = b.currentPrice;
   let pricePercentile = 0;
   for (let i = 0; i < n; i++) {
@@ -149,7 +117,6 @@ export function runMonteCarlo(
   }
   pricePercentile = (pricePercentile / n) * 100;
 
-  // 直方图（20 个 bin）
   const binCount = 20;
   const min = prices[0];
   const max = prices[n - 1];

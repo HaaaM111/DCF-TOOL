@@ -1,7 +1,3 @@
-/**
- * GET  /api/companies/[id]/notes  —— 获取时间线记录
- * POST /api/companies/[id]/notes  —— 新增时间线记录（XSS 与长度校验）
- */
 import { NextRequest } from "next/server";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
 import { prisma, prismaBase } from "@/lib/prisma";
@@ -11,7 +7,6 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 function companyIdParam(req: NextRequest) {
-  // path: /api/companies/[id]/notes
   return req.nextUrl.pathname.split("/")[3];
 }
 
@@ -55,7 +50,6 @@ export async function POST(req: NextRequest) {
     data: {
       companyId,
       date: new Date(parsed.data.date),
-      // 原样存储；前端以 React 文本节点渲染（{n.content}）时会自动转义，防 XSS 且显示原文
       content: parsed.data.content,
       tags: parsed.data.tags ?? "",
     },

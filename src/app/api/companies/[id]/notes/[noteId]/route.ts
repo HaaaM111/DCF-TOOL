@@ -1,6 +1,3 @@
-/**
- * DELETE /api/companies/[id]/notes/[noteId] —— 删除一条时间线记录
- */
 import { NextRequest } from "next/server";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
 import { prisma } from "@/lib/prisma";
@@ -12,7 +9,6 @@ export async function DELETE(req: NextRequest) {
   const guard = guardRequest(req);
   if (guard) return guard;
 
-  // path: /api/companies/[id]/notes/[noteId]
   const parts = req.nextUrl.pathname.split("/");
   const noteId = parts[parts.length - 1];
   const companyId = parts[3];

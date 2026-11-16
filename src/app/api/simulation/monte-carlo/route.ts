@@ -1,9 +1,3 @@
-/**
- * POST /api/simulation/monte-carlo
- * 对 DCF 关键参数进行蒙特卡洛采样，输出目标价置信区间。
- * 入参：assumptions + company 基础数据 + samples（可选）
- * 出参：P5/P25/中位数/P75/P95 + 直方图 + 市价百分位
- */
 import { NextRequest } from "next/server";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
 import { runMonteCarlo } from "@/lib/monte-carlo";
@@ -61,7 +55,6 @@ export async function POST(req: NextRequest) {
 
   const { assumptions, company, samples } = parsed.data;
 
-  // 限制单次最大采样数，防止服务器资源耗尽
   const result = runMonteCarlo(assumptions, company, { samples });
 
   return jsonOk({ result });
