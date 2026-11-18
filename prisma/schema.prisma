@@ -1,7 +1,6 @@
-// Prisma Schema — DCF 预期差挖掘工具（用户数据库）
-// 本库存放用户使用产生的数据：公司档案、假设、估值报告、价格快照、时间线、同行对比、历史估值、验证结果、评估快照
-// 初始股由 scripts/sync-initial-companies.ts 从基准库复制；基准库仅作为内部种子数据源，不在界面体现
-// companyId 均为普通字符串字段（跨库引用，无外键约束），引用一致性由应用层保证
+// Prisma Schema — ValueInsight 多用户数据库
+// User owns company profiles and their research records. Baseline company data is copied per account at signup.
+// Legacy rows with a null Company.userId remain preserved and are hidden from account-scoped queries.
 
 generator client {
   provider = "prisma-client"
@@ -20,8 +19,10 @@ datasource db {
 // ============================================================
 model Company {
   id            String   @id @default(cuid())
+  userId        String?
+  user          User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
   name          String   // 标的简称
-  ticker        String   @unique // 股票代码，如 600104.SH
+  ticker        String   // 股票代码，如 600104.SH
   currentPrice  Float    // 最新市价（元）
   shares        Float    // 总股本（亿股）
   marketCap     Float    // 当前市值（亿元）= price × shares
@@ -47,6 +48,34 @@ model Company {
 
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
+
+  @@unique([userId, ticker])
+  @@index([userId, updatedAt])
+}
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String
+  role         String    @default("user")
+  setupTokenHash String? @unique
+  setupTokenExpiresAt DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  companies    Company[]
+  sessions     Session[]
+  settings     AppSetting[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId, expiresAt])
 }
 
 // ============================================================
@@ -321,9 +350,15 @@ model AnnouncementSignal {
 // 9. 应用设置 KV（智能体 API 配置等，key 服务端存储）
 // ============================================================
 model AppSetting {
-  key       String   @id
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  key       String
   value     String
   updatedAt DateTime @updatedAt
+
+  @@unique([userId, key])
+  @@index([userId])
 }
 
 // ============================================================

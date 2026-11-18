@@ -1,15 +1,16 @@
 import { NextRequest } from "next/server";
 import { guardRequest } from "@/lib/api";
 import { getAllCompaniesMerged } from "@/lib/dual-db";
+import { getAuthenticatedUserId } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
-  const guard = guardRequest(req);
+  const guard = await guardRequest(req);
   if (guard) return guard;
 
-  const companies = await getAllCompaniesMerged();
+  const companies = await getAllCompaniesMerged(getAuthenticatedUserId(req));
 
   const payload = companies.map((c: Record<string, unknown>) => ({
     company: {
@@ -46,5 +47,5 @@ export async function GET(req: NextRequest) {
 }
 
 export async function OPTIONS(req: NextRequest) {
-  return guardRequest(req) ?? new Response(null, { status: 204 });
+  return (await guardRequest(req)) ?? new Response(null, { status: 204 });
 }

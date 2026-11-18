@@ -7,9 +7,9 @@ export const LLM_SETTING_KEYS = {
   model: "llm_model",
 } as const;
 
-export async function readLlmDbSettings(): Promise<Partial<LlmConfig>> {
+export async function readLlmDbSettings(userId: string): Promise<Partial<LlmConfig>> {
   const rows = await prisma.appSetting.findMany({
-    where: { key: { in: Object.values(LLM_SETTING_KEYS) } },
+    where: { userId, key: { in: Object.values(LLM_SETTING_KEYS) } },
   });
   const map = new Map(rows.map((r) => [r.key, r.value]));
   return {
@@ -20,6 +20,7 @@ export async function readLlmDbSettings(): Promise<Partial<LlmConfig>> {
 }
 
 export async function writeLlmDbSettings(cfg: {
+  userId: string;
   baseUrl?: string;
   apiKey?: string;
   model?: string;
@@ -32,12 +33,12 @@ export async function writeLlmDbSettings(cfg: {
   for (const [key, value] of writes) {
     if (value) {
       await prisma.appSetting.upsert({
-        where: { key },
+        where: { userId_key: { userId: cfg.userId, key } },
         update: { value },
-        create: { key, value },
+        create: { userId: cfg.userId, key, value },
       });
     } else {
-      await prisma.appSetting.deleteMany({ where: { key } });
+      await prisma.appSetting.deleteMany({ where: { userId: cfg.userId, key } });
     }
   }
 }

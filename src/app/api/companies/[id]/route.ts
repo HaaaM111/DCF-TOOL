@@ -4,6 +4,7 @@ import { guardRequest, jsonError, jsonOk } from "@/lib/api";
 import { prisma } from "@/lib/prisma";
 import { getCompanyMerged } from "@/lib/dual-db";
 import { assumptionsSchema, companySchema } from "@/lib/validation";
+import { getAuthenticatedUserId } from "@/lib/auth";
 import {
   calcDcf,
   classifyQuadrant,
@@ -18,11 +19,12 @@ function idParam(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
-  const guard = guardRequest(req);
+  const guard = await guardRequest(req);
   if (guard) return guard;
 
   const id = idParam(req);
-  const company = await getCompanyMerged(id);
+  const userId = getAuthenticatedUserId(req);
+  const company = await getCompanyMerged(id, userId);
   if (!company) return jsonError("标的不存在", 404, "NOT_FOUND");
   return jsonOk({ company });
 }
@@ -52,11 +54,12 @@ function companyFields(c: ReturnType<typeof companySchema.parse>) {
 }
 
 export async function PUT(req: NextRequest) {
-  const guard = guardRequest(req);
+  const guard = await guardRequest(req);
   if (guard) return guard;
 
   const id = idParam(req);
-  const existing = await prisma.company.findUnique({ where: { id } });
+  const userId = getAuthenticatedUserId(req);
+  const existing = await prisma.company.findFirst({ where: { id, userId } });
   if (!existing) return jsonError("标的不存在", 404, "NOT_FOUND");
 
   let body: unknown;
@@ -153,16 +156,17 @@ export async function PUT(req: NextRequest) {
     });
   }
 
-  const company = await getCompanyMerged(id);
+  const company = await getCompanyMerged(id, userId);
   return jsonOk({ company });
 }
 
 export async function DELETE(req: NextRequest) {
-  const guard = guardRequest(req);
+  const guard = await guardRequest(req);
   if (guard) return guard;
 
   const id = idParam(req);
-  const existing = await prisma.company.findUnique({ where: { id } });
+  const userId = getAuthenticatedUserId(req);
+  const existing = await prisma.company.findFirst({ where: { id, userId } });
   if (!existing) return jsonError("标的不存在", 404, "NOT_FOUND");
 
   const reports = await prisma.valuationReport.findMany({
@@ -187,5 +191,5 @@ export async function DELETE(req: NextRequest) {
 }
 
 export async function OPTIONS(req: NextRequest) {
-  return guardRequest(req) ?? new Response(null, { status: 204 });
+  return (await guardRequest(req)) ?? new Response(null, { status: 204 });
 }

@@ -2,27 +2,19 @@ import { NextRequest } from "next/server";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
 import { fetchEastPriceHistory } from "@/lib/eastmoney-client";
 import { fetchTencentPriceHistory } from "@/lib/tencent-client";
-import { prisma, prismaBase } from "@/lib/prisma";
+import { prisma } from "@/lib/prisma";
+import { getAuthenticatedUserId } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
-  const guard = guardRequest(req);
+  const guard = await guardRequest(req);
   if (guard) return guard;
 
   const id = req.nextUrl.pathname.split("/")[3];
-  const baselineCompany = await prismaBase.company.findUnique({
-    where: { id },
-    select: { ticker: true },
-  });
-  const userCompany = baselineCompany
-    ? null
-    : await prisma.company.findUnique({
-        where: { id },
-        select: { ticker: true },
-      });
-  const company = baselineCompany ?? userCompany;
+  const userId = getAuthenticatedUserId(req);
+  const company = await prisma.company.findFirst({ where: { id, userId }, select: { id: true, ticker: true } });
   if (!company) return jsonError("标的不存在", 404, "NOT_FOUND");
 
   const since = new Date();
@@ -75,5 +67,5 @@ export async function GET(req: NextRequest) {
 }
 
 export async function OPTIONS(req: NextRequest) {
-  return guardRequest(req) ?? new Response(null, { status: 204 });
+  return (await guardRequest(req)) ?? new Response(null, { status: 204 });
 }

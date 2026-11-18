@@ -155,7 +155,10 @@ export const WatchlistQuadrant = memo(function WatchlistQuadrant({
     () =>
       companies.filter(
         (company) =>
-          Number.isFinite(config.xValue(company)) && Number.isFinite(company.upside),
+          Number.isFinite(config.xValue(company)) &&
+          Number.isFinite(company.upside) &&
+          Number.isFinite(company.targetPrice) && company.targetPrice > 0 &&
+          Number.isFinite(company.impliedCagr),
       ),
     [companies, config],
   );

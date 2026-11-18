@@ -3,6 +3,7 @@ import { guardRequest, jsonError, jsonOk } from "@/lib/api";
 import { prisma } from "@/lib/prisma";
 import { readLlmDbSettings } from "@/lib/llm-settings";
 import { analyzeCompanyAnnouncements } from "@/lib/announcement/analyze-service";
+import { getAuthenticatedUserId } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,7 +12,7 @@ export async function POST(
   req: NextRequest,
   { params }: { params: { companyId: string } },
 ) {
-  const guard = guardRequest(req);
+  const guard = await guardRequest(req);
   if (guard) return guard;
 
   let announcementIds: string[] | undefined;
@@ -29,11 +30,11 @@ export async function POST(
   }
 
   try {
-    const company = await prisma.company.findUnique({ where: { id: params.companyId } });
+    const company = await prisma.company.findFirst({ where: { id: params.companyId, userId: getAuthenticatedUserId(req) } });
     if (!company) {
       return jsonError("标的不存在", 404, "COMPANY_NOT_FOUND");
     }
-    const dbCfg = await readLlmDbSettings();
+    const dbCfg = await readLlmDbSettings(getAuthenticatedUserId(req));
     const result = await analyzeCompanyAnnouncements(params.companyId, {
       announcementIds,
       config: dbCfg,
@@ -49,5 +50,5 @@ export async function POST(
 }
 
 export async function OPTIONS(req: NextRequest) {
-  return guardRequest(req) ?? new Response(null, { status: 204 });
+  return (await guardRequest(req)) ?? new Response(null, { status: 204 });
 }

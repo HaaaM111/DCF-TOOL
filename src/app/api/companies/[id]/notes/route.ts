@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
-import { prisma, prismaBase } from "@/lib/prisma";
+import { prisma } from "@/lib/prisma";
+import { getAuthenticatedUserId } from "@/lib/auth";
 import { timelineEntrySchema } from "@/lib/validation";
 
 export const runtime = "nodejs";
@@ -11,10 +12,13 @@ function companyIdParam(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
-  const guard = guardRequest(req);
+  const guard = await guardRequest(req);
   if (guard) return guard;
 
   const companyId = companyIdParam(req);
+  const userId = getAuthenticatedUserId(req);
+  const owned = await prisma.company.findFirst({ where: { id: companyId, userId }, select: { id: true } });
+  if (!owned) return jsonError("标的不存在", 404, "NOT_FOUND");
   const notes = await prisma.timelineEntry.findMany({
     where: { companyId },
     orderBy: { date: "desc" },
@@ -23,11 +27,12 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const guard = guardRequest(req);
+  const guard = await guardRequest(req);
   if (guard) return guard;
 
   const companyId = companyIdParam(req);
-  const exists = await prismaBase.company.findUnique({ where: { id: companyId } });
+  const userId = getAuthenticatedUserId(req);
+  const exists = await prisma.company.findFirst({ where: { id: companyId, userId }, select: { id: true } });
   if (!exists) return jsonError("标的不存在", 404, "NOT_FOUND");
 
   let body: unknown;
@@ -59,5 +64,5 @@ export async function POST(req: NextRequest) {
 }
 
 export async function OPTIONS(req: NextRequest) {
-  return guardRequest(req) ?? new Response(null, { status: 204 });
+  return (await guardRequest(req)) ?? new Response(null, { status: 204 });
 }

@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
 import { prisma } from "@/lib/prisma";
+import { getAuthenticatedUserId } from "@/lib/auth";
 import {
   resolveQuote,
   resolveFinancials,
@@ -17,7 +18,7 @@ function getTicker(req: NextRequest): string {
 }
 
 export async function GET(req: NextRequest) {
-  const guard = guardRequest(req);
+  const guard = await guardRequest(req);
   if (guard) return guard;
 
   const url = req.nextUrl;
@@ -63,7 +64,7 @@ export async function GET(req: NextRequest) {
         }
 
         const { data, source } = await resolvePriceHistory(ticker, start, end);
-        await saveHistory(ticker, data);
+        await saveHistory(ticker, data, getAuthenticatedUserId(req));
         return jsonOk({ data, source, mock: source === "mock" });
       }
 
@@ -79,11 +80,12 @@ export async function GET(req: NextRequest) {
 async function saveHistory(
   ticker: string,
   bars: HistoryBar[],
+  userId: string,
 ) {
   if (!bars.length) return;
 
-  const company = await prisma.company.findUnique({
-    where: { ticker },
+  const company = await prisma.company.findFirst({
+    where: { ticker, userId },
     select: { id: true },
   });
 
@@ -103,5 +105,5 @@ async function saveHistory(
 }
 
 export async function OPTIONS(req: NextRequest) {
-  return guardRequest(req) ?? new Response(null, { status: 204 });
+  return (await guardRequest(req)) ?? new Response(null, { status: 204 });
 }

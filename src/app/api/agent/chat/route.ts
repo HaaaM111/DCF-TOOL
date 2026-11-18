@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
+import { getAuthenticatedUserId } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import {
   chatCompletion,
@@ -201,7 +202,7 @@ async function runTool(
 }
 
 export async function POST(req: NextRequest) {
-  const guard = guardRequest(req);
+  const guard = await guardRequest(req);
   if (guard) return guard;
 
   let body: { companyId?: string; messages?: ClientMsg[] };
@@ -224,12 +225,12 @@ export async function POST(req: NextRequest) {
     .map((m) => ({ role: m.role, content: m.content.slice(0, MAX_MSG_CHARS) }));
 
   try {
-    const company = await prisma.company.findUnique({ where: { id: companyId } });
+    const company = await prisma.company.findFirst({ where: { id: companyId, userId: getAuthenticatedUserId(req) } });
     if (!company) {
       return jsonError("标的不存在", 404, "COMPANY_NOT_FOUND");
     }
 
-    const dbCfg = await readLlmDbSettings();
+    const dbCfg = await readLlmDbSettings(getAuthenticatedUserId(req));
     const cfg = resolveLlmConfig(dbCfg);
     if (!cfg) {
       return jsonOk({
@@ -307,5 +308,5 @@ export async function POST(req: NextRequest) {
 }
 
 export async function OPTIONS(req: NextRequest) {
-  return guardRequest(req) ?? new Response(null, { status: 204 });
+  return (await guardRequest(req)) ?? new Response(null, { status: 204 });
 }

@@ -15,12 +15,13 @@ import {
 import { getIndustryPeers } from "@/lib/ifind-client";
 import { resolveCompanyData } from "@/lib/data-source";
 import { chatWithDeepSeek, hasDeepSeekCredentials, sanitizeAiText } from "@/lib/ai-client";
+import { getAuthenticatedUserId } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
-  const guard = guardRequest(req);
+  const guard = await guardRequest(req);
   if (guard) return guard;
 
   let body: unknown;
@@ -35,8 +36,8 @@ export async function POST(req: NextRequest) {
     return jsonError("缺少 companyId", 400, "MISSING_COMPANY_ID");
   }
 
-  const baseCompany = await prisma.company.findUnique({
-    where: { id: companyId },
+  const baseCompany = await prisma.company.findFirst({
+    where: { id: companyId, userId: getAuthenticatedUserId(req) },
   });
   if (!baseCompany) {
     return jsonError("标的不存在", 404, "NOT_FOUND");
@@ -176,5 +177,5 @@ export async function POST(req: NextRequest) {
 }
 
 export async function OPTIONS(req: NextRequest) {
-  return guardRequest(req) ?? new Response(null, { status: 204 });
+  return (await guardRequest(req)) ?? new Response(null, { status: 204 });
 }

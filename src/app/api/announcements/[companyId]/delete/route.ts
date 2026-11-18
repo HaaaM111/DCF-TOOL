@@ -1,12 +1,14 @@
 import { NextRequest } from "next/server";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
 import { deleteAnnouncements } from "@/lib/announcement/sync-service";
+import { prisma } from "@/lib/prisma";
+import { getAuthenticatedUserId } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
-  const guard = guardRequest(req);
+  const guard = await guardRequest(req);
   if (guard) return guard;
 
   let body: { ids?: unknown };
@@ -21,6 +23,10 @@ export async function POST(req: NextRequest) {
   if (!ids.length) {
     return jsonError("缺少 ids（待删除的公告 id 列表）", 400, "BAD_BODY");
   }
+  const ownedCompanies = await prisma.company.findMany({ where: { userId: getAuthenticatedUserId(req) }, select: { id: true } });
+  const ownedIds = ownedCompanies.map((company) => company.id);
+  const ownedAnnouncements = await prisma.announcement.findMany({ where: { id: { in: ids }, companyId: { in: ownedIds } }, select: { id: true } });
+  if (ownedAnnouncements.length !== ids.length) return jsonError("部分公告不存在", 404, "NOT_FOUND");
 
   try {
     const result = await deleteAnnouncements(ids);
@@ -35,5 +41,5 @@ export async function POST(req: NextRequest) {
 }
 
 export async function OPTIONS(req: NextRequest) {
-  return guardRequest(req) ?? new Response(null, { status: 204 });
+  return (await guardRequest(req)) ?? new Response(null, { status: 204 });
 }

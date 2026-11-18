@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
 import { prisma } from "@/lib/prisma";
 import { sanitizeAiText } from "@/lib/ai-client";
+import { getAuthenticatedUserId } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,13 +17,15 @@ interface ConvMsg {
 }
 
 export async function GET(req: NextRequest) {
-  const guard = guardRequest(req);
+  const guard = await guardRequest(req);
   if (guard) return guard;
 
   const companyId = req.nextUrl.searchParams.get("companyId");
   if (!companyId) {
     return jsonError("缺少 companyId", 400, "BAD_BODY");
   }
+  const owned = await prisma.company.findFirst({ where: { id: companyId, userId: getAuthenticatedUserId(req) }, select: { id: true } });
+  if (!owned) return jsonError("标的不存在", 404, "NOT_FOUND");
 
   try {
     const rows = await prisma.agentConversation.findMany({
@@ -42,7 +45,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const guard = guardRequest(req);
+  const guard = await guardRequest(req);
   if (guard) return guard;
 
   let body: { companyId?: string; messages?: ConvMsg[] };
@@ -56,6 +59,8 @@ export async function POST(req: NextRequest) {
   if (!companyId || !messages.length) {
     return jsonError("缺少 companyId 或 messages", 400, "BAD_BODY");
   }
+  const owned = await prisma.company.findFirst({ where: { id: companyId, userId: getAuthenticatedUserId(req) }, select: { id: true } });
+  if (!owned) return jsonError("标的不存在", 404, "NOT_FOUND");
 
   const cleaned = messages
     .filter(
@@ -88,5 +93,5 @@ export async function POST(req: NextRequest) {
 }
 
 export async function OPTIONS(req: NextRequest) {
-  return guardRequest(req) ?? new Response(null, { status: 204 });
+  return (await guardRequest(req)) ?? new Response(null, { status: 204 });
 }

@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
 import { getLlmConfigFromEnv } from "@/lib/ai-client";
+import { getAuthenticatedUserId } from "@/lib/auth";
 import {
   readLlmDbSettings,
   writeLlmDbSettings,
@@ -12,10 +13,11 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
-  const guard = guardRequest(req);
+  const guard = await guardRequest(req);
   if (guard) return guard;
 
-  const db = await readLlmDbSettings();
+  const userId = getAuthenticatedUserId(req);
+  const db = await readLlmDbSettings(userId);
   const env = getLlmConfigFromEnv();
   const source = configSource(db);
   const activeKey = source === "env" ? env.apiKey : source === "db" ? db.apiKey : "";
@@ -30,7 +32,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const guard = guardRequest(req);
+  const guard = await guardRequest(req);
   if (guard) return guard;
 
   let body: { baseUrl?: string; apiKey?: string; model?: string };
@@ -45,6 +47,7 @@ export async function POST(req: NextRequest) {
 
   try {
     await writeLlmDbSettings({
+      userId: getAuthenticatedUserId(req),
       baseUrl: body.baseUrl,
       apiKey: body.apiKey,
       model: body.model,
@@ -53,7 +56,7 @@ export async function POST(req: NextRequest) {
     return jsonError("保存配置失败", 500, "SETTINGS_SAVE_FAILED");
   }
 
-  const db = await readLlmDbSettings();
+  const db = await readLlmDbSettings(getAuthenticatedUserId(req));
   const env = getLlmConfigFromEnv();
   const source = configSource(db);
   const activeKey = source === "env" ? env.apiKey : source === "db" ? db.apiKey : "";
@@ -68,5 +71,5 @@ export async function POST(req: NextRequest) {
 }
 
 export async function OPTIONS(req: NextRequest) {
-  return guardRequest(req) ?? new Response(null, { status: 204 });
+  return (await guardRequest(req)) ?? new Response(null, { status: 204 });
 }

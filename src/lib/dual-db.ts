@@ -27,19 +27,26 @@ export async function mergeCompanySnapshot(
     Object.assign(out, snapFields);
   }
 
+  out.targetPrice = typeof out.targetPrice === "number" ? out.targetPrice : 0;
+  out.upside = typeof out.upside === "number" ? out.upside : 0;
+  out.impliedCagr = typeof out.impliedCagr === "number" ? out.impliedCagr : 0;
+  out.quadrant = typeof out.quadrant === "string" ? out.quadrant : "";
+  out.diagnosis = typeof out.diagnosis === "string" ? out.diagnosis : "";
+
   out.assumption = assumption;
   return out;
 }
 
-export async function getAllCompaniesMerged() {
+export async function getAllCompaniesMerged(userId: string) {
   const companies = await prisma.company.findMany({
+    where: { userId },
     orderBy: { updatedAt: "desc" },
   });
   return Promise.all(companies.map((c) => mergeCompanySnapshot(c)));
 }
 
-export async function getCompanyMerged(id: string) {
-  const company = await prisma.company.findUnique({ where: { id } });
+export async function getCompanyMerged(id: string, userId: string) {
+  const company = await prisma.company.findFirst({ where: { id, userId } });
   if (!company) return null;
 
   const [merged, timeline] = await Promise.all([

@@ -58,7 +58,7 @@ async function main() {
       continue;
     }
     // 2. 同 ticker 已存在（用户手动新增过相同代码）→ 保留用户数据，跳过
-    const byTicker = await prisma.company.findUnique({ where: { ticker: b.ticker } }).catch(() => null);
+    const byTicker = await prisma.company.findFirst({ where: { ticker: b.ticker } }).catch(() => null);
     if (byTicker) {
       skipped++;
       continue;

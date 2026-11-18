@@ -7,10 +7,11 @@ import type { ThemeMode } from "@/app/providers";
 import type { ReactNode } from "react";
 
 const NAV_ITEMS = [
-  { key: "/", label: "首页" },
+  { key: "/home", label: "首页" },
   { key: "/dashboard", label: "估值看板" },
   { key: "/announcements", label: "公告中心" },
   { key: "/agent", label: "智能体对话" },
+  { key: "/admin", label: "管理控制台" },
 ];
 
 interface AppHeaderProps {
@@ -25,7 +26,7 @@ function BrandLogo() {
   return (
     <a
       className="navbar-brand"
-      href="/"
+    href="/home"
       aria-label="ValueInsight 首页"
     >
       <span className="navbar-brand-mark" aria-hidden="true">V</span>
@@ -64,15 +65,31 @@ export default function AppHeader({
   const pathname = usePathname();
   const { mode, setMode } = useTheme();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [userEmail, setUserEmail] = useState("");
+  const [userRole, setUserRole] = useState("");
 
   useEffect(() => {
     setMobileOpen(false);
   }, [pathname]);
 
   useEffect(() => {
-    document.body.classList.toggle("home-interaction-mode", pathname === "/");
+    document.body.classList.toggle("home-interaction-mode", pathname === "/home");
     return () => document.body.classList.remove("home-interaction-mode");
   }, [pathname]);
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/auth/me", { cache: "no-store" })
+      .then((res) => res.ok ? res.json() : null)
+      .then((data) => {
+        if (active) {
+          setUserEmail(data?.user?.email ?? "");
+          setUserRole(data?.user?.role ?? "");
+        }
+      })
+      .catch(() => { if (active) { setUserEmail(""); setUserRole(""); } });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     if (!mobileOpen) return;
@@ -86,6 +103,7 @@ export default function AppHeader({
   const activeKey = NAV_ITEMS.find((n) =>
     n.key === "/" ? pathname === "/" : pathname.startsWith(n.key),
   )?.key;
+  const visibleNavItems = NAV_ITEMS.filter((item) => item.key !== "/admin" || userRole === "admin");
 
   const toggleTheme = () => {
     setMode((mode === "dark" ? "light" : "dark") as ThemeMode);
@@ -96,14 +114,20 @@ export default function AppHeader({
     router.push(path);
   };
 
+  const signOut = async () => {
+    await fetch("/api/auth/signout", { method: "POST" });
+    router.replace("/");
+    router.refresh();
+  };
+
   return (
-    <div className={`app-shell${fluid ? " fluid" : ""}${pathname === "/" ? " home-shell" : ""}`}>
+      <div className={`app-shell${fluid ? " fluid" : ""}${pathname === "/home" ? " home-shell" : ""}`}>
       <header className="navbar">
         <div className="navbar-inner">
           <div className="navbar-left">
             <BrandLogo />
             <nav className="navbar-menu" aria-label="主导航">
-              {NAV_ITEMS.map((n) => (
+              {visibleNavItems.map((n) => (
                 <a
                   key={n.key}
                   className={activeKey === n.key ? "active" : ""}
@@ -121,22 +145,14 @@ export default function AppHeader({
           </div>
 
           <div className="navbar-right">
-            <button
-              type="button"
+            <a
+              href="/sign-in"
               className="navbar-btn navbar-btn-outline navbar-btn-signin"
-              disabled
-            >
-              <SignInIcon />
-              Sign In
-            </button>
-            <button
-              type="button"
-              className="navbar-btn navbar-btn-primary"
-              disabled
-            >
-              <SignUpIcon />
-              Sign Up
-            </button>
+              hidden={Boolean(userEmail)}
+            ><SignInIcon />Sign In</a>
+            <a href="/sign-up" className="navbar-btn navbar-btn-primary" hidden={Boolean(userEmail)}><SignUpIcon />Sign Up</a>
+            {userEmail && <span className="navbar-user-email">{userEmail}</span>}
+            {userEmail && <button type="button" className="navbar-btn navbar-btn-outline" onClick={signOut}>Sign Out</button>}
             <button
               type="button"
               className="navbar-icon-btn"
@@ -191,7 +207,7 @@ export default function AppHeader({
               </button>
             </div>
             <nav className="navbar-sheet-nav" aria-label="移动端主导航">
-              {NAV_ITEMS.map((n) => (
+              {visibleNavItems.map((n) => (
                 <a
                   key={n.key}
                   className={activeKey === n.key ? "active" : ""}

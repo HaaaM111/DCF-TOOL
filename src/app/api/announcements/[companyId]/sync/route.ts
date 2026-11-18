@@ -1,5 +1,7 @@
 import { NextRequest } from "next/server";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
+import { getAuthenticatedUserId } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
 import {
   fetchCompanyAnnouncements,
   SyncServiceError,
@@ -14,10 +16,12 @@ export async function POST(
   req: NextRequest,
   { params }: { params: { companyId: string } },
 ) {
-  const guard = guardRequest(req);
+  const guard = await guardRequest(req);
   if (guard) return guard;
 
   const sp = req.nextUrl.searchParams;
+  const owned = await prisma.company.findFirst({ where: { id: params.companyId, userId: getAuthenticatedUserId(req) }, select: { id: true } });
+  if (!owned) return jsonError("标的不存在", 404, "NOT_FOUND");
   const days = parseInt(sp.get("days") ?? String(DEFAULT_DAYS), 10) || DEFAULT_DAYS;
 
   try {
@@ -37,5 +41,5 @@ export async function POST(
 }
 
 export async function OPTIONS(req: NextRequest) {
-  return guardRequest(req) ?? new Response(null, { status: 204 });
+  return (await guardRequest(req)) ?? new Response(null, { status: 204 });
 }

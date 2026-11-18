@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { checkRateLimit, getClientIp } from "./rate-limit";
+import { attachAuthenticatedUser, getSessionUser } from "./auth";
 
 function getAllowedOrigins(): string[] {
   const raw = process.env.CORS_ORIGIN ?? "";
@@ -57,6 +58,13 @@ export function jsonOk<T>(data: T, status = 200): NextResponse {
   return NextResponse.json(data, { status });
 }
 
-export function guardRequest(req: NextRequest): NextResponse | null {
-  return handleCorsPreflight(req) ?? rateLimitGuard(req);
+export async function guardRequest(req: NextRequest): Promise<NextResponse | null> {
+  const preflight = handleCorsPreflight(req);
+  if (preflight) return preflight;
+  const rateLimit = rateLimitGuard(req);
+  if (rateLimit) return rateLimit;
+  const user = await getSessionUser(req);
+  if (!user) return jsonError("请先登录后继续", 401, "UNAUTHENTICATED");
+  attachAuthenticatedUser(req, user.id);
+  return null;
 }
