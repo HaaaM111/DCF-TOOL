@@ -11,6 +11,7 @@
   "dependencies": {
     "@ant-design/icons": "^6.3.4",
     "@prisma/client": "^6.19.3",
+    "ai": "^7.0.176",
     "antd": "^6.6.5",
     "echarts": "^6.1.0",
     "echarts-for-react": "^3.0.6",

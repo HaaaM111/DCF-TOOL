@@ -1,6 +1,16 @@
 "use client";
+import { readUIMessageStream } from "ai";
 
-import { memo, useEffect, useState, useCallback, useRef } from "react";
+/**
+ * 智能体对话页 —— 独立智能体页面
+ * ------------------------------------------------------------------
+ * 顶部绑定标的；对话基于该标的 DCF 假设 + 已入库公告信号；
+ * 用户可要求智能体重新拉取公告（sync_announcements）或分析公告（analyze_announcements）。
+ * 对话持久化：由后端保存工具轨迹与服务端生成的对话；
+ * 进入页面/切换标的时读取历史（GET），刷新不丢。
+ * LLM 未配置（env/DB 均无 key）时对话不可用，页面引导配置。
+ */
+import { useEffect, useState, useCallback, useRef } from "react";
 import {
   Select,
   Button,
@@ -11,7 +21,6 @@ import {
   Form,
   Input,
   Typography,
-  Spin,
 } from "antd";
 import {
   SendOutlined,
@@ -24,8 +33,10 @@ import AppHeader from "@/components/app-header";
 
 const { Paragraph, Text } = Typography;
 
-const DEFAULT_WELCOME = "请先选择标的";
+/** 历史为空时的默认欢迎语 */
+const DEFAULT_WELCOME = "你好，我是估值研究智能体。选择标的后可审视假设、运行DCF、相对估值、蒙特卡洛和敏感性分析。所有计算由后端工具执行。";
 
+/** 历史列表项（一个标的对应一条连续会话） */
 interface HistoryItem {
   company: CompanyOption;
   lastAt: string;
@@ -33,6 +44,7 @@ interface HistoryItem {
   count: number;
 }
 
+/** 历史栏时间显示（今天 HH:mm / 昨天 / N 天前 / M-D） */
 function relTime(iso: string): string {
   const d = new Date(iso);
   if (isNaN(d.getTime())) return "";
@@ -46,12 +58,16 @@ function relTime(iso: string): string {
   return `${d.getMonth() + 1}-${pad(d.getDate())}`;
 }
 
+/** 历史栏预览文案：折行压平并截断 */
 function previewText(content: string): string {
   return content.replace(/\s+/g, " ").trim().slice(0, 30);
 }
 
+/** 绑定标的后统一标准开场语（所有标的一致） */
 function buildBindMessage(name: string, ticker: string): string {
-  return `已绑定标的：${name}（${ticker}）`;
+  return `已绑定标的 ${name}（${ticker}）。假设分析师会先审视已保存的增长率和折现率，估值执行者随后调用计算工具。
+可以要求计算 DCF、对比同行倍数、运行蒙特卡洛或分析敏感性，也可以明确要求拉取与分析公告。
+计算结果和工具轨迹由后端保存，缺失证据会单独标注。`;
 }
 
 interface CompanyOption {
@@ -68,109 +84,10 @@ interface ChatMsg {
 interface CfgState {
   baseUrl: string;
   model: string;
+  thinking: string;
   hasKey: boolean;
   keyMasked: string;
   source: "env" | "db" | "none";
-}
-
-const ChatMessages = memo(function ChatMessages({
-  messages,
-  sending,
-}: {
-  messages: ChatMsg[];
-  sending: boolean;
-}) {
-  const bottomRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ block: "end" });
-  }, [messages, sending]);
-
-  return (
-    <div className="agent-messages">
-      <div className="agent-messages-inner">
-        {messages.map((m, i) => (
-          <div
-            key={i}
-            className="chat-row"
-            style={{
-              display: "flex",
-              justifyContent: m.role === "user" ? "flex-end" : "flex-start",
-              marginBottom: 12,
-            }}
-          >
-            <div
-              className={`chat-bubble ${
-                m.role === "user" ? "chat-bubble-user" : "chat-bubble-agent"
-              }`}
-            >
-              {m.content}
-            </div>
-          </div>
-        ))}
-        {sending && (
-          <div
-            className="chat-row"
-            style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}
-          >
-            <Spin size="small" />
-            <Text type="secondary">智能体思考中…</Text>
-          </div>
-        )}
-        <div ref={bottomRef} />
-      </div>
-    </div>
-  );
-});
-
-function Composer({
-  companyId,
-  sending,
-  onSend,
-}: {
-  companyId?: string;
-  sending: boolean;
-  onSend: (text: string) => void;
-}) {
-  const [input, setInput] = useState("");
-
-  const submit = () => {
-    const text = input.trim();
-    if (!text) return;
-    onSend(text);
-    setInput("");
-  };
-
-  return (
-    <div className="agent-composer">
-      <div className="agent-composer-inner">
-        <Input.TextArea
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder={companyId ? "输入指令" : "请先选择标的"}
-          autoSize={{ minRows: 2, maxRows: 5 }}
-          disabled={!companyId || sending}
-          onPressEnter={(e) => {
-            if (!e.shiftKey) {
-              e.preventDefault();
-              submit();
-            }
-          }}
-        />
-        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
-          <Button
-            type="primary"
-            icon={<SendOutlined />}
-            loading={sending}
-            disabled={!companyId}
-            onClick={submit}
-          >
-            发送
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
 }
 
 export default function AgentPage() {
@@ -181,16 +98,28 @@ export default function AgentPage() {
   const [messages, setMessages] = useState<ChatMsg[]>([
     { role: "assistant", content: DEFAULT_WELCOME },
   ]);
+  const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [toolStatus,setToolStatus]=useState("");
+  const sendController=useRef<AbortController|null>(null);
+  useEffect(()=>()=>sendController.current?.abort(),[]);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const [cfg, setCfg] = useState<CfgState | null>(null);
   const [configOpen, setConfigOpen] = useState(false);
   const [cfgSaving, setCfgSaving] = useState(false);
+  const [cfgTesting, setCfgTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{
+    ok: boolean;
+    text: string;
+    detail?: string;
+  } | null>(null);
   const [form] = Form.useForm();
 
+  const bottomRef = useRef<HTMLDivElement>(null);
 
+  /** 拉取历史会话列表：逐标的读取已有对话（复用现有 GET 接口），按最近时间排序 */
   const loadHistory = useCallback(async (list: CompanyOption[]) => {
     const items = await Promise.all(
       list.map(async (company) => {
@@ -224,6 +153,7 @@ export default function AgentPage() {
     );
   }, []);
 
+  /** 单次对话结束后刷新对应标的的历史栏条目 */
   const refreshOne = useCallback(
     async (cid: string) => {
       const company = companies.find((c) => c.id === cid);
@@ -282,6 +212,7 @@ export default function AgentPage() {
     loadCfg();
   }, [loadCompanies, loadCfg]);
 
+  /** 读取该标的的历史对话（正序）；无历史则保留标准绑定开场语 */
   const loadConversations = useCallback(
     async (cid: string) => {
       const company = companies.find((c) => c.id === cid);
@@ -312,6 +243,7 @@ export default function AgentPage() {
     [companies],
   );
 
+  /** 追加对话记录（失败静默，不影响对话本身） */
   const saveConversations = useCallback(
     async (msgs: { role: "user" | "assistant"; content: string }[]) => {
       if (!companyId) return;
@@ -328,6 +260,7 @@ export default function AgentPage() {
     [companyId],
   );
 
+  /** 从 URL 参数恢复标的（如从公告中心「去智能体分析」跳转）；仅首次生效，切换标的不受 URL 残留影响 */
   const urlInitRef = useRef(false);
   useEffect(() => {
     if (urlInitRef.current || typeof window === "undefined") return;
@@ -347,71 +280,77 @@ export default function AgentPage() {
   }, [companies, loadConversations]);
 
   const onCompanyChange = (v: string) => {
+    sendController.current?.abort();
     setCompanyId(v);
     setMobileOpen(false);
     loadConversations(v);
   };
 
+  /** 新对话：清除当前标的与消息，回到欢迎态 */
   const newChat = () => {
+    sendController.current?.abort();
     setCompanyId(undefined);
     setMessages([{ role: "assistant", content: DEFAULT_WELCOME }]);
+    setInput("");
     setMobileOpen(false);
   };
 
-  const handleSend = async (raw: string) => {
-    const text = raw.trim();
+  /** 消息更新后自动滚动到底部 */
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ block: "end" });
+  }, [messages, sending]);
+
+  const handleSend = async () => {
+    const text = input.trim();
     if (!text || sending) return;
     if (!companyId) {
       message.warning("请先选择标的");
       return;
     }
-    const chatHistory = [...messages, { role: "user" as const, content: text }];
-    setMessages(chatHistory);
+    const history = [...messages, { role: "user" as const, content: text }];
+    setMessages(history);
+    setInput("");
     setSending(true);
     try {
-      const apiMsgs = messages.map((m) => ({ role: m.role, content: m.content }));
+      const apiMsgs = history.slice(-20).map((m) => ({ role: m.role, content: m.content }));
+      sendController.current=new AbortController();
       const res = await fetch("/api/agent/chat", {
+        signal:sendController.current.signal,
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ companyId, messages: apiMsgs }),
       });
-      const json = await res.json();
-      if (!res.ok) {
-        message.error(json.error ?? "请求失败");
-        return;
+      if(!res.ok || !res.body){const data=await res.json();throw Error(data.error||"分析服务暂时不可用，请稍后重试");}
+      setMessages(prev=>[...prev,{role:"assistant",content:""}]);
+      // AI SDK UI protocol carries text and transient tool states together.
+      const reader=res.body.getReader();const decoder=new TextDecoder();let buffer="";
+      const events=new ReadableStream<import("ai").UIMessageChunk>({async start(controller){
+        try{while(true){const {done,value}=await reader.read();if(done)break;buffer+=decoder.decode(value,{stream:true});let i;
+          while((i=buffer.indexOf("\n\n"))>=0){const frame=buffer.slice(0,i);buffer=buffer.slice(i+2);for(const line of frame.split("\n")){if(!line.startsWith("data: "))continue;const raw=line.slice(6);if(raw==="[DONE]")continue;const chunk=JSON.parse(raw);if(chunk.type==="data-status")setToolStatus(chunk.data.label);if(chunk.type==="error")throw Error(chunk.errorText);controller.enqueue(chunk);}}
+        }controller.close();}catch(error){controller.error(error);}finally{reader.releaseLock();}
+      },cancel(){sendController.current?.abort();return reader.cancel();}});
+      for await(const update of readUIMessageStream({stream:events,terminateOnError:true})){
+        const content=update.parts.filter((part):part is import("ai").TextUIPart=>part.type==="text").map(part=>part.text).join("");
+        setMessages(prev=>[...prev.slice(0,-1),{role:"assistant",content}]);
       }
-      if (!json.llmReady) {
-        const guide =
-          json.error ||
-          "未配置 LLM API。请点击顶部「API 配置」填入 Base URL / API Key / Model 后再试。";
-        setMessages((prev) => [...prev, { role: "assistant", content: guide }]);
-        await saveConversations([{ role: "user", content: text }, { role: "assistant", content: guide }]);
-        refreshOne(companyId);
-        return;
-      }
-      if (json.reply) {
-        setMessages((prev) => [...prev, { role: "assistant", content: json.reply }]);
-        await saveConversations([
-          { role: "user", content: text },
-          { role: "assistant", content: json.reply },
-        ]);
-        refreshOne(companyId);
-      } else if (json.error) {
-        message.error(json.error);
-      }
+      refreshOne(companyId);
     } catch {
       message.error("请求失败，请稍后重试");
     } finally {
       setSending(false);
+      setToolStatus("");
     }
   };
 
+  /** 快捷按钮：拉取公告（仅采集）→ 分析未分析公告，串联完成后追加一条汇总说明 */
   const openConfig = () => {
     form.setFieldsValue({
       baseUrl: cfg?.baseUrl || "",
       model: cfg?.model || "",
+      thinking: cfg?.thinking || "auto",
       apiKey: "",
     });
+    setTestResult(null);
     setConfigOpen(true);
   };
 
@@ -419,10 +358,11 @@ export default function AgentPage() {
     const values = await form.validateFields();
     setCfgSaving(true);
     try {
-      const body: { baseUrl?: string; model?: string; apiKey?: string } = {};
+      const body: { baseUrl?: string; model?: string; apiKey?: string; thinking?: string } = {};
       if (values.baseUrl?.trim()) body.baseUrl = values.baseUrl.trim();
       if (values.model?.trim()) body.model = values.model.trim();
       if (values.apiKey?.trim()) body.apiKey = values.apiKey.trim();
+      if (values.thinking?.trim()) body.thinking = values.thinking.trim();
       const res = await fetch("/api/agent/config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -443,34 +383,93 @@ export default function AgentPage() {
     }
   };
 
+  /** 测试连接：用当前表单值（含未保存的）发一次最小请求，直接告诉用户卡在哪 */
+  const testConnection = async () => {
+    const values = form.getFieldsValue();
+    setCfgTesting(true);
+    setTestResult(null);
+    try {
+      const body: { baseUrl?: string; apiKey?: string; model?: string; thinking?: string } = {};
+      if (values.baseUrl?.trim()) body.baseUrl = values.baseUrl.trim();
+      if (values.model?.trim()) body.model = values.model.trim();
+      if (values.apiKey?.trim()) body.apiKey = values.apiKey.trim();
+      if (values.thinking?.trim()) body.thinking = values.thinking.trim();
+
+      const res = await fetch("/api/agent/config/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const json = (await res.json()) as {
+        ok?: boolean;
+        elapsedMs?: number;
+        model?: string;
+        thinking?: string;
+        sample?: string;
+        error?: string;
+      };
+      if (!res.ok) {
+        setTestResult({ ok: false, text: json.error ?? "测试请求失败" });
+        return;
+      }
+      if (json.ok) {
+        setTestResult({
+          ok: true,
+          text: `连接成功，用时 ${json.elapsedMs} ms（模型 ${json.model}，思考模式 ${json.thinking}）`,
+          detail: json.sample ? `模型回复：${json.sample}` : undefined,
+        });
+      } else {
+        setTestResult({
+          ok: false,
+          text: `连接失败（${json.elapsedMs ?? "-"} ms）`,
+          detail: json.error,
+        });
+      }
+    } catch {
+      setTestResult({ ok: false, text: "测试请求发送失败，请检查网络或稍后重试" });
+    } finally {
+      setCfgTesting(false);
+    }
+  };
+
   const activeHistory = history.find((it) => it.company.id === companyId);
 
   return (
-    <AppHeader title="智能体对话" fluid>
+    <div className="agent-shell">
+      <AppHeader
+        title="智能体对话"
+        subtitle="绑定标的 · 基于 DCF 假设与公告信号问答 · 可要求重新拉取公告"
+        actions={
+          <Button icon={<SettingOutlined />} onClick={openConfig}>
+            API 配置
+          </Button>
+        }
+      />
+
       <div className="agent-main">
         {/* 移动端遮罩 */}
         {mobileOpen && (
           <div
             className="absolute inset-0 z-20 md:hidden"
-            style={{ background: "rgba(20, 28, 24, 0.45)" }}
+            style={{ background: "rgba(15, 23, 42, 0.45)" }}
             onClick={() => setMobileOpen(false)}
           />
         )}
 
         {/* 左侧：历史记录 */}
         <aside
-          className={`agent-sidebar fixed z-30 top-0 bottom-0 left-0 transition-transform duration-200 md:static md:z-auto md:translate-x-0 ${
+          className={`agent-sidebar fixed z-30 left-0 top-16 bottom-0 transition-transform duration-200 md:static md:top-0 md:z-auto md:translate-x-0 ${
             mobileOpen ? "translate-x-0" : "-translate-x-full"
           }`}
         >
-          <div className="p-3" style={{ borderBottom: "1px solid var(--line)" }}>
+          <div className="p-3" style={{ borderBottom: "1px solid var(--border)" }}>
             <Button block type="primary" ghost icon={<PlusOutlined />} onClick={newChat}>
               新对话
             </Button>
           </div>
           <div
             className="px-4 pt-3 pb-1"
-            style={{ fontSize: 12, color: "var(--muted)", letterSpacing: "0.04em" }}
+            style={{ fontSize: 12, color: "var(--text-muted)", letterSpacing: "0.04em" }}
           >
             历史对话
           </div>
@@ -478,7 +477,7 @@ export default function AgentPage() {
             {history.length === 0 ? (
               <div
                 className="text-center py-10 px-3"
-                style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.8 }}
+                style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.8 }}
               >
                 <MessageOutlined style={{ fontSize: 22, marginBottom: 8 }} />
                 <div>暂无历史对话</div>
@@ -497,24 +496,24 @@ export default function AgentPage() {
                   <div className="flex items-center gap-2">
                     <span
                       className="flex-1 min-w-0 truncate"
-                      style={{ fontSize: 13, fontWeight: 600, color: "var(--ink)" }}
+                      style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}
                     >
                       {it.company.name}
-                      <span style={{ fontSize: 11, fontWeight: 400, color: "var(--muted)" }}>
+                      <span style={{ fontSize: 11, fontWeight: 400, color: "var(--text-muted)" }}>
                         {"  "}
                         {it.company.ticker}
                       </span>
                     </span>
                     <span
                       className="shrink-0"
-                      style={{ fontSize: 11, color: "var(--muted)" }}
+                      style={{ fontSize: 11, color: "var(--text-muted)" }}
                     >
                       {relTime(it.lastAt)}
                     </span>
                   </div>
                   <div
                     className="truncate mt-1"
-                    style={{ fontSize: 12, color: "var(--body)" }}
+                    style={{ fontSize: 12, color: "var(--text-secondary)" }}
                   >
                     {previewText(it.lastContent)}
                   </div>
@@ -525,7 +524,7 @@ export default function AgentPage() {
         </aside>
 
         {/* 右侧：对话区 */}
-        <main className="flex-1 flex flex-col min-w-0" style={{ background: "var(--canvas)" }}>
+        <main className="flex-1 flex flex-col min-w-0" style={{ background: "var(--bg)" }}>
           <div className="agent-topbar">
             <Button
               type="text"
@@ -536,7 +535,7 @@ export default function AgentPage() {
             />
             <Select
               showSearch
-              placeholder="选择标的"
+              placeholder="选择标的（对话上下文将绑定该公司）"
               style={{ width: 280, maxWidth: "58vw" }}
               value={companyId}
               onChange={onCompanyChange}
@@ -557,9 +556,6 @@ export default function AgentPage() {
                 {activeHistory.count} 条历史消息
               </Text>
             )}
-            <Button icon={<SettingOutlined />} onClick={openConfig}>
-              API 配置
-            </Button>
           </div>
 
           {cfg && !cfg.hasKey && (
@@ -568,13 +564,77 @@ export default function AgentPage() {
                 type="warning"
                 showIcon
                 message="LLM API 未配置，智能体暂不可用"
+                description="点击右上角「API 配置」填写 OpenAI 兼容接口的 Base URL / API Key / Model（如 DeepSeek：https://api.deepseek.com，模型 deepseek-v4-flash）。公告采集与看板不受影响。"
               />
             </div>
           )}
 
-          <ChatMessages messages={messages} sending={sending} />
+          <div className="agent-messages">
+            <div className="agent-messages-inner">
+              {messages.map((m, i) => (
+                <div
+                  key={i}
+                  className="chat-row"
+                  style={{
+                    display: "flex",
+                    justifyContent: m.role === "user" ? "flex-end" : "flex-start",
+                    marginBottom: 12,
+                  }}
+                >
+                  <div
+                    className={`chat-bubble ${
+                      m.role === "user" ? "chat-bubble-user" : "chat-bubble-agent"
+                    }`}
+                  >
+                    {m.content}
+                  </div>
+                </div>
+              ))}
+              {sending && (
+                <div
+                  className="chat-row"
+                  style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}
+                >
+                  <span className="agent-tool-status" role="status"><i />{toolStatus||"准备分析…"}</span>
+                  <Text type="secondary">智能体思考中…</Text>
+                </div>
+              )}
+              <div ref={bottomRef} />
+            </div>
+          </div>
 
-          <Composer companyId={companyId} sending={sending} onSend={handleSend} />
+          <div className="agent-composer">
+            <div className="agent-composer-inner">
+              <Input.TextArea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder={
+                  companyId
+                    ? "例如：帮我拉取近 30 天公告；分析这些公告的预期差；对我的 g1、ke 假设有什么影响？"
+                    : "请先选择标的"
+                }
+                autoSize={{ minRows: 2, maxRows: 5 }}
+                disabled={!companyId || sending}
+                onPressEnter={(e) => {
+                  if (!e.shiftKey) {
+                    e.preventDefault();
+                    handleSend();
+                  }
+                }}
+              />
+              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
+                <Button
+                  type="primary"
+                  icon={<SendOutlined />}
+                  loading={sending}
+                  disabled={!companyId}
+                  onClick={handleSend}
+                >
+                  发送
+                </Button>
+              </div>
+            </div>
+          </div>
         </main>
       </div>
 
@@ -586,6 +646,17 @@ export default function AgentPage() {
         confirmLoading={cfgSaving}
         okText="保存"
         cancelText="取消"
+        footer={[
+          <Button key="test" loading={cfgTesting} onClick={testConnection}>
+            测试连接
+          </Button>,
+          <Button key="cancel" onClick={() => setConfigOpen(false)}>
+            取消
+          </Button>,
+          <Button key="save" type="primary" loading={cfgSaving} onClick={saveConfig}>
+            保存
+          </Button>,
+        ]}
       >
         <Paragraph type="secondary" style={{ fontSize: 12 }}>
           留空的字段保持原值。密钥仅保存在服务端，页面不回显明文。
@@ -610,17 +681,43 @@ export default function AgentPage() {
                 message: "需以 http(s):// 开头",
               },
             ]}
+            extra="讯飞星辰请填 https://maas-api.cn-huabei-1.xf-yun.com/v2 ；DeepSeek 填 https://api.deepseek.com"
           >
             <Input placeholder="https://api.deepseek.com" />
           </Form.Item>
-          <Form.Item name="model" label="Model">
+          <Form.Item name="model" label="Model" extra="讯飞星辰示例：spark-x2.6-4b；DeepSeek 示例：deepseek-v4-flash">
             <Input placeholder="deepseek-v4-flash" />
           </Form.Item>
+          <Form.Item
+            name="thinking"
+            label="深度思考模式"
+            extra="讯飞星辰必须设为 disabled，否则 token 会全耗在思考过程导致无正文"
+          >
+            <Select
+              options={[
+                { value: "auto", label: "auto（按模型自动，默认）" },
+                { value: "disabled", label: "disabled（关闭思考，推荐讯飞用）" },
+                { value: "enabled", label: "enabled（开启思考）" },
+              ]}
+            />
+          </Form.Item>
           <Form.Item name="apiKey" label="API Key（留空保持原值）">
-            <Input.Password placeholder="sk-…" autoComplete="off" />
+            <Input.Password placeholder="sk-… / ak-…" autoComplete="off" />
           </Form.Item>
         </Form>
+        {testResult && (
+          <Alert
+            type={testResult.ok ? "success" : "error"}
+            showIcon
+            message={testResult.text}
+            description={
+              testResult.detail ? (
+                <span style={{ wordBreak: "break-all", fontSize: 12 }}>{testResult.detail}</span>
+              ) : undefined
+            }
+          />
+        )}
       </Modal>
-    </AppHeader>
+    </div>
   );
 }

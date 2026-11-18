@@ -2287,3 +2287,67 @@ body.home-interaction-mode :is(
     display: none;
   }
 }
+
+/* ============================================================
+   DCF-TOOL 版本页面（估值看板 / 智能体 / 公告中心）所需样式
+   1) 兼容其主题变量名，映射到本地设计令牌
+   2) 补齐本地缺失的类：agent-shell / agent-tool-status / detail-grid / dashboard-primary-table
+   ============================================================ */
+:root {
+  --bg: var(--canvas);
+  --border: var(--line);
+  --text-primary: var(--ink);
+  --text-secondary: var(--muted);
+  --text-muted: var(--quiet);
+}
+
+.agent-shell {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.agent-tool-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding: 8px 0;
+}
+.agent-tool-status i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #3b82f6;
+  animation: terminal-pulse 1.3s ease-in-out infinite;
+}
+@keyframes terminal-pulse {
+  50% { opacity: .3; }
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+.detail-grid > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.detail-grid span {
+  color: var(--text-secondary);
+}
+
+@media (max-width: 600px) {
+  .dashboard-primary-table .ant-table-thead { display: none; }
+  .dashboard-primary-table .ant-table-tbody > tr { display: flex; flex-wrap: wrap; border-bottom: 1px solid var(--border); }
+  .dashboard-primary-table .ant-table-tbody > tr > td { position: static !important; flex: 1 1 45%; width: auto !important; max-width: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-tool-status i { animation: none !important; }
+}

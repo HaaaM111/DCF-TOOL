@@ -1,5 +1,12 @@
 "use client";
 
+/**
+ * 公告中心 —— 公告采集与信号展示
+ * ------------------------------------------------------------------
+ * 工作流：选择标的 → 「拉取公告」拉取候选（不入库）→ 勾选 → 「存储选中」正式入库
+ *        已入库公告可勾选「删除选中」（关联信号级联删除）。
+ * 预期差分析在「智能体对话」页完成；信号入库后在本页展示。
+ */
 import { useEffect, useState, useCallback } from "react";
 import {
   Card,
@@ -25,12 +32,14 @@ import type { ColumnsType } from "antd/es/table";
 
 const { Paragraph, Text } = Typography;
 
+/** 标的（与 /api/companies 返回一致） */
 interface CompanyOption {
   id: string;
   name: string;
   ticker: string;
 }
 
+/** 信号（AnnouncementSignal） */
 interface Signal {
   id: string;
   expectation: string;
@@ -46,6 +55,7 @@ interface Signal {
   }[];
 }
 
+/** 公告（Announcement + signals，已入库） */
 interface AnnouncementItem {
   id: string;
   companyId: string;
@@ -59,6 +69,7 @@ interface AnnouncementItem {
   signals: Signal[];
 }
 
+/** 候选公告（拉取后未入库，待用户选择） */
 interface CandidateItem {
   code: string;
   title: string;
@@ -96,6 +107,7 @@ const CATEGORIES = [
   "其他",
 ];
 
+/** 分类 → Tag 颜色 */
 const CATEGORY_COLORS: Record<string, string> = {
   业绩预告: "volcano",
   定期报告: "blue",
@@ -108,6 +120,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   其他: "default",
 };
 
+/** 预期 → Tag 颜色 */
 const EXPECTATION_COLORS: Record<string, string> = {
   超预期: "green",
   符合预期: "blue",
@@ -127,6 +140,7 @@ export default function AnnouncementsPage() {
   const [category, setCategory] = useState<string>();
   const [days, setDays] = useState(30);
 
+  // 已入库公告列表
   const [items, setItems] = useState<AnnouncementItem[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -134,12 +148,14 @@ export default function AnnouncementsPage() {
   const [loading, setLoading] = useState(false);
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
 
+  // 拉取候选（未入库）
   const [candidates, setCandidates] = useState<CandidateItem[]>([]);
   const [candidateKeys, setCandidateKeys] = useState<React.Key[]>([]);
   const [fetchLoading, setFetchLoading] = useState(false);
   const [storeLoading, setStoreLoading] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
+  // 加载标的列表
   useEffect(() => {
     (async () => {
       try {
@@ -183,6 +199,7 @@ export default function AnnouncementsPage() {
     if (companyId) loadAnnouncements(page);
   }, [companyId, category, days, pageSize, page, loadAnnouncements]);
 
+  /** 拉取候选公告（不入库） */
   const handleFetch = async () => {
     if (!companyId) {
       message.warning("请先选择标的");
@@ -218,6 +235,7 @@ export default function AnnouncementsPage() {
     }
   };
 
+  /** 存储选中的候选公告（正式入库） */
   const handleStore = async () => {
     if (!companyId || !candidateKeys.length) {
       message.warning("请先勾选要存储的候选公告");
@@ -236,6 +254,7 @@ export default function AnnouncementsPage() {
         return;
       }
       const result = json as StoreResult;
+      // 移除已存储的候选
       const storedSet = new Set(candidateKeys.map((k) => String(k)));
       setCandidates((prev) => prev.filter((c) => !storedSet.has(c.code)));
       setCandidateKeys([]);
@@ -251,6 +270,7 @@ export default function AnnouncementsPage() {
     }
   };
 
+  /** 丢弃选中的候选（不入库） */
   const handleDiscard = () => {
     if (!candidateKeys.length) {
       setCandidates([]);
@@ -261,6 +281,7 @@ export default function AnnouncementsPage() {
     setCandidateKeys([]);
   };
 
+  /** 删除已入库的选中公告（关联信号级联删除） */
   const handleDelete = async () => {
     if (!companyId || !selectedRowKeys.length) {
       message.warning("请先勾选要删除的公告");
@@ -288,19 +309,20 @@ export default function AnnouncementsPage() {
     }
   };
 
+  /** 候选表格列 */
   const candidateColumns: ColumnsType<CandidateItem> = [
     {
       title: "发布时间",
       dataIndex: "publishAt",
       width: 150,
-      render: (v: string) => <span className="text-muted">{fmtTime(v)}</span>,
+      render: (v: string) => <span className="text-slate-500">{fmtTime(v)}</span>,
     },
     {
       title: "公告标题",
       dataIndex: "title",
       width: 420,
       render: (v: string, r) => (
-        <a href={r.pdfUrl} target="_blank" rel="noreferrer" className="text-brand">
+        <a href={r.pdfUrl} target="_blank" rel="noreferrer" className="text-blue-600">
           {v}
         </a>
       ),
@@ -313,19 +335,20 @@ export default function AnnouncementsPage() {
     },
   ];
 
+  /** 已入库表格列 */
   const savedColumns: ColumnsType<AnnouncementItem> = [
     {
       title: "发布时间",
       dataIndex: "publishAt",
       width: 150,
-      render: (v: string) => <span className="text-muted">{fmtTime(v)}</span>,
+      render: (v: string) => <span className="text-slate-500">{fmtTime(v)}</span>,
     },
     {
       title: "公告标题",
       dataIndex: "title",
       width: 420,
       render: (v: string, r) => (
-        <a href={r.pdfUrl} target="_blank" rel="noreferrer" className="text-brand">
+        <a href={r.pdfUrl} target="_blank" rel="noreferrer" className="text-blue-600">
           {v}
         </a>
       ),
@@ -345,7 +368,7 @@ export default function AnnouncementsPage() {
           <Tag color="green">已分析</Tag>
         ) : (
           <a
-            className="text-brand"
+            className="text-blue-600"
             onClick={(e) => {
               e.preventDefault();
               router.push(`/agent?companyId=${encodeURIComponent(r.companyId)}`);
@@ -370,11 +393,12 @@ export default function AnnouncementsPage() {
     },
   ];
 
+  /** 展开行：信号卡片（摘要 + 原文证据 + 假设修正建议） */
   const expandableRender = (r: AnnouncementItem) => {
     if (!r.signals.length) {
       return (
-        <div className="py-2 text-muted text-sm">
-          该公告尚未分析。
+        <div className="py-2 text-slate-400 text-sm">
+          该公告尚未在智能体中分析。前往「智能体对话」页要求分析即可生成预期差信号。
         </div>
       );
     }
@@ -398,8 +422,8 @@ export default function AnnouncementsPage() {
             </Space>
             <Paragraph className="mb-1">{s.summary || "-"}</Paragraph>
             {s.evidence && (
-              <div className="text-sm text-body border-l-2 border-line pl-3 mb-2">
-                <div className="text-xs text-muted mb-1">原文证据：</div>
+              <div className="text-sm text-slate-500 border-l-2 border-slate-300 pl-3 mb-2">
+                <div className="text-xs text-slate-400 mb-1">原文证据：</div>
                 {s.evidence.split("\n").map((line, i) => (
                   <div key={i}>“{line}”</div>
                 ))}
@@ -457,109 +481,106 @@ export default function AnnouncementsPage() {
   };
 
   return (
-    <AppHeader
-      title="公告中心"
-      actions={
-        <Button
-          icon={<RobotOutlined />}
-          onClick={() =>
-            companyId
-              ? router.push(`/agent?companyId=${encodeURIComponent(companyId)}`)
-              : router.push("/agent")
-          }
-        >
-          智能体分析
-        </Button>
-      }
-    >
-      {/* 筛选区 */}
-      <div className="fin-card" style={{ padding: 20 }}>
-        <Space wrap>
-          <Select
-            showSearch
-            placeholder="选择标的"
-            style={{ width: 260 }}
-            value={companyId}
-            onChange={(v) => {
-              setCompanyId(v);
-              setPage(1);
-              setCandidates([]);
-              setCandidateKeys([]);
-            }}
-            optionFilterProp="label"
-            options={companies.map((c) => ({
-              value: c.id,
-              label: `${c.name}（${c.ticker}）`,
-            }))}
-          />
-          <Select
-            allowClear
-            placeholder="公告分类（全部）"
-            style={{ width: 150 }}
-            value={category}
-            onChange={(v) => {
-              setCategory(v);
-              setPage(1);
-            }}
-            options={CATEGORIES.map((c) => ({ value: c, label: c }))}
-          />
-          <Select
-            style={{ width: 130 }}
-            value={days}
-            onChange={(v) => {
-              setDays(v);
-              setPage(1);
-            }}
-            options={[
-              { value: 7, label: "近 7 天" },
-              { value: 30, label: "近 30 天" },
-              { value: 90, label: "近 90 天" },
-            ]}
-          />
+    <div className="min-h-screen bg-slate-50">
+      <AppHeader
+        title="公告中心"
+        subtitle="拉取候选 → 勾选存储入库 · 预期差分析在「智能体对话」页完成"
+        actions={
           <Button
-            type="primary"
-            icon={<CloudDownloadOutlined />}
-            loading={fetchLoading}
-            onClick={handleFetch}
+            icon={<RobotOutlined />}
+            href={companyId ? `/agent?companyId=${encodeURIComponent(companyId)}` : "/agent"}
           >
-            拉取公告
+            智能体分析
           </Button>
-          <Button
-            icon={<ReloadOutlined />}
-            onClick={() => loadAnnouncements(1)}
-          >
-            刷新列表
-          </Button>
-        </Space>
-      </div>
+        }
+      />
 
-      {/* 候选公告 */}
-      {candidates.length > 0 && (
-        <section style={{ marginTop: 34 }}>
-          <div className="section-head">
-            <div>
-              <h2>拉取结果 · 待存储（{candidates.length} 条）</h2>
-            </div>
-            <Space>
-              <Button
-                type="primary"
-                icon={<SaveOutlined />}
-                loading={storeLoading}
-                disabled={!candidateKeys.length}
-                onClick={handleStore}
-              >
-                存储选中（{candidateKeys.length}）
-              </Button>
-              <Button
-                icon={<DeleteOutlined />}
-                disabled={!candidateKeys.length}
-                onClick={handleDiscard}
-              >
-                丢弃选中
-              </Button>
-            </Space>
-          </div>
-          <div style={{ borderTop: "1px solid var(--line-strong)" }}>
+      <div className="p-6">
+        <Card className="mb-4">
+          <Space wrap>
+            <Select
+              showSearch
+              placeholder="选择标的"
+              style={{ width: 260 }}
+              value={companyId}
+              onChange={(v) => {
+                setCompanyId(v);
+                setPage(1);
+                setCandidates([]);
+                setCandidateKeys([]);
+              }}
+              optionFilterProp="label"
+              options={companies.map((c) => ({
+                value: c.id,
+                label: `${c.name}（${c.ticker}）`,
+              }))}
+            />
+            <Select
+              allowClear
+              placeholder="公告分类（全部）"
+              style={{ width: 150 }}
+              value={category}
+              onChange={(v) => {
+                setCategory(v);
+                setPage(1);
+              }}
+              options={CATEGORIES.map((c) => ({ value: c, label: c }))}
+            />
+            <Select
+              style={{ width: 130 }}
+              value={days}
+              onChange={(v) => {
+                setDays(v);
+                setPage(1);
+              }}
+              options={[
+                { value: 7, label: "近 7 天" },
+                { value: 30, label: "近 30 天" },
+                { value: 90, label: "近 90 天" },
+              ]}
+            />
+            <Button
+              type="primary"
+              icon={<CloudDownloadOutlined />}
+              loading={fetchLoading}
+              onClick={handleFetch}
+            >
+              拉取公告
+            </Button>
+            <Button
+              icon={<ReloadOutlined />}
+              onClick={() => loadAnnouncements(1)}
+            >
+              刷新列表
+            </Button>
+          </Space>
+        </Card>
+
+        {candidates.length > 0 && (
+          <Card
+            className="mb-4"
+            title={`拉取结果 · 待存储（${candidates.length} 条，勾选后点「存储选中」入库；刷新页面候选将丢失）`}
+            extra={
+              <Space>
+                <Button
+                  type="primary"
+                  icon={<SaveOutlined />}
+                  loading={storeLoading}
+                  disabled={!candidateKeys.length}
+                  onClick={handleStore}
+                >
+                  存储选中（{candidateKeys.length}）
+                </Button>
+                <Button
+                  icon={<DeleteOutlined />}
+                  disabled={!candidateKeys.length}
+                  onClick={handleDiscard}
+                >
+                  丢弃选中
+                </Button>
+              </Space>
+            }
+          >
             <Table
               rowKey="code"
               size="small"
@@ -572,32 +593,25 @@ export default function AnnouncementsPage() {
                 onChange: setCandidateKeys,
               }}
             />
-          </div>
-        </section>
-      )}
+          </Card>
+        )}
 
-      {/* 已入库公告 */}
-      <section style={{ marginTop: 34 }}>
-        <div className="section-head">
-          <div>
-            <h2>已入库公告（{total} 条）</h2>
-          </div>
-          <Button
-            danger
-            icon={<DeleteOutlined />}
-            loading={deleteLoading}
-            disabled={!selectedRowKeys.length}
-            onClick={handleDelete}
-          >
-            删除选中（{selectedRowKeys.length}）
-          </Button>
-        </div>
-        <div style={{ borderTop: "1px solid var(--line-strong)" }}>
+        <Card
+          title={`已入库公告（${total} 条）`}
+          extra={
+            <Button
+              danger
+              icon={<DeleteOutlined />}
+              loading={deleteLoading}
+              disabled={!selectedRowKeys.length}
+              onClick={handleDelete}
+            >
+              删除选中（{selectedRowKeys.length}）
+            </Button>
+          }
+        >
           {items.length === 0 && !loading ? (
-            <Empty
-              style={{ padding: "40px 0" }}
-              description="暂无已入库公告"
-            />
+            <Empty description="暂无已入库公告。选择标的并点「拉取公告」，勾选后「存储选中」入库。" />
           ) : (
             <Table
               rowKey="id"
@@ -625,8 +639,8 @@ export default function AnnouncementsPage() {
               }}
             />
           )}
-        </div>
-      </section>
-    </AppHeader>
+        </Card>
+      </div>
+    </div>
   );
 }
