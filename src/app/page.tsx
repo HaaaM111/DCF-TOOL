@@ -46,16 +46,8 @@ function newsTime(value: string) {
   return match ? `${match[2]}-${match[3]} ${match[4]}` : value;
 }
 
-function greetingForHour(hour: number) {
-  if (hour < 12) return "早上好";
-  if (hour < 14) return "中午好";
-  if (hour < 18) return "下午好";
-  return "晚上好";
-}
-
 export default function HomePage() {
   const router = useRouter();
-  const [homeTitle, setHomeTitle] = useState("市场首页");
   const [companies, setCompanies] = useState<HomeCompany[]>([]);
   const [companiesLoading, setCompaniesLoading] = useState(true);
   const [companiesError, setCompaniesError] = useState("");
@@ -66,15 +58,6 @@ export default function HomePage() {
   const [newsError, setNewsError] = useState("");
   const companyRequest = useRef(0);
   const newsRequest = useRef(0);
-
-  useEffect(() => {
-    const updateTitle = () => {
-      setHomeTitle(`${greetingForHour(new Date().getHours())}，开始今天的研究`);
-    };
-    updateTitle();
-    const timer = window.setInterval(updateTitle, 60_000);
-    return () => window.clearInterval(timer);
-  }, []);
 
   const loadCompanies = useCallback(async () => {
     const requestId = ++companyRequest.current;
@@ -162,7 +145,6 @@ export default function HomePage() {
 
   return (
     <AppHeader
-      title={homeTitle}
       actions={
         <div className="home-status">
           <span>{companies.length} 标的</span>
@@ -271,9 +253,16 @@ export default function HomePage() {
         {moreNews.length > 0 && (
           <section className="home-news home-news-more" aria-label="更多资讯">
             <div className="panel-heading news-heading">
-              <div>
+              <a
+                className="home-more-news-link"
+                href="https://finance.eastmoney.com/"
+                target="_blank"
+                rel="noreferrer"
+                aria-label="前往东方财富财经资讯（新标签页）"
+              >
                 <h2>更多资讯</h2>
-              </div>
+                <ExportOutlined aria-hidden="true" />
+              </a>
             </div>
             <div className="news-list">
               {moreNews.map((item, index) => {
