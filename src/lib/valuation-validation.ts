@@ -1,13 +1,27 @@
+/**
+ * 估值验证与交叉验证计算引擎
+ * ------------------------------------------------------------------
+ * 1. 相对估值（PE/PB/PS）—— 行业均值 × 公司基本面
+ * 2. 历史纵向分位 —— 当前 PE 在历史区间的位置
+ * 3. 绝对 × 相对 交叉验证 —— 差异率判定 + AI 归因触发
+ * 4. 2D 敏感性热力图 —— WACC × 永续 g 矩阵
+ *
+ * 所有函数为纯函数，便于单测与复用。
+ */
 
 import { calcForwardDcf } from "./dcf";
 import type { CompanyBasics, DcfAssumptions } from "@/types/dcf";
 
 const num = (v: number) => (Number.isFinite(v) ? v : 0);
 
+// ============================================================
+// 类型定义
+// ============================================================
+
 export interface PeerData {
   ticker: string;
   name: string;
-  marketCap: number;
+  marketCap: number; // 亿元
   e0: number;
   revenue: number;
   bookValue: number;
@@ -21,27 +35,33 @@ export interface HistoricalValuationRow {
 }
 
 export interface RelativeValuationResult {
+  // 当前估值倍数
   currentPe: number;
   currentPb: number;
   currentPs: number;
+  // 行业中枢
   industryPeMean: number;
   industryPeMedian: number;
   industryPbMean: number;
   industryPsMean: number;
-  peValue: number;
-  pbValue: number;
-  psValue: number;
-  relativeValue: number;
+  // 相对估值法推算的合理市值（亿元）
+  peValue: number; // 行业 PE 均值 × E0
+  pbValue: number; // 行业 PB 均值 × B0
+  psValue: number; // 行业 PS 均值 × S0
+  relativeValue: number; // 三者中位数
+  // 溢价/折价率 %
   premiumDiscount: number;
+  // 同行明细（供前端展示）
   peers: { ticker: string; name: string; pe: number; pb: number; ps: number }[];
 }
 
 export interface ValidationResult {
-  absoluteValue: number;
+  absoluteValue: number; // DCF 股权价值（亿元）
   relative: RelativeValuationResult;
-  relativeValue: number;
-  diffRate: number;
+  relativeValue: number; // 相对估值（亿元）
+  diffRate: number; // |绝对 - 相对| / 相对 × 100%
   conclusion: "一致" | "偏离";
+  // 历史分位 (0~100)
   pePercentile: number;
   pbPercentile: number;
   psPercentile: number;
@@ -53,17 +73,24 @@ export interface SensitivityHeatmapCell {
   targetPrice: number;
 }
 
+// ============================================================
+// 工具函数
+// ============================================================
+
+/** 安全除法：分母为 0 时返回 0 */
 function safeDiv(a: number, b: number): number {
   if (!Number.isFinite(b) || b === 0) return 0;
   return a / b;
 }
 
+/** 计算数组均值（过滤无效值） */
 function mean(arr: number[]): number {
   const valid = arr.filter((v) => Number.isFinite(v) && v > 0);
   if (valid.length === 0) return 0;
   return valid.reduce((s, v) => s + v, 0) / valid.length;
 }
 
+/** 计算数组中位数 */
 function median(arr: number[]): number {
   const valid = arr.filter((v) => Number.isFinite(v) && v > 0).sort((a, b) => a - b);
   if (valid.length === 0) return 0;
@@ -73,13 +100,29 @@ function median(arr: number[]): number {
     : valid[mid];
 }
 
+/**
+ * 计算分位数：当前值在历史序列中的百分位（0~100）
+ * 经验分布法：小于等于当前值的样本占比
+ */
 export function calcPercentile(current: number, history: (number | null | undefined)[]): number {
   const valid = history.filter((v): v is number => Number.isFinite(v as number) && (v as number) > 0);
-  if (valid.length === 0) return 50;
+  if (valid.length === 0) return 50; // 无历史数据，默认中位
   const count = valid.filter((v) => v <= current).length;
   return (count / valid.length) * 100;
 }
 
+// ============================================================
+// 1. 相对估值计算
+// ============================================================
+
+/**
+ * 计算相对估值（PE/PB/PS）
+ * @param marketCap 本公司当前市值（亿元）
+ * @param e0 归母净利润（亿元）
+ * @param revenue 营收（亿元）
+ * @param bookValue 归母净资产（亿元）
+ * @param peers 同行数据列表
+ */
 export function calcRelativeValuation(
   marketCap: number,
   e0: number,
@@ -87,10 +130,12 @@ export function calcRelativeValuation(
   bookValue: number,
   peers: PeerData[],
 ): RelativeValuationResult {
+  // 本公司当前倍数
   const currentPe = safeDiv(marketCap, e0);
   const currentPb = safeDiv(marketCap, bookValue);
   const currentPs = safeDiv(marketCap, revenue);
 
+  // 同行倍数
   const peerMultiples = peers.map((p) => ({
     ticker: p.ticker,
     name: p.name,
@@ -99,17 +144,21 @@ export function calcRelativeValuation(
     ps: safeDiv(p.marketCap, p.revenue),
   }));
 
+  // 行业中枢
   const industryPeMean = mean(peerMultiples.map((p) => p.pe));
   const industryPeMedian = median(peerMultiples.map((p) => p.pe));
   const industryPbMean = mean(peerMultiples.map((p) => p.pb));
   const industryPsMean = mean(peerMultiples.map((p) => p.ps));
 
-  const peValue = industryPeMean * num(e0);
-  const pbValue = industryPbMean * num(bookValue);
-  const psValue = industryPsMean * num(revenue);
+  // 相对估值法推算合理市值
+  const peValue = industryPeMedian * num(e0);
+  const pbValue = median(peerMultiples.map(p=>p.pb)) * num(bookValue);
+  const psValue = median(peerMultiples.map(p=>p.ps)) * num(revenue);
 
+  // 取中位数抗异常
   const relativeValue = median([peValue, pbValue, psValue]);
 
+  // 溢价/折价率（以 PE 为代表）
   const premiumDiscount =
     industryPeMean > 0 ? ((currentPe - industryPeMean) / industryPeMean) * 100 : 0;
 
@@ -130,6 +179,13 @@ export function calcRelativeValuation(
   };
 }
 
+// ============================================================
+// 2. 历史纵向分位
+// ============================================================
+
+/**
+ * 计算当前 PE/PB/PS 在历史区间的分位
+ */
 export function calcHistoricalPercentiles(
   current: { pe: number; pb: number; ps: number },
   history: HistoricalValuationRow[],
@@ -141,12 +197,23 @@ export function calcHistoricalPercentiles(
   };
 }
 
+// ============================================================
+// 3. 交叉验证
+// ============================================================
+
+/** 差异率阈值（%），超过即为"偏离" */
 export const DIFF_THRESHOLD = 20;
 
+/**
+ * 绝对 × 相对 交叉验证
+ * @param absoluteValue DCF 绝对估值（亿元）
+ * @param relativeValue 相对估值（亿元）
+ */
 export function crossValidate(
   absoluteValue: number,
   relativeValue: number,
-): { diffRate: number; conclusion: "一致" | "偏离" } {
+): { diffRate: number | null; conclusion: "一致" | "偏离" | "数据不足" } {
+  if (!Number.isFinite(relativeValue) || relativeValue<=0 || !Number.isFinite(absoluteValue)) return {diffRate:null,conclusion:"数据不足"};
   const diffRate =
     relativeValue > 0
       ? (Math.abs(absoluteValue - relativeValue) / relativeValue) * 100
@@ -155,6 +222,14 @@ export function crossValidate(
   return { diffRate, conclusion };
 }
 
+// ============================================================
+// 4. 2D 敏感性热力图（WACC × 永续 g）
+// ============================================================
+
+/**
+ * 生成 WACC × 永续 g 的二维敏感性矩阵
+ * 每个组合重跑 calcForwardDcf，记录调整后目标价
+ */
 export function calcSensitivityHeatmap(
   a: DcfAssumptions,
   b: CompanyBasics,
@@ -165,6 +240,7 @@ export function calcSensitivityHeatmap(
   const cells: SensitivityHeatmapCell[] = [];
   for (const wacc of waccRange) {
     for (const g of gRange) {
+      // 永续 g 必须 < wacc，否则 Gordon 爆炸
       if (g >= wacc) continue;
       const sampled: DcfAssumptions = {
         ...a,
@@ -182,22 +258,32 @@ export function calcSensitivityHeatmap(
   return cells;
 }
 
+// ============================================================
+// 5. AI 归因 Prompt 构建
+// ============================================================
+
 export interface AiAttributionContext {
   name: string;
-  absoluteValue: number;
-  relativeValue: number;
-  diffRate: number;
+  absoluteValue: number; // DCF 估值（亿元）
+  relativeValue: number; // 相对估值（亿元）
+  diffRate: number; // 差异率 %
+  // DCF 假设
   g1: number;
   g2: number;
   g3: number;
   perpetualG: number;
   ke: number;
+  // 相对估值
   currentPe: number;
   industryPeMean: number;
   pePercentile: number;
   premiumDiscount: number;
 }
 
+/**
+ * 构建 AI 归因分析 Prompt
+ * 差异率 >= 20% 时触发
+ */
 export function buildAiAttributionPrompt(ctx: AiAttributionContext): string {
   return `你是一位资深 A 股分析师，请对以下估值差异进行归因分析。
 

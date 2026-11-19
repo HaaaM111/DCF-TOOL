@@ -1,8 +1,17 @@
+import { z } from "zod";
+import { idSchema } from "@/lib/agent/schemas";
+/**
+ * 智能体对话记录接口
+ * ------------------------------------------------------------------
+ * GET  /api/agent/conversations?companyId=xxx —— 读取某标的全部对话（正序，最多 200 条）
+ * POST /api/agent/conversations { companyId, messages:[{role,content}] } —— 追加对话
+ *   前端在成功交互后调用：落库 user 消息 + assistant 回复，刷新不丢。
+ * 安全：role 白名单（user/assistant）；content 截断 4000 + XSS 过滤后存储。
+ */
 import { NextRequest } from "next/server";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
 import { prisma } from "@/lib/prisma";
 import { sanitizeAiText } from "@/lib/ai-client";
-import { getAuthenticatedUserId } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,11 +30,9 @@ export async function GET(req: NextRequest) {
   if (guard) return guard;
 
   const companyId = req.nextUrl.searchParams.get("companyId");
-  if (!companyId) {
+  if (!companyId || !idSchema.safeParse(companyId).success) {
     return jsonError("缺少 companyId", 400, "BAD_BODY");
   }
-  const owned = await prisma.company.findFirst({ where: { id: companyId, userId: getAuthenticatedUserId(req) }, select: { id: true } });
-  if (!owned) return jsonError("标的不存在", 404, "NOT_FOUND");
 
   try {
     const rows = await prisma.agentConversation.findMany({
@@ -54,13 +61,14 @@ export async function POST(req: NextRequest) {
   } catch {
     return jsonError("请求体必须是 JSON", 400, "BAD_BODY");
   }
+  const parsed=z.object({companyId:idSchema,messages:z.array(z.object({role:z.enum(["user","assistant"]),content:z.string().trim().min(1).max(4000)})).min(1).max(20)}).strict().safeParse(body);
+  if(!parsed.success)return jsonError("会话参数无效",422);
+  body=parsed.data;
   const companyId = body?.companyId;
   const messages = Array.isArray(body?.messages) ? body.messages : [];
   if (!companyId || !messages.length) {
     return jsonError("缺少 companyId 或 messages", 400, "BAD_BODY");
   }
-  const owned = await prisma.company.findFirst({ where: { id: companyId, userId: getAuthenticatedUserId(req) }, select: { id: true } });
-  if (!owned) return jsonError("标的不存在", 404, "NOT_FOUND");
 
   const cleaned = messages
     .filter(

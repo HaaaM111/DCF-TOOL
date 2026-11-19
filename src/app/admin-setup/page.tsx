@@ -1,5 +1,10 @@
 import AdminSetupForm from "./form";
 
-export default function AdminSetupPage({ searchParams }: { searchParams: { token?: string } }) {
-  return <AdminSetupForm token={searchParams.token ?? ""} />;
+export default async function AdminSetupPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ token?: string }>;
+}) {
+  const { token } = await searchParams;
+  return <AdminSetupForm token={token ?? ""} />;
 }

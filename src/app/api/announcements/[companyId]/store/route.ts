@@ -12,8 +12,9 @@ export const dynamic = "force-dynamic";
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { companyId: string } },
+  { params: pendingParams }: { params: Promise<{ companyId: string }> },
 ) {
+  const params = await pendingParams;
   const guard = await guardRequest(req);
   if (guard) return guard;
   const owned = await prisma.company.findFirst({ where: { id: params.companyId, userId: getAuthenticatedUserId(req) }, select: { id: true } });

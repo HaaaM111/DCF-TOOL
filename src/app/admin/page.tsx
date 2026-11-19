@@ -7,7 +7,8 @@ import { prisma } from "@/lib/prisma";
 export const dynamic = "force-dynamic";
 
 export default async function AdminPage() {
-  const user = await getSessionUserFromToken(cookies().get(SESSION_COOKIE)?.value);
+  const cookieStore = await cookies();
+  const user = await getSessionUserFromToken(cookieStore.get(SESSION_COOKIE)?.value);
   if (!user) redirect("/sign-in");
   if (user.role !== "admin") redirect("/home");
 

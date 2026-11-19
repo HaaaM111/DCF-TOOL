@@ -1,3 +1,15 @@
+/**
+ * 公告同步共享服务（供公告中心候选拉取/批量存储、智能体工具共用）
+ * ------------------------------------------------------------------
+ * 三种模式：
+ *   1. fetchCompanyAnnouncements —— 拉取候选（不入库），结果缓存 10 分钟，
+ *      公告中心「拉取公告」按钮使用；刷新页面候选丢失（前端不持有）。
+ *   2. storeCompanyAnnouncements —— 按 code 列表把候选正式入库（PDF 提取+去重），
+ *      公告中心「存储选中」使用；已存在公告跳过。
+ *   3. syncCompanyAnnouncements —— 拉取+全部入库（智能体 sync_announcements 工具使用）。
+ * 设计：单公告失败不影响整批（failed 列表返回）；幂等（唯一键）；部分成功不抛错。
+ * 抛错仅用于不可恢复的整批失败（标的不存在/代码无法解析/orgId 查不到/巨潮接口异常）。
+ */
 import { prisma } from "@/lib/prisma";
 import {
   fetchOrgId,
@@ -7,24 +19,25 @@ import {
 } from "@/lib/announcement/cninfo-client";
 import { extractPdfText, classify } from "@/lib/announcement/parser";
 
+/** 候选公告（拉取后未入库，供前端选择） */
 export interface AnnouncementCandidate {
-  code: string;
+  code: string; // 巨潮 announcementId（去重键）
   title: string;
   publishAt: Date;
-  category: string;
+  category: string; // 标题规则分类
   pdfUrl: string;
   adjunctSizeKb: number;
 }
 
 export interface FetchResult {
-  fetched: number;
+  fetched: number; // 接口拉取到的公告总数
   candidates: AnnouncementCandidate[];
-  cached: boolean;
+  cached: boolean; // 本次是否命中候选缓存（重复拉取时）
 }
 
 export interface StoreResult {
-  stored: number;
-  skipped: number;
+  stored: number; // 本次成功入库数
+  skipped: number; // 已存在（去重）跳过数
   failed: { code: string; title: string; reason: string }[];
 }
 
@@ -34,6 +47,7 @@ export interface SyncResult {
   failed: { code: string; title: string; reason: string }[];
 }
 
+/** 整批失败的领域错误：message 可直达用户，status/code 用于 HTTP 映射 */
 export class SyncServiceError extends Error {
   status: number;
   code: string;
@@ -45,10 +59,11 @@ export class SyncServiceError extends Error {
 }
 
 const DEFAULT_DAYS = 30;
-const BATCH_SLEEP_MS = 300;
-const CANDIDATE_TTL_MS = 10 * 60 * 1000;
-const CANDIDATE_MAX_COMPANIES = 200;
+const BATCH_SLEEP_MS = 300; // 请求间礼貌间隔
+const CANDIDATE_TTL_MS = 10 * 60 * 1000; // 候选缓存 10 分钟
+const CANDIDATE_MAX_COMPANIES = 200; // 防内存泄漏上限
 
+/** 候选缓存：companyId -> { candidates, at }（单实例内存；重启/多实例失效） */
 const candidateCache = new Map<
   string,
   { candidates: AnnouncementCandidate[]; at: number }
@@ -62,6 +77,7 @@ function fmtDate(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
+/** 解析 ticker → secCode/market；失败抛 SyncServiceError */
 async function resolveCompany(
   companyId: string,
   days: number,
@@ -120,6 +136,7 @@ function cacheGet(companyId: string): AnnouncementCandidate[] | null {
 
 function cachePut(companyId: string, candidates: AnnouncementCandidate[]): void {
   if (candidateCache.size >= CANDIDATE_MAX_COMPANIES) {
+    // 简单淘汰：清掉最旧的一条
     let oldestKey: string | null = null;
     let oldestAt = Infinity;
     for (const [k, v] of Array.from(candidateCache.entries())) {
@@ -133,6 +150,10 @@ function cachePut(companyId: string, candidates: AnnouncementCandidate[]): void 
   candidateCache.set(companyId, { candidates, at: Date.now() });
 }
 
+/**
+ * 拉取某公司最近 N 天公告（仅候选，不入库；命中缓存时直接返回缓存）。
+ * days 会被钳制在 [1, 90]。
+ */
 export async function fetchCompanyAnnouncements(
   companyId: string,
   days = DEFAULT_DAYS,
@@ -155,6 +176,11 @@ export async function fetchCompanyAnnouncements(
   return { fetched: candidates.length, candidates, cached: false };
 }
 
+/**
+ * 批量存储候选公告（按 code 列表正式入库）。
+ * 候选来源：缓存优先；缓存缺失时重新拉取巨潮匹配。
+ * 已存在（companyId+source+code）的公告跳过（幂等）。
+ */
 export async function storeCompanyAnnouncements(
   companyId: string,
   codes: string[],
@@ -164,6 +190,7 @@ export async function storeCompanyAnnouncements(
     return { stored: 0, skipped: 0, failed: [] };
   }
 
+  // 候选来源：缓存优先；缺失时拉取匹配
   let candidates = cacheGet(companyId);
   if (!candidates) {
     const { secCode, market, from, to } = await resolveCompany(companyId, DEFAULT_DAYS);
@@ -177,8 +204,9 @@ export async function storeCompanyAnnouncements(
   }
 
   const targets = candidates.filter((c) => codeSet.has(c.code));
-  const skipped = Math.max(0, codeSet.size - targets.length);
+  const skipped = Math.max(0, codeSet.size - targets.length); // 请求了但候选里没有的
 
+  // 去重：候选里已入库的也跳过
   const existing = await prisma.announcement.findMany({
     where: {
       companyId,
@@ -194,7 +222,7 @@ export async function storeCompanyAnnouncements(
 
   for (const c of targets) {
     if (existingSet.has(c.code)) {
-      continue;
+      continue; // 已入库，去重跳过
     }
     try {
       const rawText = await extractPdfText(c.pdfUrl, c.adjunctSizeKb);
@@ -224,11 +252,16 @@ export async function storeCompanyAnnouncements(
   return { stored, skipped: skipped + (targets.length - stored - failed.length), failed };
 }
 
+/**
+ * 智能体工具模式：拉取 + 全部入库（同步历史语义）。
+ * 复用 fetch（候选）+ store（全部 codes），等价于原 syncCompanyAnnouncements。
+ */
 export async function syncCompanyAnnouncements(
   companyId: string,
   days = DEFAULT_DAYS,
 ): Promise<SyncResult> {
   const clampedDays = Math.min(90, Math.max(1, days || DEFAULT_DAYS));
+  // 先拉候选（清缓存，确保拿到最新），再全部入库
   candidateCache.delete(companyId);
   const { candidates } = await fetchCompanyAnnouncements(companyId, clampedDays);
   if (!candidates.length) {
@@ -245,6 +278,7 @@ export async function syncCompanyAnnouncements(
   };
 }
 
+/** 删除已入库公告（关联信号级联删除）；供公告中心删除选中使用 */
 export async function deleteAnnouncements(ids: string[]): Promise<{ deleted: number }> {
   const idSet = new Set(ids.map((i) => String(i).trim()).filter(Boolean));
   if (!idSet.size) return { deleted: 0 };

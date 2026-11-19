@@ -1,28 +1,43 @@
+/**
+ * 公告批量分析服务（供智能体 analyze_announcements 工具调用）
+ * ------------------------------------------------------------------
+ * 流程：读标的 → 读当前 DCF 假设 → 取该公司"已采集但未分析"的公告
+ *      → 逐条调用 LLM 生成预期差信号 → 写回 AnnouncementSignal 并标记 analyzed=true
+ * 配置：env 优先 + DB（页面配置）兜底；未配置 key 时 llmReady=false，返回空结果不报错。
+ * 幂等：只处理 analyzed=false 的公告；指定 announcementIds 时可定向分析。
+ */
 import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { analyzeAnnouncement, llmReady } from "@/lib/announcement/analyzer";
 import type { LlmConfig } from "@/lib/ai-client";
 
 export interface AnalyzeResult {
-  attempted: number;
-  analyzed: number;
-  signals: number;
-  skipped: number;
+  attempted: number; // 本次尝试分析的公告数
+  analyzed: number; // 成功产生信号的公告数
+  signals: number; // 产生的信号条数（与分析数一致，一公告至多一信号）
+  skipped: number; // 跳过数（无正文/无假设，无法分析）
   failed: { announcementId: string; title: string; reason: string }[];
   llmReady: boolean;
 }
 
-const BATCH_SLEEP_MS = 300;
+const BATCH_SLEEP_MS = 300; // LLM 调用间隔，礼貌限速
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export interface AnalyzeOptions {
+  /** 定向分析指定公告（须属于该公司）；缺省 = 全部未分析公告 */
   announcementIds?: string[];
+  /** DB 兜底配置（env 优先在 resolveLlmConfig 内部处理） */
   config?: Partial<LlmConfig> | null;
+  signal?: AbortSignal;
 }
 
+/**
+ * 分析某公司已采集但未分析的公告，生成预期差信号并入库。
+ * 抛错仅用于不可恢复的整批失败（标的不存在）。
+ */
 export async function analyzeCompanyAnnouncements(
   companyId: string,
   opts: AnalyzeOptions = {},
@@ -52,6 +67,7 @@ export async function analyzeCompanyAnnouncements(
 
   const skipped = candidates.filter((a) => !a.rawText || !assumptions).length;
 
+  // 未配置 key：不逐条尝试，直接返回降级结果（failed 为空，避免误导）
   if (!ready) {
     return {
       attempted: candidates.length,
@@ -63,10 +79,12 @@ export async function analyzeCompanyAnnouncements(
     };
   }
 
+  const abortSignal=opts.signal??AbortSignal.timeout(90000);
   let analyzed = 0;
   const failed: { announcementId: string; title: string; reason: string }[] = [];
 
   for (const a of candidates) {
+    if(abortSignal.aborted)break;
     if (!a.rawText || !assumptions) continue;
     try {
       const assumptionMap: Record<string, number> = {
@@ -90,6 +108,7 @@ export async function analyzeCompanyAnnouncements(
         a.rawText,
         assumptionMap,
         opts.config ?? null,
+        abortSignal,
       );
 
       if (!signal) {

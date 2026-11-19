@@ -10,8 +10,9 @@ export const dynamic = "force-dynamic";
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { companyId: string } },
+  { params: pendingParams }: { params: Promise<{ companyId: string }> },
 ) {
+  const params = await pendingParams;
   const guard = await guardRequest(req);
   if (guard) return guard;
 
@@ -34,7 +35,7 @@ export async function POST(
     if (!company) {
       return jsonError("标的不存在", 404, "COMPANY_NOT_FOUND");
     }
-    const dbCfg = await readLlmDbSettings(getAuthenticatedUserId(req));
+    const dbCfg = await readLlmDbSettings();
     const result = await analyzeCompanyAnnouncements(params.companyId, {
       announcementIds,
       config: dbCfg,

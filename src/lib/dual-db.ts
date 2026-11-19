@@ -1,5 +1,6 @@
 import { prisma } from "./prisma";
 
+/** 用户库 Company 行类型（界面唯一数据源） */
 type CompanyRow = {
   id: string;
   name: string;
@@ -7,6 +8,10 @@ type CompanyRow = {
   [key: string]: unknown;
 };
 
+/**
+ * 把公司档案 + 评估快照 + 假设合并为与旧单库结构一致的 company 对象。
+ * 快照字段（targetPrice/upside/quadrant 等）直接展开到 company 顶层。
+ */
 export async function mergeCompanySnapshot(
   company: CompanyRow,
 ): Promise<Record<string, unknown>> {
@@ -27,26 +32,24 @@ export async function mergeCompanySnapshot(
     Object.assign(out, snapFields);
   }
 
-  out.targetPrice = typeof out.targetPrice === "number" ? out.targetPrice : 0;
-  out.upside = typeof out.upside === "number" ? out.upside : 0;
-  out.impliedCagr = typeof out.impliedCagr === "number" ? out.impliedCagr : 0;
-  out.quadrant = typeof out.quadrant === "string" ? out.quadrant : "";
-  out.diagnosis = typeof out.diagnosis === "string" ? out.diagnosis : "";
-
   out.assumption = assumption;
   return out;
 }
 
-export async function getAllCompaniesMerged(userId: string) {
+/** 全部标的（含快照与假设），供排行榜使用，按更新时间倒序；传 userId 时仅返回该账号的数据 */
+export async function getAllCompaniesMerged(userId?: string) {
   const companies = await prisma.company.findMany({
-    where: { userId },
+    where: userId ? { userId } : undefined,
     orderBy: { updatedAt: "desc" },
   });
   return Promise.all(companies.map((c) => mergeCompanySnapshot(c)));
 }
 
-export async function getCompanyMerged(id: string, userId: string) {
-  const company = await prisma.company.findFirst({ where: { id, userId } });
+/** 单个标的（含快照、假设、时间线），供模型编辑/报告页使用；传 userId 时校验归属 */
+export async function getCompanyMerged(id: string, userId?: string) {
+  const company = await prisma.company.findFirst({
+    where: userId ? { id, userId } : { id },
+  });
   if (!company) return null;
 
   const [merged, timeline] = await Promise.all([
