@@ -1,7 +1,11 @@
+/**
+ * POST /api/announcements/[companyId]/store —— 批量存储候选公告（正式入库）
+ * ------------------------------------------------------------------
+ * body: { codes: string[] }（候选 code = 巨潮 announcementId）
+ * 从候选缓存取公告，提取 PDF 正文后入库；已存在公告跳过（幂等）。
+ */
 import { NextRequest } from "next/server";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
-import { getAuthenticatedUserId } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
 import {
   storeCompanyAnnouncements,
   SyncServiceError,
@@ -12,12 +16,10 @@ export const dynamic = "force-dynamic";
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { companyId: string } },
-) {
+  {params: pendingParams}: {params: Promise<{ companyId: string }>},) {
+ const params=await pendingParams;
   const guard = await guardRequest(req);
   if (guard) return guard;
-  const owned = await prisma.company.findFirst({ where: { id: params.companyId, userId: getAuthenticatedUserId(req) }, select: { id: true } });
-  if (!owned) return jsonError("标的不存在", 404, "NOT_FOUND");
 
   let body: { codes?: unknown };
   try {

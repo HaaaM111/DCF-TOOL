@@ -144,14 +144,18 @@ export default function HomePage() {
   );
 
   return (
-    <AppHeader
-      actions={
-        <div className="home-status">
-          <span>{companies.length} 标的</span>
-          <span>最近估值 {shortDate(latestEvaluation)}</span>
-        </div>
-      }
-    >
+    <div className="app-shell fluid">
+      <AppHeader
+        title="研究台"
+        subtitle="实时资讯 · 标的台账 · 估值跟踪"
+        actions={
+          <div className="home-status">
+            <span>{companies.length} 标的</span>
+            <span>最近估值 {shortDate(latestEvaluation)}</span>
+          </div>
+        }
+      />
+      <div className="app-main">
       {companiesError && (
         <Alert
           type="error"
@@ -411,6 +415,7 @@ export default function HomePage() {
           </section>
         </section>
       </div>
-    </AppHeader>
+      </div>
+    </div>
   );
 }

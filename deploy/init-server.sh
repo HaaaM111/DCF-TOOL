@@ -9,8 +9,8 @@ set -e
 echo "===== [1/8] 更新系统 ====="
 apt update && apt upgrade -y
 
-echo "===== [2/8] 安装 Node.js 20 LTS ====="
-curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+echo "===== [2/8] 安装 Node.js 22 LTS ====="
+curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
 apt install -y nodejs
 node -v && npm -v
 
@@ -45,7 +45,7 @@ echo "===== 服务器初始化完成！====="
 echo "接下来请执行："
 echo "  1. cd /var/www/valueinsight"
 echo "  2. git clone <你的仓库地址> ."
-echo "  3. cp .env.production .env  并填入真实配置"
+echo "  3. cp .env.example .env  并填入真实配置"
 echo "  4. bash deploy/deploy.sh"
 echo "  5. 配置 Nginx：cp deploy/nginx.conf /etc/nginx/sites-available/valueinsight.conf"
 echo "     ln -s /etc/nginx/sites-available/valueinsight.conf /etc/nginx/sites-enabled/"

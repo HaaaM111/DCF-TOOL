@@ -55,9 +55,12 @@ export async function getSessionUserFromToken(token: string | undefined) {
 }
 
 export function sessionCookieOptions(expiresAt: Date) {
+  // 生产默认 Secure；本地用 `next start` 做 HTTP 预览时设置 ALLOW_INSECURE_COOKIE=true 才会降级
+  const secure =
+    process.env.NODE_ENV === "production" && process.env.ALLOW_INSECURE_COOKIE !== "true";
   return {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure,
     sameSite: "lax" as const,
     path: "/",
     expires: expiresAt,

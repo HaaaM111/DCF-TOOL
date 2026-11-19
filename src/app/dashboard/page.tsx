@@ -25,7 +25,7 @@ import {
   SearchOutlined,
 } from "@ant-design/icons";
 import AppHeader from "@/components/app-header";
-import type { ColumnType } from "antd/es/table";
+import type { ColumnsType, ColumnType } from "antd/es/table";
 
 /** 标的类型（与 API 返回一致） */
 interface Company {

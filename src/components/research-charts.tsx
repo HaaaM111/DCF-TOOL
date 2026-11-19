@@ -82,7 +82,8 @@ interface Point {
 }
 
 function useChartColors() {
-  const { resolvedMode } = useTheme();
+  const { mode } = useTheme();
+  const resolvedMode = mode;
   return {
     dark: resolvedMode === "dark",
     text: resolvedMode === "dark" ? "#b8b8b1" : "#494944",

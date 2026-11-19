@@ -1,11 +1,13 @@
 "use client";
+import { reviewAssumptions } from "@/lib/assumption-review";
 
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Card,
   Row,
   Col,
   Statistic,
+  InputNumber,
   Tag,
   Table,
   Button,
@@ -19,6 +21,7 @@ import {
   App,
 } from "antd";
 import {
+  ArrowUpOutlined,
   CheckCircleFilled,
   CloseCircleFilled,
   CopyOutlined,
@@ -109,117 +112,16 @@ interface ValidationResponse {
     pbPercentile: number;
     psPercentile: number;
     premiumDiscount: number;
-    diffRate: number;
+    diffRate: number | null;
     conclusion: string;
     aiAttribution: string | null;
+    multiples?: {methods:{name:string;count:number;mean:number|null;median:number|null;equityValue:number|null;status:string}[]};
     sensitivityHeatmap: { wacc: number; g: number; targetPrice: number }[] | null;
   };
   peers: { name: string; pe: number; pb: number; ps: number; [key: string]: unknown }[];
   hasHistory: boolean;
   aiEnabled: boolean;
 }
-
-function buildSensitivityColumns(label: string) {
-  return [
-    { title: label, dataIndex: "param", width: 100 },
-    {
-      title: "隐含 L (亿)",
-      dataIndex: "l",
-      width: 120,
-      render: (v: number) => <span className="txt-mid">{v.toFixed(0)}</span>,
-    },
-    {
-      title: "L/E3",
-      dataIndex: "lE3",
-      width: 100,
-      render: (v: number) => `${v.toFixed(2)}x`,
-    },
-  ];
-}
-
-const TimelineCard = memo(function TimelineCard({
-  companyId,
-  timeline,
-  onChanged,
-}: {
-  companyId: string;
-  timeline: CompanyData["timeline"];
-  onChanged: () => void;
-}) {
-  const { message } = App.useApp();
-  const [noteDate, setNoteDate] = useState<string>(new Date().toISOString().slice(0, 10));
-  const [noteContent, setNoteContent] = useState("");
-
-  const addNote = async () => {
-    if (!noteContent.trim()) {
-      message.warning("请填写记录内容");
-      return;
-    }
-    const res = await fetch(`/api/companies/${companyId}/notes`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ date: noteDate, content: noteContent }),
-    });
-    if (res.ok) {
-      message.success("已添加记录");
-      setNoteContent("");
-      onChanged();
-    } else {
-      message.error("添加失败");
-    }
-  };
-
-  const deleteNote = async (noteId: string) => {
-    const res = await fetch(`/api/companies/${companyId}/notes/${noteId}`, {
-      method: "DELETE",
-    });
-    if (res.ok) {
-      message.success("已删除");
-      onChanged();
-    } else {
-      message.error("删除失败");
-    }
-  };
-
-  return (
-    <Card
-      title="七、复盘时间线"
-      extra={`共 ${timeline?.length ?? 0} 条`}
-      className="mb-4"
-    >
-      <div className="mb-4 flex gap-2 flex-wrap">
-        <Input type="date" value={noteDate} onChange={(e) => setNoteDate(e.target.value)} style={{ width: 160 }} />
-        <Input.TextArea
-          rows={2}
-          placeholder="记录判断、依据与下次验证点"
-          value={noteContent}
-          onChange={(e) => setNoteContent(e.target.value)}
-          style={{ flex: 1, minWidth: 300 }}
-          maxLength={2000}
-          showCount
-        />
-        <Button type="primary" icon={<PlusOutlined />} onClick={addNote}>
-          添加标注
-        </Button>
-      </div>
-      {timeline?.length ? (
-        <div className="space-y-3">
-          {timeline.map((n) => (
-            <div key={n.id} className="p-3 rounded-inst border flex justify-between" style={{ background: "var(--side)" }}>
-              <div>
-                <div className="text-xs text-muted">{new Date(n.date).toLocaleDateString()}</div>
-                <div className="mt-1">{n.content}</div>
-              </div>
-              <Button size="small" danger icon={<DeleteOutlined />} onClick={() => deleteNote(n.id)} />
-            </div>
-          ))}
-        </div>
-      ) : (
-        <Empty description="暂无标注" />
-      )}
-    </Card>
-  );
-});
 
 export default function ReportPage() {
   const params = useParams();
@@ -231,9 +133,16 @@ export default function ReportPage() {
   const [knobPayout, setKnobPayout] = useState(0.7);
   const [knobExitPe, setKnobExitPe] = useState(7);
   const [knobG, setKnobG] = useState(0.012);
+  const [noteDate, setNoteDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [noteContent, setNoteContent] = useState("");
   const [prices, setPrices] = useState<{ date: string; close: number }[]>([]);
   const [mcResult, setMcResult] = useState<MonteCarloResult | null>(null);
   const [mcLoading, setMcLoading] = useState(false);
+  const [jumpEnabled,setJumpEnabled]=useState(false);
+  const [jumpLambda,setJumpLambda]=useState(0.1);
+  const [jumpMean,setJumpMean]=useState(-0.2);
+  const [jumpStd,setJumpStd]=useState(0.1);
+  const [attributionLoading,setAttributionLoading]=useState(false);
   const [validation, setValidation] = useState<ValidationResponse | null>(null);
   const [validationLoading, setValidationLoading] = useState(false);
   const { message } = App.useApp();
@@ -245,6 +154,7 @@ export default function ReportPage() {
     setCompany(json.company);
     setLoading(false);
 
+    // 加载历史行情
     try {
       const pRes = await fetch(`/api/companies/${id}/prices`);
       const pJson = await pRes.json();
@@ -258,6 +168,7 @@ export default function ReportPage() {
     load();
   }, [load]);
 
+  // 蒙特卡洛模拟（假设就绪后触发）
   useEffect(() => {
     if (!company?.assumption) return;
     let cancelled = false;
@@ -274,6 +185,8 @@ export default function ReportPage() {
           e0: company.e0,
         },
         samples: 3000,
+        seed:42,
+        jump:{enabled:jumpEnabled,lambda:jumpLambda,mean:jumpMean,std:jumpStd},
       }),
     })
       .then((r) => r.json())
@@ -287,8 +200,9 @@ export default function ReportPage() {
     return () => {
       cancelled = true;
     };
-  }, [company]);
+  }, [company,jumpEnabled,jumpLambda,jumpMean,jumpStd]);
 
+  // 估值验证（绝对 × 相对 交叉验证 + AI 归因）
   useEffect(() => {
     if (!company) return;
     let cancelled = false;
@@ -301,7 +215,10 @@ export default function ReportPage() {
     })
       .then((r) => r.json())
       .then((d) => {
-        if (!cancelled && d.validation) setValidation(d);
+        if (!cancelled && d.validation) {
+          setValidation(d);
+          if(d.attributionPending){setAttributionLoading(true);fetch("/api/validation/attribution",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({companyId:company.id})}).then(r=>r.json()).then(a=>{if(!cancelled)setValidation(prev=>prev?{...prev,validation:{...prev.validation,aiAttribution:a.aiAttribution}}:prev);}).catch(()=>{if(!cancelled)setValidation(prev=>prev?{...prev,validation:{...prev.validation,aiAttribution:"分析服务暂时不可用，请稍后重试"}}:prev);}).finally(()=>{if(!cancelled)setAttributionLoading(false);});}
+        }
       })
       .catch(() => {})
       .finally(() => {
@@ -312,6 +229,7 @@ export default function ReportPage() {
     };
   }, [company]);
 
+  // 用客户端引擎重算（用于三旋钮与敏感性交互）
   const output: DcfOutput | null = useMemo(() => {
     if (!company?.assumption) return null;
     try {
@@ -328,6 +246,7 @@ export default function ReportPage() {
     }
   }, [company]);
 
+  // 三旋钮：调整派现率/ExitPE/永续g 后重算隐含 Ke
   const knobOutput = useMemo(() => {
     if (!company?.assumption) return null;
     const a = { ...company.assumption, payoutRate2: knobPayout, exitPe: knobExitPe, perpetualG: knobG };
@@ -339,6 +258,7 @@ export default function ReportPage() {
     });
   }, [company, knobPayout, knobExitPe, knobG]);
 
+  // 公司画像（规则引擎）—— 必须在 early return 之前调用
   const profile = useMemo(() => {
     const f = output?.forward;
     const r = output?.reverse;
@@ -362,28 +282,26 @@ export default function ReportPage() {
     return { positioning, body, marketBet, modelSays, check };
   }, [company, output]);
 
-  const sensitivityColsR = useMemo(() => buildSensitivityColumns("折现率"), []);
-  const sensitivityColsPe = useMemo(() => buildSensitivityColumns("退出PE"), []);
-  const sensitivityColsG = useMemo(() => buildSensitivityColumns("永续g"), []);
-
   if (loading)
     return (
-      <AppHeader title="估值报告">
+      <div className="min-h-screen">
+        <AppHeader title="深度估值穿透报告" />
         <div className="p-10 text-center">
           <Spin />
         </div>
-      </AppHeader>
+      </div>
     );
   if (!company)
     return (
-      <AppHeader title="估值报告">
+      <div className="min-h-screen">
+        <AppHeader title="深度估值穿透报告" />
         <div className="p-10 text-center">
           <Empty description="标的不存在" />
           <Button className="mt-4" onClick={() => router.push("/dashboard")}>
             返回看板
           </Button>
         </div>
-      </AppHeader>
+      </div>
     );
 
   const c = company;
@@ -392,434 +310,549 @@ export default function ReportPage() {
   const g = output?.gordon;
   const sens = output?.sensitivity;
 
-  const dividend0 = f?.rows[0]?.dividend ?? 0;
-  const dividendYield = c.marketCap ? (dividend0 / c.marketCap) * 100 : 0;
-  const terminalShare = c.marketCap && f ? (f.pvTerminal / c.marketCap) * 100 : 0;
-  const capexRatio = c.da ? c.capex / c.da : 0;
+  const sensitivityColumns = (label: string) => [
+    { title: label, dataIndex: "param", width: 100 },
+    {
+      title: "隐含 L (亿)",
+      dataIndex: "l",
+      width: 120,
+      render: (v: number) => <span className="txt-mid">{v.toFixed(0)}</span>,
+    },
+    {
+      title: "L/E3",
+      dataIndex: "lE3",
+      width: 100,
+      render: (v: number) => `${v.toFixed(2)}x`,
+    },
+  ];
+
+  const addNote = async () => {
+    if (!noteContent.trim()) {
+      message.warning("请填写记录内容");
+      return;
+    }
+    const res = await fetch(`/api/companies/${id}/notes`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ date: noteDate, content: noteContent }),
+    });
+    if (res.ok) {
+      message.success("已添加记录");
+      setNoteContent("");
+      load();
+    } else {
+      message.error("添加失败");
+    }
+  };
+
+  const deleteNote = async (noteId: string) => {
+    // 笔记删除接口（复用 companies/[id] 下的 noteId 路由）
+    const res = await fetch(`/api/companies/${id}/notes/${noteId}`, {
+      method: "DELETE",
+    });
+    if (res.ok) {
+      message.success("已删除");
+      load();
+    } else {
+      message.error("删除失败");
+    }
+  };
 
   const copyPrompt = (text: string) => {
     navigator.clipboard.writeText(text).then(() => message.success("已复制提示词"));
   };
 
   return (
-    <AppHeader
-      title={`${c.name}（${c.ticker}）`}
-      actions={
-        <Button
-          icon={<EditOutlined />}
-          onClick={() => router.push(`/model/edit?id=${id}`)}
+    <div className="min-h-screen">
+      <AppHeader
+        title={`${c.name}（${c.ticker}）`}
+        subtitle="深度估值穿透与内在价值拆解报告"
+        actions={
+          <Button
+            icon={<EditOutlined />}
+            href={`/model/edit?id=${encodeURIComponent(id)}`}
+          >
+            改假设
+          </Button>
+        }
+      />
+      <div className="p-6 max-w-[1400px] mx-auto">
+
+      {/* 核心指标卡 */}
+      <Row className="terminal-kpis mb-4" gutter={[16, 16]}>
+        <Col xs={12} md={6}>
+          <Card>
+            <Statistic title="当前股价 / 市值" value={c.currentPrice} precision={2} prefix="¥" />
+            <div className="text-xs text-slate-400">{c.marketCap.toFixed(1)} 亿 ｜ 总股本 {c.shares} 亿股</div>
+          </Card>
+        </Col>
+        <Col xs={12} md={6}>
+          <Card style={{ borderLeft: `4px solid ${c.upside >= 0 ? "#10b981" : "#ef4444"}` }}>
+            <Statistic
+              title="隐含上行空间（股东回报）"
+              value={c.upside}
+              precision={1}
+              suffix="%"
+              prefix={c.upside >= 0 ? "+" : ""}
+              styles={{ content: { color: c.upside >= 0 ? "#16a34a" : "#dc2626" } }}
+            />
+            <div className="text-xs text-slate-400">合理目标价：¥{c.targetPrice.toFixed(2)}</div>
+          </Card>
+        </Col>
+        <Col xs={12} md={6}>
+          <Card>
+            <Statistic
+              title="DCF 目标价（股东回报）"
+              value={c.targetPrice}
+              precision={2}
+              prefix="¥"
+              styles={{ content: { color: "#2563eb" } }}
+            />
+            <div className="text-xs text-slate-400">原版合理价：¥{(f?.originalTargetPrice ?? 0).toFixed(2)}</div>
+          </Card>
+        </Col>
+        <Col xs={12} md={6}>
+          <Card>
+            <Statistic title="WACC 资本结构诊断" value={c.assumption ? (reviewAssumptions(c.assumption,c).wacc ?? c.assumption.ke)*100 : c.forwardKe*100} precision={2} suffix="%" styles={{ content: { color: "#7c3aed" } }} />
+            <div className="text-xs text-slate-400">Ke {(c.forwardKe * 100).toFixed(1)}% ｜ Kd 税后 {(c.kd * (1 - c.taxRate) * 100).toFixed(2)}%</div>
+          </Card>
+        </Col>
+       <Col xs={12} md={6}><Card className="fin-card"><Statistic title="终值 / 股权价值" value={f?.composition.total ? f.pvTerminal/f.composition.total*100 : 0} precision={1} suffix="%"/><Text type="secondary">派现终值现值占比</Text></Card></Col></Row>
+
+      {/* 口径对照 */}
+      <Alert
+        className="mb-4"
+        type="info"
+        showIcon
+        title="口径对照说明"
+        description={
+          <ul className="mb-0">
+            <li>正向 Y20（{f?.fcfY20.toFixed(1)} 亿）= 基于 baseFcf 按 20 年增长率推演出的第 20 年自由现金流（FCF 口径）。</li>
+            <li>终局利润估计（{c.terminalProfitEst.toFixed(0)} 亿）= 用户对第 20 年净利润的主观判断，用于逆向反算。</li>
+            <li>股东回报口径 = 派现折现 + 留存现金（按 2% 复利累积至第 20 年再折现）+ 净现金。</li>
+          </ul>
+        }
+      />
+
+      {/* 股价 vs DCF 估值趋势图 */}
+      {prices.length > 0 && (
+        <Card
+          title="股价变动与 DCF 估值趋势（双轴 · 可缩放）"
+          extra={<Tag color="blue">左轴：股价 ｜ 右轴：目标价</Tag>}
+          className="mb-4"
         >
-          改假设
-        </Button>
-      }
-    >
-      <div className="w-full max-w-[1400px] mx-auto">
-        {/* 核心指标卡 */}
-        <Row gutter={[16, 16]} className="mb-4">
-          <Col xs={12} md={6}>
-            <Card>
-              <Statistic title="当前股价 / 市值" value={c.currentPrice} precision={2} prefix="¥" />
-              <div className="text-xs text-muted">{c.marketCap.toFixed(1)} 亿 ｜ 总股本 {c.shares} 亿股</div>
+          <TrendChart
+            prices={prices}
+            valuation={[]}
+            p5={mcResult?.p5}
+            p95={mcResult?.p95}
+          />
+        </Card>
+      )}
+
+      {/* Gordon 自洽校验 */}
+      {g && (
+        <Card
+          className="mb-4"
+          title="Gordon 镜像自洽校验"
+          extra={
+            g.isApplicable === false ? <Tag color="default">不适用</Tag> : g.isConsistent ? (
+              <Tag icon={<CheckCircleFilled />} color="success">自洽</Tag>
+            ) : (
+              <Tag icon={<CloseCircleFilled />} color="error">不自洽 ({g.deviation.toFixed(0)}%)</Tag>
+            )
+          }
+        >
+          <Paragraph>
+            <Text strong>隐含 Ke {g.isApplicable === false ? "不适用" : `${(g.impliedKe * 100).toFixed(1)}%`}</Text> vs{" "}
+            <Text strong>正向 Ke {(g.forwardKe * 100).toFixed(1)}%</Text> ｜ 偏差{" "}
+            <span className={g.isConsistent ? "txt-pos" : "txt-neg"}>{g.deviation.toFixed(1)}%</span>
+          </Paragraph>
+          <Alert
+            type={g.isConsistent ? "success" : "error"}
+            showIcon
+            title={g.reason}
+          />
+        </Card>
+      )}
+
+      {/* 三旋钮解算 */}
+      <Card title="三旋钮解算（点击翻译项即按一键采用）" className="mb-4">
+        <Row gutter={[16, 16]}>
+          <Col xs={24} md={8}>
+            <Card size="small" className="scenario-knob scenario-knob-payout">
+              <div className="text-sm">① 派现率 — {knobPayout >= 0.7 ? "75%" : "50%"}（当前 {(knobPayout * 100).toFixed(0)}%）</div>
+              <Button size="small" onClick={() => setKnobPayout(knobPayout >= 0.7 ? 0.5 : 0.75)}>
+                切换派现率
+              </Button>
             </Card>
           </Col>
-          <Col xs={12} md={6}>
-            <Card style={{ borderLeft: "4px solid var(--brand)" }}>
-              <Statistic
-                title="★调整后潜在空间（股东回报口径）"
-                value={c.upside}
-                precision={1}
-                suffix="%"
-                prefix={c.upside >= 0 ? "+" : ""}
-                styles={{ content: { color: c.upside >= 0 ? "var(--brand)" : "var(--brick)" } }}
-              />
-              <div className="text-xs text-muted">合理目标价：¥{c.targetPrice.toFixed(2)}</div>
+          <Col xs={24} md={8}>
+            <Card size="small" className="scenario-knob scenario-knob-exit">
+              <div className="text-sm">② Exit PE — 当前 {knobExitPe}x</div>
+              <Button size="small" onClick={() => setKnobExitPe(knobExitPe >= 7 ? 4.7 : 7)}>
+                切换 Exit PE
+              </Button>
             </Card>
           </Col>
-          <Col xs={12} md={6}>
-            <Card>
-              <Statistic
-                title="正向 DCF 原版目标价与空间"
-                value={c.originalUpside}
-                precision={1}
-                suffix="%"
-                prefix={c.originalUpside >= 0 ? "+" : ""}
-                styles={{ content: { color: "var(--brand)" } }}
-              />
-              <div className="text-xs text-muted">原版合理价：¥{(f?.originalTargetPrice ?? 0).toFixed(2)}</div>
-            </Card>
-          </Col>
-          <Col xs={12} md={6}>
-            <Card>
-              <Statistic title="WACC 加权资本成本" value={c.wacc * 100} precision={2} suffix="%" styles={{ content: { color: "var(--khaki)" } }} />
-              <div className="text-xs text-muted">Ke {(c.forwardKe * 100).toFixed(1)}% ｜ Kd 税后 {(c.kd * (1 - c.taxRate) * 100).toFixed(2)}%</div>
+          <Col xs={24} md={8}>
+            <Card size="small" className="scenario-knob scenario-knob-growth">
+              <div className="text-sm">③ 永续 g — 当前 {(knobG * 100).toFixed(1)}%</div>
+              <Button size="small" onClick={() => setKnobG(knobG > 0 ? 0 : 0.012)}>
+                切换永续 g
+              </Button>
             </Card>
           </Col>
         </Row>
-
-        {/* 股价 vs DCF 估值趋势图 */}
-        {prices.length > 0 && (
-          <Card
-            title="股价与 DCF 估值趋势"
-            className="mb-4"
-          >
-            <TrendChart
-              prices={prices}
-              p5={mcResult?.p5}
-              p95={mcResult?.p95}
-            />
-          </Card>
+        {knobOutput && (
+          <Alert
+            type="warning"
+            showIcon
+            title={`旋钮调整后：隐含 Ke ${(knobOutput.reverse.impliedKe * 100).toFixed(1)}%，目标价 ¥${knobOutput.forward.adjustedTargetPrice.toFixed(2)}（${knobOutput.forward.adjustedUpside >= 0 ? "+" : ""}${knobOutput.forward.adjustedUpside.toFixed(1)}%）`}
+          />
         )}
+      </Card>
 
-        {/* Gordon 自洽校验 */}
-        {g && (
-          <Card
-            className="mb-4"
-            title="Gordon 镜像自洽校验"
-            extra={
-              g.isConsistent ? (
-                <Tag icon={<CheckCircleFilled />} color="success">自洽</Tag>
-              ) : (
-                <Tag icon={<CloseCircleFilled />} color="error">不自洽 ({g.deviation.toFixed(0)}%)</Tag>
-              )
-            }
-          >
-            <Paragraph>
-              <Text strong>隐含 Ke {(g.impliedKe * 100).toFixed(1)}%</Text> vs{" "}
-              <Text strong>正向 Ke {(g.forwardKe * 100).toFixed(1)}%</Text> ｜ 偏差{" "}
-              <span className={g.isConsistent ? "txt-pos" : "txt-neg"}>{g.deviation.toFixed(1)}%</span>
-            </Paragraph>
-            <Alert
-              type={g.isConsistent ? "success" : "error"}
-              showIcon
-              message={g.reason}
-            />
-          </Card>
-        )}
+      {/* 一、正向 DCF 价值拆解 */}
+      <Card
+        title="一、正向 DCF · 内在价值与结构拆解"
+        extra={<Tag color="blue">Ke {(c.forwardKe * 100).toFixed(2)}%</Tag>}
+        className="mb-4"
+      >
+        <Row gutter={[16, 16]} className="mb-4">
+          <Col xs={12} md={6}>
+            <Statistic title="显性期现值合计 (0-20年)" value={f?.pvExplicitFcf} precision={1} suffix="亿" />
+          </Col>
+          <Col xs={12} md={6}>
+            <Statistic title="第20年永续价值现值 (PV of TV)" value={f?.pvTerminal} precision={1} suffix="亿" />
+          </Col>
+          <Col xs={12} md={6}>
+            <Statistic title="净现金 (现金-负债+调整)" value={f?.composition.netCash} precision={1} suffix="亿" styles={{ content: { color: "#16a34a" } }} />
+          </Col>
+          <Col xs={12} md={6}>
+            <Statistic title="DCF 实体价值 EV" value={f?.originalEv} precision={1} suffix="亿" styles={{ content: { color: "#1d4ed8" } }} />
+          </Col>
+        </Row>
 
-        {/* 三旋钮解算 */}
-        <Card title="三旋钮解算" className="mb-4">
-          <Row gutter={[16, 16]}>
-            <Col xs={24} md={8}>
-              <Card size="small" style={{ background: "var(--brand-soft)" }}>
-                <div className="text-sm">① 派现率 — {knobPayout >= 0.7 ? "75%" : "50%"}（当前 {(knobPayout * 100).toFixed(0)}%）</div>
-                <Button size="small" onClick={() => setKnobPayout(knobPayout >= 0.7 ? 0.5 : 0.75)}>
-                  切换派现率
-                </Button>
-              </Card>
-            </Col>
-            <Col xs={24} md={8}>
-              <Card size="small" style={{ background: "var(--side)" }}>
-                <div className="text-sm">② Exit PE — 当前 {knobExitPe}x</div>
-                <Button size="small" onClick={() => setKnobExitPe(knobExitPe >= 7 ? 4.7 : 7)}>
-                  切换 Exit PE
-                </Button>
-              </Card>
-            </Col>
-            <Col xs={24} md={8}>
-              <Card size="small" style={{ background: "var(--side)" }}>
-                <div className="text-sm">③ 永续 g — 当前 {(knobG * 100).toFixed(1)}%</div>
-                <Button size="small" onClick={() => setKnobG(knobG > 0 ? 0 : 0.012)}>
-                  切换永续 g
-                </Button>
-              </Card>
-            </Col>
-          </Row>
-          {knobOutput && (
-            <Alert
-              type="warning"
-              showIcon
-              style={{ marginTop: 16 }}
-              message={`旋钮调整后：隐含 Ke ${(knobOutput.reverse.impliedKe * 100).toFixed(1)}%，目标价 ¥${knobOutput.forward.adjustedTargetPrice.toFixed(2)}（${knobOutput.forward.adjustedUpside >= 0 ? "+" : ""}${knobOutput.forward.adjustedUpside.toFixed(1)}%）`}
-            />
-          )}
-        </Card>
+        <Title level={5}>价值构成拆解（分红修正口径）· 空间的成色透视</Title>
+        {f && <ValueDonut comp={f.composition} />}
 
-        {/* 一、正向 DCF 价值拆解 */}
+        <Divider />
+        <Title level={5}>20 年自由现金流推演 vs 折现现值对比图（亿元）</Title>
+        {f && <FcfBars rows={f.rows} />}
+      </Card>
+
+      {/* 二、逆向 DCF */}
+      {sens && (
         <Card
-          title="一、正向 DCF"
-          extra={<Tag color="blue">WACC {(c.wacc * 100).toFixed(2)}%</Tag>}
+          title="二、逆向 DCF 财务穿透 · 市场隐含终局分析"
+          extra={<Tag>参数 r={((c.assumption?.reverseR ?? 0) * 100).toFixed(0)}% / 退出PE={c.assumption?.exitPe}x</Tag>}
           className="mb-4"
         >
-          <Row gutter={[16, 16]} className="mb-4">
-            <Col xs={12} md={6}>
-              <Statistic title="显性期现值合计 (0-20年)" value={f?.pvExplicitFcf} precision={1} suffix="亿" />
+          <Table
+            size="small"
+            pagination={false}
+            columns={[
+              { title: "折现率 r", dataIndex: "param", align: "right", render: (v: number) => `${(v * 100).toFixed(0)}%` },
+              { title: "隐含终局利润 L", dataIndex: "l", align: "right", render: (v: number) => `${v.toFixed(0)} 亿` },
+              { title: "L/E3 倍数", dataIndex: "lE3", align: "right", render: (v: number) => `${v.toFixed(2)}x` },
+              { title: "L/E0 倍数", dataIndex: "l", align: "right", responsive: ["md"], render: (v: number) => c.e0 ? `${(v / c.e0).toFixed(2)}x` : "不可用" },
+              {
+                title: "叙事分级诊断",
+                responsive: ["md"],
+                render: () => <Tag color={c.diagnosis.includes("现金") ? "green" : "blue"}>{c.diagnosis}</Tag>,
+              },
+            ]}
+            dataSource={sens.r.map((cell) => ({ ...cell, key: cell.param }))}
+          />
+
+          <Divider>三、三变量敏感性矩阵 · 隐含终局利润 L 对关键参数的弹性</Divider>
+          <Row gutter={[16, 16]}>
+            <Col xs={24} md={8}>
+              <Card size="small" title="① L_conservative 对折现率 r">
+                <Table size="small" pagination={false} columns={sensitivityColumns("折现率")} dataSource={sens.r.map((x) => ({ ...x, param: `${(x.param * 100).toFixed(0)}%`, key: x.param }))} />
+              </Card>
             </Col>
-            <Col xs={12} md={6}>
-              <Statistic title="第20年永续价值现值 (PV of TV)" value={f?.pvTerminal} precision={1} suffix="亿" />
+            <Col xs={24} md={8}>
+              <Card size="small" title="② L_multiple 对退出 PE">
+                <Table size="small" pagination={false} columns={sensitivityColumns("退出PE")} dataSource={sens.exitPe.map((x) => ({ ...x, param: `${x.param}x`, key: x.param }))} />
+              </Card>
             </Col>
-            <Col xs={12} md={6}>
-              <Statistic title="净现金 (现金-负债+调整)" value={f?.composition.netCash} precision={1} suffix="亿" styles={{ content: { color: "var(--brand)" } }} />
-            </Col>
-            <Col xs={12} md={6}>
-              <Statistic title="DCF 实体价值 EV" value={f?.originalEv} precision={1} suffix="亿" styles={{ content: { color: "var(--brand-deep)" } }} />
+            <Col xs={24} md={8}>
+              <Card size="small" title="③ L_gordon 对永续 g">
+                <Table size="small" pagination={false} columns={sensitivityColumns("永续g")} dataSource={sens.g.map((x) => ({ ...x, param: `${(x.param * 100).toFixed(0)}%`, key: x.param }))} />
+              </Card>
             </Col>
           </Row>
-
-          <Title level={5}>价值构成拆解（分红修正口径）· 空间的成色透视</Title>
-          {f && <ValueDonut comp={f.composition} />}
-
-          <Divider />
-          <Title level={5}>20 年自由现金流推演 vs 折现现值对比图（亿元）</Title>
-          {f && <FcfBars rows={f.rows} />}
         </Card>
+      )}
 
-        {/* 二、逆向 DCF */}
-        {sens && (
-          <Card
-            title="二、逆向 DCF"
-            extra={<Tag>参数 r={((c.assumption?.reverseR ?? 0) * 100).toFixed(0)}% / 退出PE={c.assumption?.exitPe}x</Tag>}
-            className="mb-4"
-          >
-            <Table
-              size="small"
-              pagination={false}
-              columns={[
-                { title: "折现率 r", dataIndex: "param", render: (v: number) => `${(v * 100).toFixed(0)}%` },
-                { title: "隐含终值 TV3", dataIndex: "l", render: (v: number) => `${v.toFixed(0)} 亿` },
-                {
-                  title: "L_conservative (保守)",
-                  dataIndex: "l",
-                  render: (v: number) => <span className="txt-neg">{v.toFixed(0)} 亿</span>,
-                },
-                { title: "L_multiple (7x退出)", dataIndex: "l", render: (v: number) => `${(v / 7).toFixed(0)} 亿` },
-                { title: "L_gordon (永续g=1.2%)", dataIndex: "l", render: (v: number) => `${v.toFixed(0)} 亿` },
-                { title: "L/E3 倍数", dataIndex: "lE3", render: (v: number) => `${v.toFixed(2)}x` },
-                { title: "L/E0 倍数", dataIndex: "l", render: (v: number) => `${(v / c.e0).toFixed(2)}x` },
-                {
-                  title: "叙事分级诊断",
-                  render: () => <Tag color={c.diagnosis.includes("现金") ? "green" : "blue"}>{c.diagnosis}</Tag>,
-                },
-                { title: "终局敏感度", render: () => "-" },
-              ]}
-              dataSource={sens.r.map((cell) => ({ ...cell, key: cell.param }))}
+      {/* 蒙特卡洛置信区间 */}
+      <Card
+        title="四、蒙特卡洛置信区间 · 目标价概率分布"
+        extra={
+          <Space>
+            <Tag color="green">P5 ¥{mcResult?.p5?.toFixed(2) ?? "-"}</Tag>
+            <Tag color="blue">中位数 ¥{mcResult?.median?.toFixed(2) ?? "-"}</Tag>
+            <Tag color="red">P95 ¥{mcResult?.p95?.toFixed(2) ?? "-"}</Tag>
+          </Space>
+        }
+        className="mb-4"
+      >
+        <div className="simulation-controls"><label><input type="checkbox" checked={jumpEnabled} onChange={e=>setJumpEnabled(e.target.checked)}/> 启用跳跃压力情景</label><label>λ/年 <InputNumber min={0} max={5} step={0.05} value={jumpLambda} onChange={v=>setJumpLambda(v??0.1)}/></label><label>跳跃对数均值 <InputNumber min={-2} max={1} step={0.05} value={jumpMean} onChange={v=>setJumpMean(v??-0.2)}/></label><label>幅度标准差 <InputNumber min={0} max={1} step={0.05} value={jumpStd} onChange={v=>setJumpStd(v??0.1)}/></label></div>
+        <Text type="secondary">逐年现金流泊松跳跃；未做漂移补偿，属于未校准压力测试，不能解释为真实灾难概率。</Text>
+        {mcResult?.base && <div className="mt-3">基础 P5/P95：¥{mcResult.base.p5.toFixed(2)} / ¥{mcResult.base.p95.toFixed(2)}{mcResult.jump && <> ｜含跳跃：¥{mcResult.jump.p5.toFixed(2)} / ¥{mcResult.jump.p95.toFixed(2)}</>} ｜拒绝样本 {mcResult.rejected??0}</div>}
+        {mcLoading ? (
+          <div className="text-center py-8"><Spin description="蒙特卡洛模拟中（3000 次采样）..." /></div>
+        ) : mcResult ? (
+          <div>
+            <ConfidenceChart mc={mcResult} currentPrice={c.currentPrice} />
+            <Row gutter={[16, 8]} className="mt-4">
+              <Col span={6}><Statistic title="P5（保守）" value={mcResult.p5} precision={2} prefix="¥" styles={{ content: { color: "#EF4444" } }} /></Col>
+              <Col span={6}><Statistic title="P25" value={mcResult.p25} precision={2} prefix="¥" /></Col>
+              <Col span={6}><Statistic title="中位数" value={mcResult.median} precision={2} prefix="¥" styles={{ content: { color: "#4F46E5" } }} /></Col>
+              <Col span={6}><Statistic title="P95（乐观）" value={mcResult.p95} precision={2} prefix="¥" styles={{ content: { color: "#10B981" } }} /></Col>
+            </Row>
+            <Alert
+              className="mt-3"
+              type={mcResult.pricePercentile > 75 ? "warning" : mcResult.pricePercentile < 25 ? "success" : "info"}
+              showIcon
+              title={`当前市价处于分布的第 ${mcResult.pricePercentile.toFixed(0)} 分位`}
+              description={
+                mcResult.pricePercentile > 75
+                  ? "市价接近分布上沿，市场定价偏乐观，安全边际不足。"
+                  : mcResult.pricePercentile < 25
+                    ? "市价处于分布下沿，市场定价偏悲观，存在安全边际。"
+                    : "市价处于分布中部，定价相对中性。"
+              }
             />
+          </div>
+        ) : (
+          <Empty description="置信区间计算失败" />
+        )}
+      </Card>
 
-            <Divider>三、三变量敏感性矩阵 · 隐含终局利润 L 对关键参数的弹性</Divider>
+      {/* 估值验证（绝对 × 相对 交叉验证） */}
+      <Card
+        title="五、估值验证 · 绝对 × 相对 交叉验证"
+        extra={
+          <Tag color={validation?.validation?.conclusion === "一致" ? "green" : "orange"}>
+            {validation?.validation?.conclusion ?? "计算中"}
+          </Tag>
+        }
+        className="mb-4"
+      >
+        {validationLoading ? (
+          <div className="text-center py-8">
+            <Spin description="正在计算确定性交叉验证…" />
+          </div>
+        ) : validation?.validation ? (
+          <div>
             <Row gutter={[16, 16]}>
-              <Col xs={24} md={8}>
-                <Card size="small" title="① L_conservative 对折现率 r">
-                  <Table size="small" pagination={false} columns={sensitivityColsR} dataSource={sens.r.map((x) => ({ ...x, param: `${(x.param * 100).toFixed(0)}%`, key: x.param }))} />
+              <Col span={12}>
+                <Card size="small" title="PE/PB/PS 横向对比（均值辅助，中位数为主）">
+                  <PeerCompareChart data={validation.validation} />
                 </Card>
               </Col>
-              <Col xs={24} md={8}>
-                <Card size="small" title="② L_multiple 对退出 PE">
-                  <Table size="small" pagination={false} columns={sensitivityColsPe} dataSource={sens.exitPe.map((x) => ({ ...x, param: `${x.param}x`, key: x.param }))} />
-                </Card>
-              </Col>
-              <Col xs={24} md={8}>
-                <Card size="small" title="③ L_gordon 对永续 g">
-                  <Table size="small" pagination={false} columns={sensitivityColsG} dataSource={sens.g.map((x) => ({ ...x, param: `${(x.param * 100).toFixed(0)}%`, key: x.param }))} />
+              <Col span={12}>
+                <Card size="small" title="绝对 vs 相对 估值差异">
+                  <ValidationGauge
+                    absoluteValue={validation.validation.absoluteValue}
+                    relativeValue={validation.validation.relativeValue}
+                    diffRate={validation.validation.diffRate}
+                    conclusion={validation.validation.conclusion}
+                  />
                 </Card>
               </Col>
             </Row>
-          </Card>
-        )}
 
-        {/* 蒙特卡洛置信区间 */}
-        <Card
-          title="四、蒙特卡洛置信区间"
-          extra={
-            <Space>
-              <Tag color="red">P5 ¥{mcResult?.p5?.toFixed(2) ?? "-"}</Tag>
-              <Tag color="blue">中位数 ¥{mcResult?.median?.toFixed(2) ?? "-"}</Tag>
-              <Tag color="green">P95 ¥{mcResult?.p95?.toFixed(2) ?? "-"}</Tag>
-            </Space>
-          }
-          className="mb-4"
-        >
-          {mcLoading ? (
-            <div className="text-center py-8"><Spin tip="蒙特卡洛模拟中（3000 次采样）..." /></div>
-          ) : mcResult ? (
-            <div>
-              <ConfidenceChart mc={mcResult} currentPrice={c.currentPrice} />
-              <Row gutter={[16, 8]} className="mt-4">
-                <Col span={6}><Statistic title="P5（保守）" value={mcResult.p5} precision={2} prefix="¥" styles={{ content: { color: "var(--brick)" } }} /></Col>
-                <Col span={6}><Statistic title="P25" value={mcResult.p25} precision={2} prefix="¥" /></Col>
-                <Col span={6}><Statistic title="中位数" value={mcResult.median} precision={2} prefix="¥" styles={{ content: { color: "var(--brand)" } }} /></Col>
-                <Col span={6}><Statistic title="P95（乐观）" value={mcResult.p95} precision={2} prefix="¥" styles={{ content: { color: "var(--brand)" } }} /></Col>
-              </Row>
-              <Alert
-                className="mt-3"
-                type={mcResult.pricePercentile > 75 ? "warning" : mcResult.pricePercentile < 25 ? "success" : "info"}
-                showIcon
-                message={`当前市价处于分布的第 ${mcResult.pricePercentile.toFixed(0)} 分位`}
-              />
-            </div>
-          ) : (
-            <Empty description="置信区间计算失败" />
-          )}
-        </Card>
-
-        {/* 估值验证（绝对 × 相对 交叉验证） */}
-        <Card
-          title="五、估值验证"
-          extra={
-            <Tag color={validation?.validation?.conclusion === "一致" ? "green" : "orange"}>
-              {validation?.validation?.conclusion ?? "计算中"}
-            </Tag>
-          }
-          className="mb-4"
-        >
-          {validationLoading ? (
-            <div className="text-center py-8">
-              <Spin tip="正在交叉验证并生成 AI 归因（≤30秒）..." />
-            </div>
-          ) : validation?.validation ? (
-            <div>
-              <Row gutter={[16, 16]}>
-                <Col span={12}>
-                  <Card size="small" title="PE/PB/PS 横向对比（本公司 vs 行业均值）">
-                    <PeerCompareChart data={validation.validation} />
-                  </Card>
-                </Col>
-                <Col span={12}>
-                  <Card size="small" title="绝对 vs 相对 估值差异">
-                    <ValidationGauge
-                      absoluteValue={validation.validation.absoluteValue}
-                      relativeValue={validation.validation.relativeValue}
-                      diffRate={validation.validation.diffRate}
-                      conclusion={validation.validation.conclusion}
-                    />
-                  </Card>
-                </Col>
-              </Row>
-
-              <Row gutter={[16, 16]} className="mt-4">
-                <Col span={8}>
-                  <Card size="small">
-                    <Statistic
-                      title="当前 PE / 历史分位"
-                      value={validation.validation.currentPe}
-                      precision={1}
-                      suffix={`(${validation.validation.pePercentile.toFixed(0)}%)`}
-                    />
-                  </Card>
-                </Col>
-                <Col span={8}>
-                  <Card size="small">
-                    <Statistic
-                      title="行业 PE 均值"
-                      value={validation.validation.industryPeMean}
-                      precision={1}
-                    />
-                  </Card>
-                </Col>
-                <Col span={8}>
-                  <Card size="small">
-                    <Statistic
-                      title="相对行业溢价率"
-                      value={validation.validation.premiumDiscount}
-                      precision={1}
-                      suffix="%"
-                      styles={{
-                        content: {
-                          color: validation.validation.premiumDiscount > 0 ? "var(--brick)" : "var(--brand)",
-                        },
-                      }}
-                    />
-                  </Card>
-                </Col>
-              </Row>
-
-              {/* AI 归因分析 */}
-              {validation.validation.aiAttribution && (
-                <Card
-                  size="small"
-                  title="AI 归因分析"
-                  className="mt-4"
-                  style={{
-                    borderColor: validation.validation.diffRate >= 20 ? "var(--khaki)" : "var(--brand)",
-                    borderWidth: 2,
-                  }}
-                >
-                  <Paragraph style={{ whiteSpace: "pre-wrap", marginBottom: 0 }}>
-                    {validation.validation.aiAttribution}
-                  </Paragraph>
+            <Row gutter={[16, 16]} className="mt-4">
+              <Col span={8}>
+                <Card size="small">
+                  <Statistic
+                    title="当前 PE / 历史分位"
+                    value={validation.validation.currentPe}
+                    precision={1}
+                    suffix={validation.hasHistory ? `(${validation.validation.pePercentile.toFixed(0)}%)` : "（历史数据不足）"}
+                  />
                 </Card>
-              )}
+              </Col>
+              <Col span={8}>
+                <Card size="small">
+                  <Statistic
+                    title="行业 PE 均值"
+                    value={validation.validation.industryPeMean}
+                    precision={1}
+                  />
+                </Card>
+              </Col>
+              <Col span={8}>
+                <Card size="small">
+                  <Statistic
+                    title="相对行业溢价率"
+                    value={validation.validation.premiumDiscount}
+                    precision={1}
+                    suffix="%"
+                    styles={{
+                      content: {
+                        color: validation.validation.premiumDiscount > 0 ? "#EA580C" : "#16A34A",
+                      },
+                    }}
+                  />
+                </Card>
+              </Col>
+            </Row>
 
-              {/* 敏感性热力图 */}
-              <Card size="small" title="敏感性热力图（WACC × 永续 g）" className="mt-4">
-                {validation.validation.sensitivityHeatmap &&
-                Array.isArray(validation.validation.sensitivityHeatmap) &&
-                validation.validation.sensitivityHeatmap.length > 0 ? (
-                  <SensitivityHeatmap matrix={validation.validation.sensitivityHeatmap} />
-                ) : (
-                  <div className="text-center py-8 text-muted">热力图数据加载中…</div>
-                )}
+            {validation.validation.multiples && <Table size="small" pagination={false} rowKey="name" className="mt-4 fin-table" dataSource={validation.validation.multiples.methods} columns={[
+              {title:"倍数",dataIndex:"name"},{title:"有效同行",dataIndex:"count",align:"right"},{title:"均值",dataIndex:"mean",align:"right",render:(v:number|null)=>v?.toFixed(2)??"—"},{title:"中位数（主口径）",dataIndex:"median",align:"right",render:(v:number|null)=>v?.toFixed(2)??"—"},{title:"股权价值/亿元",dataIndex:"equityValue",align:"right",render:(v:number|null)=>v?.toFixed(1)??"数据不足"}
+            ]}/>}
+            {validation.validation.conclusion === "数据不足" && <Alert type="warning" title="有效同行或财务字段不足，无法进行交叉验证，禁止解释为估值一致。"/>}
+            {attributionLoading && <div className="agent-tool-status" role="status"><i/>正在独立生成归因，其他图表已可使用…</div>}
+            {/* AI 归因分析 */}
+            {validation.validation.aiAttribution && (
+              <Card
+                size="small"
+                title="🤖 AI 归因分析"
+                className="mt-4"
+                style={{
+                  borderColor: (validation.validation.diffRate ?? 0) >= 20 ? "#FAAD14" : "#52C41A",
+                  borderWidth: 2,
+                }}
+              >
+                <Paragraph style={{ whiteSpace: "pre-wrap", marginBottom: 0 }}>
+                  {validation.validation.aiAttribution}
+                </Paragraph>
               </Card>
-            </div>
-          ) : (
-            <Empty description="估值验证失败，请稍后重试" />
-          )}
-        </Card>
+            )}
 
-        {/* 六、公司画像 */}
-        {profile && (
-          <Card
-            title="六、公司画像"
-            className="mb-4"
-          >
-            <div className="space-y-2">
-              <p><Text strong>定位：</Text>{profile.positioning}</p>
-              <p><Text strong>财务结构：</Text>{profile.body}</p>
-              <p><Text strong>市场隐含：</Text>{profile.marketBet}</p>
-              <p><Text strong>模型测算：</Text>{profile.modelSays}</p>
-              <p><Text strong>自洽校验：</Text><span className={g?.isConsistent ? "txt-pos" : "txt-neg"}>{profile.check}</span></p>
-            </div>
-            <Button
-              type="primary"
-              icon={<CopyOutlined />}
-              className="mt-3"
-              onClick={() => copyPrompt(`你是一位资深卖方分析师。请基于以下公司画像，输出一份 300 字的深度画像：\n定位：${profile.positioning}\n财务结构：${profile.body}\n市场隐含：${profile.marketBet}\n模型测算：${profile.modelSays}`)}
-            >
-              复制画像提示词
-            </Button>
-          </Card>
+            {/* 敏感性热力图 */}
+            <Card size="small" title="敏感性热力图（Ke × 永续 g）" className="mt-4">
+              {validation.validation.sensitivityHeatmap &&
+              Array.isArray(validation.validation.sensitivityHeatmap) &&
+              validation.validation.sensitivityHeatmap.length > 0 ? (
+                <SensitivityHeatmap matrix={validation.validation.sensitivityHeatmap} />
+              ) : (
+                <div className="text-center py-8 text-slate-400">热力图数据加载中…</div>
+              )}
+            </Card>
+          </div>
+        ) : (
+          <Empty description="估值验证失败，请稍后重试" />
         )}
+      </Card>
 
-        <TimelineCard companyId={id} timeline={c.timeline ?? []} onChanged={load} />
-
-        {/* 八、预期差解构 */}
+      {/* 六、公司画像 */}
+      {profile && (
         <Card
-          title="八、预期差解构"
+          title="六、公司画像（规则引擎自动生成）"
+          extra={<Tag color="gold">v6.5 · 保存即刷新，脱机可用</Tag>}
           className="mb-4"
         >
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Card size="small" title="Capex/D&A">
-              <div className="text-2xl font-bold text-brand font-mono-num">{capexRatio.toFixed(2)}</div>
-              <div className="text-xs text-muted mt-1">
-                折旧 {c.da.toFixed(0)} 亿 / 资本开支 {c.capex.toFixed(0)} 亿
-              </div>
-            </Card>
-            <Card size="small" title="股息率">
-              <div className="text-2xl font-bold text-brand font-mono-num">{dividendYield.toFixed(1)}%</div>
-              <div className="text-xs text-muted mt-1">
-                首年分红 {dividend0.toFixed(0)} 亿 / 市值 {c.marketCap.toFixed(0)} 亿
-              </div>
-            </Card>
-            <Card size="small" title="永续价值占比">
-              <div className="text-2xl font-bold text-brand font-mono-num">{terminalShare.toFixed(1)}%</div>
-              <div className="text-xs text-muted mt-1">
-                永续现值 {(f?.pvTerminal ?? 0).toFixed(0)} 亿 / 市值
-              </div>
-            </Card>
+          <div className="space-y-2">
+            <p><Text strong>定位：</Text>{profile.positioning}</p>
+            <p><Text strong>躯体：</Text>{profile.body}</p>
+            <p><Text strong>市场在赌：</Text>{profile.marketBet}</p>
+            <p><Text strong>模型在说：</Text>{profile.modelSays}</p>
+            <p><Text strong>校验灯：</Text><span className={g?.isConsistent ? "txt-pos" : "txt-neg"}>{profile.check}</span></p>
           </div>
-
-          <div className="mt-4 flex gap-2">
-            <Button
-              icon={<CopyOutlined />}
-              onClick={() =>
-                copyPrompt(
-                  `请用大白话解读这份 DCF 预期差：目标价 ¥${c.targetPrice.toFixed(2)}（+${c.upside.toFixed(1)}%），隐含终局利润 L=${r?.l.toFixed(0)}亿，L/E3=${r?.lE3.toFixed(1)}x。300 字以内。`,
-                )
-              }
-            >
-              复制 AI 解读提示词
-            </Button>
-          </div>
+          <Button
+            type="primary"
+            icon={<CopyOutlined />}
+            className="mt-3"
+            onClick={() => copyPrompt(`你是一位资深卖方分析师。请基于以下公司画像，输出一份 300 字的大白话深度画像：\n定位：${profile.positioning}\n躯体：${profile.body}\n市场在赌：${profile.marketBet}\n模型在说：${profile.modelSays}`)}
+          >
+            复制 Kimi 深度画像提示词
+          </Button>
         </Card>
+      )}
+
+      {/* 六、人文画像与复盘时间线 */}
+      <Card
+        title="六、人文画像与复盘时间线"
+        extra={`共 ${c.timeline?.length ?? 0} 条 · 可追加/删除`}
+        className="mb-4"
+      >
+        <div className="mb-4 flex gap-2 flex-wrap">
+          <Input type="date" value={noteDate} onChange={(e) => setNoteDate(e.target.value)} style={{ width: 160 }} />
+          <Input.TextArea
+            rows={2}
+            placeholder="例：本次把终局利润从X上调到Y，原因是…；最大的担忧是…；下次验证点：…"
+            value={noteContent}
+            onChange={(e) => setNoteContent(e.target.value)}
+            style={{ flex: 1, minWidth: 300 }}
+            maxLength={2000}
+            showCount
+          />
+          <Button type="primary" icon={<PlusOutlined />} onClick={addNote}>
+            添加标注
+          </Button>
+        </div>
+        {c.timeline?.length ? (
+          <div className="space-y-3">
+            {c.timeline.map((n) => (
+              <div key={n.id} className="p-3 bg-slate-50 rounded-lg border flex justify-between">
+                <div>
+                  <div className="text-xs text-slate-400">{new Date(n.date).toLocaleDateString()}</div>
+                  <div className="mt-1">{n.content}</div>
+                </div>
+                <Button size="small" danger icon={<DeleteOutlined />} onClick={() => deleteNote(n.id)} />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <Empty description="暂无标注 — 第一条人文画像，从写下今天的判断开始。" />
+        )}
+      </Card>
+
+      {/* 七、预期差解构台 */}
+      <Card
+        title="七、预期差解构台 —— 市场定价 vs 你的账，差在哪？"
+        extra={<Tag color="blue">说人话版 · 机器摆数字 · 按钮在底部</Tag>}
+        className="mb-4"
+      >
+        <Alert
+          type={(f?.adjustedUpside ?? 0)>=0?"success":"warning"}
+          showIcon
+          icon={<ArrowUpOutlined />}
+          title={(f?.adjustedUpside ?? 0)>=0?"模型估值高于市价，请检查假设与市场分歧":"模型估值低于市价，请检查增长和回报率假设"}
+          description={`基于已保存假设，股权价值 ${(f?.adjustedEquityValue ?? 0).toFixed(1)} 亿元，当前市值 ${c.marketCap.toFixed(1)} 亿元，模型隐含空间 ${(f?.adjustedUpside ?? 0).toFixed(1)}%。这是条件估值，分歧原因需要额外证据。`}
+        />
+
+        <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Card size="small" title="扩张性投入代理指标">
+            <div className="text-2xl font-bold text-green-600">{c.da>0 ? `${(Math.max(0,c.capex-c.da)/c.da*100).toFixed(1)}%` : "数据不足"}</div>
+            <div className="text-xs text-slate-500 mt-1">
+              算式：折旧 {c.da.toFixed(0)} 亿（Capex/D&A {(c.capex / c.da).toFixed(2)}）→ 扩张性投入代理值为 max(Capex−D&A,0)/D&A，不能直接等同于可释放现金
+            </div>
+          </Card>
+          <Card size="small" title="首年模型股息 / 市值">
+            <div className="text-2xl font-bold text-green-600">{c.marketCap>0?`${((f?.rows[0]?.dividend??0)/c.marketCap*100).toFixed(1)}%`:"数据不足"}</div>
+            <div className="text-xs text-slate-500 mt-1">
+              算式：年分红 {(f?.rows[0]?.dividend ?? 0).toFixed(0)} 亿 ÷ 市值 {c.marketCap.toFixed(0)} 亿 = 以上工具计算值
+            </div>
+          </Card>
+          <Card size="small" title="派现终值现值 / 市值">
+            <div className="text-2xl font-bold text-green-600">{c.marketCap>0?`${((f?.pvTerminal??0)/c.marketCap*100).toFixed(1)}%`:"数据不足"}</div>
+            <div className="text-xs text-slate-500 mt-1">
+              算式：第20年FCF {(f?.fcfY20 ?? 0).toFixed(0)} 亿 → 永续终值 {(f?.terminalValue ?? 0).toFixed(0)} 亿（Ke {(c.forwardKe * 100).toFixed(1)}%）→ 折现20年 = {(f?.pvTerminal ?? 0).toFixed(0)} 亿 ÷ 市值 = 以上工具计算值
+            </div>
+          </Card>
+        </div>
+
+        <div className="mt-4 flex gap-2">
+          <Button
+            icon={<CopyOutlined />}
+            onClick={() =>
+              copyPrompt(
+                `请用大白话解读这份 DCF 预期差：目标价 ¥${c.targetPrice.toFixed(2)}（+${c.upside.toFixed(1)}%），隐含终局利润 L=${r?.l.toFixed(0)}亿，L/E3=${r?.lE3.toFixed(1)}x。300 字以内。`,
+              )
+            }
+          >
+            复制 AI 解读提示词
+          </Button>
+        </div>
+      </Card>
       </div>
-    </AppHeader>
+    </div>
   );
 }

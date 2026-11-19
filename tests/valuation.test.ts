@@ -1,0 +1,25 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { calcDcf,calcForwardDcf } from "../src/lib/dcf";
+import { simulateWithJumps } from "../src/lib/jump-simulation";
+import { compareMultiples } from "../src/lib/relative-multiples";
+import { crossValidate,calcRelativeValuation } from "../src/lib/valuation-validation";
+import { assumptionsSchema,companySchema } from "../src/lib/validation";
+const a={baseFcf:10,g1:.05,g2:.03,g3:.02,perpetualG:.01,ke:.1,payoutRate1:.5,payoutRate2:.7,e1:10,e2:11,e3:12,reverseR:.1,exitPe:8,transitionG:.03,terminalProfitEst:20};
+const b={currentPrice:10,shares:10,netCash:5,e0:10};
+test("fixed seed reproduces base and jump distributions",()=>{const config={samples:200,seed:7,jump:{enabled:true,lambda:.2,mean:-.2,std:.1}};assert.deepEqual(simulateWithJumps(a,b,config),simulateWithJumps(a,b,config));});
+test("zero jump intensity equals paired base distribution",()=>{const result=simulateWithJumps(a,b,{samples:200,jump:{enabled:true,lambda:0}});assert.deepEqual(result.base,result.jump);});
+test("negative cash-flow jumps reduce lower-tail value in a controlled stress case",()=>{const r=simulateWithJumps(a,b,{samples:400,jump:{enabled:true,lambda:1,mean:-.4,std:0}});assert.ok(r.jump!.p5<r.base!.p5);});
+test("non-positive equity values are retained in risk distribution",()=>{const r=simulateWithJumps(a,{...b,netCash:-10000},{samples:100});assert.equal(r.samples,100);assert.ok(r.p95<0);});
+test("no arbitrary terminal multiple when Ke <= g",()=>{assert.throws(()=>calcForwardDcf({...a,ke:.01},b));assert.equal(assumptionsSchema.safeParse({...a,ke:.01}).success,false);});
+test("shares=0 rejected before deterministic division",()=>{assert.throws(()=>calcForwardDcf(a,{...b,shares:0}));assert.equal(companySchema.safeParse({...b,shares:0}).success,false);});
+test("Exit PE controls mirror result, independently of market implied Ke",()=>{const matched={...a,exitPe:a.payoutRate2*calcForwardDcf(a,b).fcfY20/a.terminalProfitEst*(1+a.perpetualG)/(a.ke-a.perpetualG)};assert.equal(calcDcf(matched,b).gordon.isConsistent,true);const changed=calcDcf({...matched,exitPe:30},b);assert.equal(changed.gordon.isConsistent,false);assert.match(changed.gordon.reason,/请校准 Ke 或 Exit PE/);});
+const subject={ticker:"S",name:"subject",marketCap:100,e0:10,revenue:50,bookValue:40,netCash:20,ebit:15,ebitda:20};
+const peers=[1,2,3].map(i=>({...subject,ticker:`P${i}`,marketCap:120}));
+test("EV multiples bridge enterprise value back to equity",()=>{const r=compareMultiples(subject,peers);const method=r.methods.find(x=>x.name==="EV/Revenue")!;assert.equal(method.median,2);assert.equal(method.equityValue,120);assert.equal(r.methods.filter(x=>x.status==="available").length,6);});
+test("peer outlier affects mean but not median主口径",()=>{const outlier={...subject,ticker:"P4",marketCap:100000};const r=compareMultiples(subject,[...peers,outlier]);const pe=r.methods[0];assert.equal(pe.median,12);assert.ok(pe.mean!>1000);assert.equal(pe.equityValue,120);});
+test("insufficient data never becomes agreement",()=>{assert.deepEqual(crossValidate(100,0),{diffRate:null,conclusion:"数据不足"});assert.equal(compareMultiples(subject,[]).status,"insufficient_data");assert.equal(compareMultiples(subject,peers.slice(0,2)).relativeValue,null);});
+test("missing EBIT is unavailable, not zero or inferred from net profit",()=>{const r=compareMultiples({...subject,ebit:undefined},peers);assert.equal(r.methods.find(x=>x.name==="EV/EBIT")?.equityValue,null);});
+test("legacy PE valuation uses peer median rather than mean",()=>{const r=calcRelativeValuation(100,10,50,40,[...peers,{...subject,ticker:"P4",marketCap:100000}]);assert.equal(r.peValue,120);});
+
+test("PE mirror bridges FCF payouts to terminal net profit",()=>{const r=calcDcf({...a,g1:0,g2:0,g3:0,perpetualG:0,exitPe:10,terminalProfitEst:20},b);assert.ok(Math.abs(r.gordon.impliedKe-.035)<1e-12);});

@@ -1,14 +1,22 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // 生产环境使用常规构建（next start），兼容性更好
-  // 如需 standalone 模式，取消下方注释并使用 node .next/standalone/server.js 启动
-  // output: "standalone",
+  output: "standalone",
+  outputFileTracingIncludes: {
+    "/*": ["./src/generated/prisma/**/*.node", "./src/generated/prisma-base/**/*.node"],
+  },
+  outputFileTracingExcludes: {
+    "/*": ["./.env*", "./prisma/*.db*", "./prisma/backup/**"],
+  },
+  distDir: process.env.NEXT_BUILD_DIR || ".next",
+  agentRules: false,
+  // 发布构建必须通过 TypeScript 检查。
+  typescript: {
+    ignoreBuildErrors: false,
+  },
 
   // pdf-parse 为 CJS 模块且依赖相对路径读取测试文件（debug 模式），
   // 必须保持服务器端外部引用，避免 webpack 打包后运行时崩溃
-  experimental: {
-    serverComponentsExternalPackages: ["pdf-parse"],
-  },
+  serverExternalPackages: ["pdf-parse"],
 
   // 安全响应头 + CORS（全站生效，nginx 层可再叠加）
   async headers() {

@@ -7,7 +7,8 @@ import { prisma } from "@/lib/prisma";
 export const dynamic = "force-dynamic";
 
 export default async function AdminPage() {
-  const user = await getSessionUserFromToken(cookies().get(SESSION_COOKIE)?.value);
+  const cookieStore = await cookies();
+  const user = await getSessionUserFromToken(cookieStore.get(SESSION_COOKIE)?.value);
   if (!user) redirect("/sign-in");
   if (user.role !== "admin") redirect("/home");
 
@@ -17,7 +18,9 @@ export default async function AdminPage() {
   });
 
   return (
-    <AppHeader title="管理员控制台" subtitle="管理 ValueInsight 用户账户">
+    <div className="app-shell fluid">
+      <AppHeader title="管理员控制台" subtitle="管理 ValueInsight 用户账户" />
+      <div className="app-main">
       <section className="admin-panel">
         <div className="admin-panel-heading"><div><h2>用户账户</h2><p>共 {users.length} 个账户</p></div><span>管理员</span></div>
         <div className="admin-table-wrap">
@@ -27,6 +30,7 @@ export default async function AdminPage() {
           </table>
         </div>
       </section>
-    </AppHeader>
+      </div>
+    </div>
   );
 }

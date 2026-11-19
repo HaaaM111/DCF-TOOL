@@ -13,98 +13,85 @@ import {
   useState,
   ReactNode,
 } from "react";
+import TerminalInteractions from "@/components/terminal-interactions";
 import dayjs from "dayjs";
 import "dayjs/locale/zh-cn";
 
 dayjs.locale("zh-cn");
 
-export type ThemeMode = "light" | "dark" | "system";
-type ResolvedMode = "light" | "dark";
-
+// 主题切换上下文
+type ThemeMode = "light" | "dark";
 interface ThemeCtx {
   mode: ThemeMode;
-  resolvedMode: ResolvedMode;
-  setMode: (m: ThemeMode) => void;
+  toggle: () => void;
 }
-const ThemeContext = createContext<ThemeCtx>({
-  mode: "system",
-  resolvedMode: "light",
-  setMode: () => {},
-});
+const ThemeContext = createContext<ThemeCtx>({ mode: "dark", toggle: () => {} });
 export const useTheme = () => useContext(ThemeContext);
 
-function buildTheme(mode: ResolvedMode) {
+/**
+ * Ant Design 主题配置（专业金融终端配色）
+ * 主色：深蓝 #1E3A5F；靛蓝 #3b82f6；正向绿 #10B981；警示红 #EF4444；琥珀 #F59E0B
+ */
+function buildTheme(mode: ThemeMode) {
   const isDark = mode === "dark";
   return {
     algorithm: isDark ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
     token: {
-      colorPrimary: "#315e49",
-      colorSuccess: "#315e49",
-      colorError: "#9c5a4e",
-      colorWarning: "#a8a08c",
-      colorInfo: "#315e49",
-      borderRadius: 5,
+      colorPrimary: "#3b82f6",
+      colorSuccess: "#10B981",
+      colorError: "#EF4444",
+      colorWarning: "#F59E0B",
+      colorInfo: "#1E3A5F",
+      borderRadius: 8,
       fontFamily:
-        'Inter, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif',
-      colorBgLayout: isDark ? "#151b18" : "#f7f8f6",
-      colorBgContainer: isDark ? "#222b26" : "#FFFFFF",
-      colorBorder: isDark ? "#333d38" : "#d9ded9",
-      colorText: isDark ? "#e4e9e6" : "#202c26",
-      colorTextSecondary: isDark ? "#828d86" : "#77817a",
+        '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif',
+      colorBgLayout: isDark ? "#0f1117" : "#F8FAFC",
+      colorBgContainer: isDark ? "#1a1d27" : "#FFFFFF",
+      colorBorder: isDark ? "#2d3748" : "#E2E8F0",
+      colorText: isDark ? "#e5e7eb" : "#0f1117",
+      colorTextSecondary: isDark ? "#9ca3af" : "#64748B",
     },
     components: {
       Card: {
-        borderRadiusLG: 5,
-        boxShadowTertiary: "none",
+        borderRadiusLG: 12,
+        boxShadowTertiary: isDark
+          ? "0 1px 3px rgba(0,0,0,0.3)"
+          : "0 1px 2px 0 rgba(0,0,0,0.04)",
       },
       Table: {
-        headerBg: isDark ? "#151b18" : "#f7f8f6",
-        headerColor: isDark ? "#828d86" : "#77817a",
-        rowHoverBg: isDark ? "#2b3d34" : "#e2e9e3",
+        headerBg: isDark ? "#0f1117" : "#F8FAFC",
+        headerColor: isDark ? "#9ca3af" : "#64748B",
+        rowHoverBg: isDark ? "#2d3748" : "#F0F7FF",
       },
       Tag: {
         borderRadiusSM: 4,
-      },
-      Button: {
-        fontWeight: 500,
       },
     },
   };
 }
 
-const STORAGE_KEY = "dcf-theme";
-
 export default function Providers({ children }: { children: ReactNode }) {
-  const [mode, setMode] = useState<ThemeMode>("system");
-  const [systemDark, setSystemDark] = useState(false);
+  const [mode, setMode] = useState<ThemeMode>("dark");
 
+  // 从 localStorage 读取偏好
   useEffect(() => {
-    const mql = window.matchMedia("(prefers-color-scheme: dark)");
-    setSystemDark(mql.matches);
-    const handleChange = (e: MediaQueryListEvent) => setSystemDark(e.matches);
-    mql.addEventListener("change", handleChange);
-
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved === "light" || saved === "dark" || saved === "system") {
-      setMode(saved);
-    }
-
-    return () => mql.removeEventListener("change", handleChange);
+    const saved = localStorage.getItem("dcf-theme") as ThemeMode | null;
+    if (saved === "light" || saved === "dark") setMode(saved);
   }, []);
 
-  const resolvedMode: ResolvedMode =
-    mode === "system" ? (systemDark ? "dark" : "light") : mode;
-
+  // 同步到 <html> class
   useEffect(() => {
     const root = document.documentElement;
-    if (resolvedMode === "dark") root.classList.add("dark");
+    if (mode === "dark") root.classList.add("dark");
     else root.classList.remove("dark");
-    localStorage.setItem(STORAGE_KEY, mode);
-  }, [mode, resolvedMode]);
+    localStorage.setItem("dcf-theme", mode);
+  }, [mode]);
+
+  const toggle = () => setMode((m) => (m === "light" ? "dark" : "light"));
 
   return (
-    <ThemeContext.Provider value={{ mode, resolvedMode, setMode }}>
-      <ConfigProvider locale={zhCN} theme={buildTheme(resolvedMode)}>
+    <ThemeContext.Provider value={{ mode, toggle }}>
+      <ConfigProvider locale={zhCN} theme={buildTheme(mode)}><TerminalInteractions/>
         <AntdApp>{children}</AntdApp>
       </ConfigProvider>
     </ThemeContext.Provider>

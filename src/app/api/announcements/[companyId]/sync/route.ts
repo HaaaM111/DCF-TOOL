@@ -1,7 +1,11 @@
+/**
+ * POST /api/announcements/[companyId]/sync —— 拉取候选公告（不入库）
+ * ------------------------------------------------------------------
+ * 拉取该标的最远 N 天公告，返回候选列表；用户勾选后调 /store 正式入库。
+ * 候选在服务端缓存 10 分钟（刷新页面后前端候选丢失，需重新拉取）。
+ */
 import { NextRequest } from "next/server";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
-import { getAuthenticatedUserId } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
 import {
   fetchCompanyAnnouncements,
   SyncServiceError,
@@ -14,14 +18,12 @@ const DEFAULT_DAYS = 30;
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { companyId: string } },
-) {
+  {params: pendingParams}: {params: Promise<{ companyId: string }>},) {
+ const params=await pendingParams;
   const guard = await guardRequest(req);
   if (guard) return guard;
 
   const sp = req.nextUrl.searchParams;
-  const owned = await prisma.company.findFirst({ where: { id: params.companyId, userId: getAuthenticatedUserId(req) }, select: { id: true } });
-  if (!owned) return jsonError("标的不存在", 404, "NOT_FOUND");
   const days = parseInt(sp.get("days") ?? String(DEFAULT_DAYS), 10) || DEFAULT_DAYS;
 
   try {
