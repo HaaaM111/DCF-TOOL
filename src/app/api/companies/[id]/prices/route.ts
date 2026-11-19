@@ -31,11 +31,13 @@ export async function GET(req: NextRequest) {
     }),
   ]);
 
-  let prices = snapshots.map((snapshot) => ({
-    date: snapshot.date.toISOString().slice(0, 10),
-    close: snapshot.close,
-    volume: snapshot.volume,
-  }));
+  // 历史快照按自然日去重（保留当天最新一条），避免走势图出现同日多点
+  const byDay = new Map<string, { date: string; close: number; volume: number }>();
+  for (const snapshot of snapshots) {
+    const day = snapshot.date.toISOString().slice(0, 10);
+    byDay.set(day, { date: day, close: snapshot.close, volume: snapshot.volume });
+  }
+  let prices = [...byDay.values()];
 
   if (prices.length < 2) {
     const startDate = since.toISOString().slice(0, 10);

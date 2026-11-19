@@ -6,9 +6,7 @@ const nextConfig = {
 
   // pdf-parse 为 CJS 模块且依赖相对路径读取测试文件（debug 模式），
   // 必须保持服务器端外部引用，避免 webpack 打包后运行时崩溃
-  experimental: {
-    serverComponentsExternalPackages: ["pdf-parse"],
-  },
+  serverExternalPackages: ["pdf-parse"],
 
   // 安全响应头 + CORS（全站生效，nginx 层可再叠加）
   async headers() {

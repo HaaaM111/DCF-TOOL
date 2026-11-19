@@ -3,10 +3,6 @@
 import { useEffect, useState, useCallback } from "react";
 import {
   Card,
-  Row,
-  Col,
-  Statistic,
-  Tag,
   Table,
   Button,
   Space,
@@ -25,6 +21,8 @@ import {
   SearchOutlined,
 } from "@ant-design/icons";
 import AppHeader from "@/components/app-header";
+import { UpsideRanking, FeatureMatrix } from "@/components/dashboard-charts";
+import DiagnosisBadge from "@/components/diagnosis-badge";
 import type { ColumnType } from "antd/es/table";
 
 /** 标的类型（与 API 返回一致） */
@@ -335,11 +333,7 @@ export default function DashboardPage() {
       width: 150,
       render: (v: string) => {
         const diagnosis = typeof v === "string" ? v : "";
-        return (
-          <Tag color={diagnosis.includes("现金") ? "green" : diagnosis.includes("高") ? "red" : "blue"}>
-            {diagnosis || "-"}
-          </Tag>
-        );
+        return <DiagnosisBadge value={diagnosis} />;
       },
     },
     {
@@ -355,7 +349,7 @@ export default function DashboardPage() {
       fixed: "right",
       width: 220,
       render: (_, r) => (
-        <Space size={8} wrap={false} style={{ whiteSpace: "nowrap" }}>
+        <Space size={8} wrap={false} className="table-row-actions" style={{ whiteSpace: "nowrap" }}>
           <Button
             size="small"
             type="link"
@@ -492,7 +486,7 @@ export default function DashboardPage() {
   ];
 
   return (
-    <div className="min-h-screen">
+    <>
       {/* 顶部品牌栏 */}
       <AppHeader
         title="DCF 估值穿透与弹性空间测算终端"
@@ -518,69 +512,83 @@ export default function DashboardPage() {
             </Button>
           </Space>
         }
-      />
+      >
 
-      <div className="p-6">
-        {/* 指标卡 + 四象限 */}
-        <Row gutter={[16, 16]} className="mb-4">
-          <Col xs={24} sm={8}>
-            <Card>
-              <Statistic
-                title="重点监控标的总数"
-                value={total}
-                suffix="家"
-                styles={{ content: { color: "#1d4ed8" } }}
-              />
-              <div className="text-xs text-slate-400 mt-1">
-                覆盖 A/H 股核心制造标的
+      <div>
+        {/* 指标条 + 四象限（左两格无框无圆角、贴左紧凑；右侧沿用首页实时资讯卡） */}
+        <div className="dash-metrics">
+          <div className="dash-stat">
+            <p className="dash-stat-label">重点监控标的总数</p>
+            <p className="dash-stat-value">
+              {total}
+              <small>家</small>
+            </p>
+            <span className="dash-stat-note">覆盖 A/H 股核心制造标的</span>
+          </div>
+          <div className="dash-stat">
+            <p className="dash-stat-label">平均潜在上行空间 · 调整后口径</p>
+            <p
+              className="dash-stat-value"
+              style={{ color: avgUpside >= 0 ? "var(--up)" : "var(--down)" }}
+            >
+              {avgUpside >= 0 ? "+" : ""}
+              {fmt(avgUpside, 1)}
+              <small>%</small>
+            </p>
+            <span className="dash-stat-note">
+              正向 DCF 原版均值：{fmtPct(avgOriginal)}
+            </span>
+          </div>
+          <div className="dash-diagnosis">
+            <div className="dash-diagnosis-head">
+              <h3>四象限诊断</h3>
+              <span>点击筛选</span>
+            </div>
+            <div className="dash-diagnosis-tags">
+              {quadrantCounts.map((q) => (
+                <button
+                  type="button"
+                  key={q.key}
+                  className="dash-qtag"
+                  data-tone={q.color === "green" ? "up" : "down"}
+                  data-active={quadrantFilter === q.key}
+                  onClick={() =>
+                    setQuadrantFilter(quadrantFilter === q.key ? "" : q.key)
+                  }
+                >
+                  {q.key}
+                  <strong>{q.count}</strong>家
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* 跨标的聚合特征图表（不为单个标的拆图） */}
+        <section className="dash-feature">
+          <header className="dash-feature-head">
+            <h2>全标的对比 · 特征图表</h2>
+            <p>
+              左侧按潜在空间横向排名并叠出原版口径；右侧把四项特征各自归一化成相对强弱矩阵。
+            </p>
+          </header>
+          <div className="dash-feature-grid">
+            <div className="dash-panel">
+              <div className="dash-panel-head">
+                <h3>潜在空间排名</h3>
+                <span>Adjusted / Original</span>
               </div>
-            </Card>
-          </Col>
-          <Col xs={24} sm={8}>
-            <Card>
-              <Statistic
-                title="平均潜在上行空间（调整后口径）"
-                value={avgUpside}
-                precision={1}
-                suffix="%"
-                styles={{ content: { color: avgUpside >= 0 ? "#16a34a" : "#dc2626" } }}
-                prefix={avgUpside >= 0 ? "+" : ""}
-              />
-              <div className="text-xs text-slate-400 mt-1">
-                正向 DCF 原版均值：{fmtPct(avgOriginal)}
+              <UpsideRanking companies={companies} />
+            </div>
+            <div className="dash-panel">
+              <div className="dash-panel-head">
+                <h3>特征矩阵</h3>
+                <span>Relative strength</span>
               </div>
-            </Card>
-          </Col>
-          <Col xs={24} sm={8}>
-            <Card title="四象限诊断 · 点击筛选">
-              <Space wrap>
-                {quadrantCounts.map((q) => {
-                  const active = quadrantFilter === q.key;
-                  const bg = q.color === "green" ? "#16a34a" : "#dc2626";
-                  return (
-                    <Tag.CheckableTag
-                      key={q.key}
-                      checked={active}
-                      onChange={(checked) =>
-                        setQuadrantFilter(checked ? q.key : "")
-                      }
-                      style={{
-                        padding: "4px 10px",
-                        borderRadius: 12,
-                        background: active ? bg : "#fff",
-                        color: active ? "#fff" : "#475569",
-                        border: `1px solid ${active ? bg : "#e2e8f0"}`,
-                      }}
-                    >
-                      {q.key}
-                      <span className="ml-1 font-bold">{q.count}</span>家
-                    </Tag.CheckableTag>
-                  );
-                })}
-              </Space>
-            </Card>
-          </Col>
-        </Row>
+              <FeatureMatrix companies={companies} />
+            </div>
+          </div>
+        </section>
 
         {/* 排行榜表格 */}
         <Card
@@ -659,6 +667,7 @@ export default function DashboardPage() {
           文件需符合系统 Schema，最大 5MB。重复 ticker 将被跳过。
         </p>
       </Modal>
-    </div>
+      </AppHeader>
+    </>
   );
 }

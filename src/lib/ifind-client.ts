@@ -24,6 +24,7 @@
  *   ths_ncf_from_oa_stock          经营活动现金流净额（CFO）
  *   ths_cash_paid_for_assets_stock 资本开支（Capex）
  *   ths_depreciation_etc_stock     固定资产折旧/油气折耗/生物折旧（不含无形/长摊摊销）
+ *   ths_currency_fund_stock        货币资金（与东财 MONETARYFUNDS 逐项核对一致）
  *   ths_np_atoopc_pit_stock        归母净利润（PIT，参数 [今天,报告期,1]）
  *   ths_total_equity_atoopc_pit_stock 归母净资产（PIT，参数 [今天,报告期,1]）
  *
@@ -356,6 +357,7 @@ export async function fetchFinancials(ticker: string) {
     "ths_ncf_from_oa_stock", // CFO
     "ths_cash_paid_for_assets_stock", // Capex
     "ths_depreciation_etc_stock", // D&A
+    "ths_currency_fund_stock", // 货币资金
     "ths_total_shares_stock", // 总股本
     "ths_interest_bearing_debt_stock", // 有息负债
     "ths_total_assets_stock", // 总资产
@@ -394,6 +396,7 @@ export async function fetchFinancials(ticker: string) {
   const cfo = extractValue(resp, "ths_ncf_from_oa_stock") ?? 0;
   const capex = extractValue(resp, "ths_cash_paid_for_assets_stock") ?? 0;
   const da = extractValue(resp, "ths_depreciation_etc_stock") ?? 0;
+  const cash = extractValue(resp, "ths_currency_fund_stock") ?? 0;
   const shares = extractValue(resp, "ths_total_shares_stock") ?? 0;
   const debt = extractValue(resp, "ths_interest_bearing_debt_stock") ?? 0;
   const totalAssets = extractValue(resp, "ths_total_assets_stock") ?? 0;
@@ -404,7 +407,7 @@ export async function fetchFinancials(ticker: string) {
   return {
     ticker,
     name: name || ticker,
-    cash: 0, // 货币资金（暂未找到对应指标，默认 0）
+    cash: Number((cash / YI).toFixed(2)), // 货币资金（ths_currency_fund_stock）
     debt: Number((debt / YI).toFixed(2)),
     shares: Number((shares / 1e8).toFixed(2)), // 股 → 亿股
     cfo: Number((cfo / YI).toFixed(2)),

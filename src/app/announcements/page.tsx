@@ -481,7 +481,7 @@ export default function AnnouncementsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <>
       <AppHeader
         title="公告中心"
         subtitle="拉取候选 → 勾选存储入库 · 预期差分析在「智能体对话」页完成"
@@ -493,9 +493,9 @@ export default function AnnouncementsPage() {
             智能体分析
           </Button>
         }
-      />
+      >
 
-      <div className="p-6">
+      <div>
         <Card className="mb-4">
           <Space wrap>
             <Select
@@ -641,6 +641,7 @@ export default function AnnouncementsPage() {
           )}
         </Card>
       </div>
-    </div>
+      </AppHeader>
+    </>
   );
 }

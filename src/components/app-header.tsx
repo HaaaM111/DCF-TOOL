@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import type { ReactNode } from "react";
+import BrandLogo from "@/components/brand-logo";
 
 const NAV_ITEMS = [
   { key: "/home", label: "首页" },
@@ -18,19 +19,6 @@ interface AppHeaderProps {
   actions?: ReactNode;
   children?: ReactNode;
   fluid?: boolean;
-}
-
-function BrandLogo() {
-  return (
-    <a
-      className="navbar-brand"
-    href="/home"
-      aria-label="ValueInsight 首页"
-    >
-      <span className="navbar-brand-mark" aria-hidden="true">V</span>
-      <span className="navbar-brand-word">ValueInsight</span>
-    </a>
-  );
 }
 
 function SignInIcon() {
@@ -77,7 +65,15 @@ export default function AppHeader({
   useEffect(() => {
     let active = true;
     fetch("/api/auth/me", { cache: "no-store" })
-      .then((res) => res.ok ? res.json() : null)
+      .then((res) => {
+        // 会话失效时直接回登录页，避免页面“能打开但一片空白”
+        if (res.status === 401) {
+          const next = `${window.location.pathname}${window.location.search}`;
+          window.location.href = `/sign-in?next=${encodeURIComponent(next)}`;
+          return null;
+        }
+        return res.ok ? res.json() : null;
+      })
       .then((data) => {
         if (active) {
           setUserEmail(data?.user?.email ?? "");

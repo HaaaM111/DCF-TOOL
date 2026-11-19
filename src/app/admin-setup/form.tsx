@@ -3,6 +3,7 @@
 import { FormEvent, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import BrandLogo from "@/components/brand-logo";
 
 export default function AdminSetupForm({ token }: { token: string }) {
   const router = useRouter();
@@ -33,7 +34,7 @@ export default function AdminSetupForm({ token }: { token: string }) {
 
   return (
     <main className="auth-page">
-      <Link className="auth-brand" href="/" aria-label="ValueInsight 首页"><span className="landing-brand-mark">V</span>ValueInsight</Link>
+      <BrandLogo className="auth-brand" href="/" label="ValueInsight 首页" />
       <section className="auth-panel">
         <p className="auth-label">ADMIN ACCOUNT SETUP</p>
         <h1>设置管理员密码</h1>

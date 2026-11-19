@@ -315,12 +315,20 @@ export default function HomePage() {
               </div>
               <div className="focus-metric">
                 <label>DCF 目标价</label>
-                <b>{selectedCompany.targetPrice > 0 ? `¥${selectedCompany.targetPrice.toFixed(2)}` : "尚未估值"}</b>
+                <b>
+                  {selectedCompany.targetPrice === 0 && !selectedCompany.lastEvalDate
+                    ? "尚未估值"
+                    : selectedCompany.targetPrice >= 0
+                      ? `¥${selectedCompany.targetPrice.toFixed(2)}`
+                      : `-¥${Math.abs(selectedCompany.targetPrice).toFixed(2)}`}
+                </b>
               </div>
               <div className="focus-metric">
                 <label>调整后潜在空间</label>
                 <b className={selectedCompany.upside >= 0 ? "txt-pos" : "txt-neg"}>
-                  {selectedCompany.targetPrice > 0 ? fmtPct(selectedCompany.upside) : "—"}
+                  {selectedCompany.targetPrice === 0 && !selectedCompany.lastEvalDate
+                    ? "—"
+                    : fmtPct(selectedCompany.upside)}
                 </b>
               </div>
             </section>

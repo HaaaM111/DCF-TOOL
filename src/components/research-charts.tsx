@@ -83,15 +83,20 @@ interface Point {
 function useChartColors() {
   return {
     dark: false,
-    text: "#494949",
-    muted: "#747474",
-    line: "#e2e2e2",
-    strong: "#333333",
-    deep: "#171717",
-    red: "#777777",
-    paper: "#ffffff",
-    greenArea: "rgba(0,0,0,0.045)",
-    redArea: "rgba(0,0,0,0.025)",
+    text: "#37332e",
+    muted: "#6b655e",
+    line: "#cdc6be",
+    strong: "#1d1d1b",
+    deep: "#000000",
+    // 空间为正（向上）用绿，为负（向下）用红；色值压向羊皮纸暖调，不刺眼
+    up: "#4f7d5e",
+    down: "#b8553c",
+    red: "#b8553c",
+    paper: "#ece7e1",
+    greenArea: "rgba(79,125,94,0.08)",
+    redArea: "rgba(184,85,60,0.08)",
+    upText: "#3f6b4f",
+    downText: "#96402a",
   };
 }
 
@@ -129,6 +134,50 @@ function paddedDomain(values: number[], minimumRange: number) {
   };
 }
 
+/**
+ * 潜在空间压缩刻度：±20% 以内线性，超出部分按 log10 压缩。
+ * 这样 -1300%、-208% 这类极端值能和 +97% 落在同一张固定尺寸的图里，
+ * 既保证每个标的都出现在图上，又不会把其余点压成一条线。
+ */
+const Y_LINEAR_BAND = 20;
+
+function compressUpside(value: number) {
+  const abs = Math.abs(value);
+  if (abs <= Y_LINEAR_BAND) return value / Y_LINEAR_BAND;
+  return Math.sign(value) * (1 + Math.log10(abs / Y_LINEAR_BAND));
+}
+
+const Y_TICK_LADDER = [
+  -5000, -2000, -1000, -500, -200, -100, -50, -20, 0, 20, 50, 100, 200, 500, 1000, 2000, 5000,
+];
+
+/** 压缩刻度的取值范围：始终包含 0，并按压缩空间的固定比例留白 */
+function compressedDomain(values: number[], minimumRange = 1.6) {
+  const low = Math.min(...values, 0);
+  const high = Math.max(...values, 0);
+  const range = Math.max(high - low, minimumRange);
+  const pad = range * 0.08;
+  return { min: low - pad, max: high + pad };
+}
+
+function compressedTicks(cMin: number, cMax: number, count = 5) {
+  const picked = new Set<number>();
+  for (let index = 0; index <= count; index += 1) {
+    const target = cMin + ((cMax - cMin) * index) / count;
+    let best = Y_TICK_LADDER[0];
+    let bestDistance = Number.POSITIVE_INFINITY;
+    for (const candidate of Y_TICK_LADDER) {
+      const distance = Math.abs(compressUpside(candidate) - target);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = candidate;
+      }
+    }
+    picked.add(best);
+  }
+  return [...picked].sort((a, b) => a - b);
+}
+
 function activateOnKey(event: React.KeyboardEvent<SVGGElement>, action: () => void) {
   if (event.key === "Enter" || event.key === " ") {
     event.preventDefault();
@@ -155,8 +204,8 @@ export const WatchlistQuadrant = memo(function WatchlistQuadrant({
         (company) =>
           Number.isFinite(config.xValue(company)) &&
           Number.isFinite(company.upside) &&
-          Number.isFinite(company.targetPrice) && company.targetPrice > 0 &&
-          Number.isFinite(company.impliedCagr),
+          Number.isFinite(company.impliedCagr) &&
+          Number.isFinite(company.targetPrice),
       ),
     [companies, config],
   );
@@ -170,23 +219,25 @@ export const WatchlistQuadrant = memo(function WatchlistQuadrant({
     const ys = validCompanies.map((company) => company.upside);
     const splitX = median(xs);
     const xDomain = paddedDomain([...xs, splitX], view === "marketCap" ? 0.35 : 5);
-    const yDomain = paddedDomain([...ys, 0], 20);
+    const yDomain = compressedDomain(ys.map(compressUpside));
+    const yTicks = compressedTicks(yDomain.min, yDomain.max);
     const x = (value: number) => scale(value, xDomain.min, xDomain.max, plot.left, plot.right);
-    const y = (value: number) => scale(value, yDomain.min, yDomain.max, plot.bottom, plot.top);
+    const y = (value: number) =>
+      scale(compressUpside(value), yDomain.min, yDomain.max, plot.bottom, plot.top);
     const splitPx = x(splitX);
     const zeroPy = y(0);
-    return { width, height, plot, splitX, xDomain, yDomain, x, y, splitPx, zeroPy };
+    return { width, height, plot, splitX, xDomain, yDomain, x, y, splitPx, zeroPy, yTicks };
   }, [config, validCompanies, view]);
 
   if (!chart) return <div className="chart-empty">暂无数据</div>;
 
-  const { width, height, plot, splitX, xDomain, yDomain, x, y, splitPx, zeroPy } = chart;
+  const { width, height, plot, splitX, xDomain, x, y, splitPx, zeroPy, yTicks } = chart;
   const [topLeft, topRight, bottomLeft, bottomRight] = config.quadrants;
   const quadrantLabels = [
-    { text: topLeft, x: plot.left + 12, y: plot.top + 20, anchor: "start" as const },
-    { text: topRight, x: plot.right - 12, y: plot.top + 20, anchor: "end" as const },
-    { text: bottomLeft, x: plot.left + 12, y: plot.bottom - 12, anchor: "start" as const },
-    { text: bottomRight, x: plot.right - 12, y: plot.bottom - 12, anchor: "end" as const },
+    { text: topLeft, x: plot.left + 12, y: plot.top + 20, anchor: "start" as const, color: colors.upText },
+    { text: topRight, x: plot.right - 12, y: plot.top + 20, anchor: "end" as const, color: colors.upText },
+    { text: bottomLeft, x: plot.left + 12, y: plot.bottom - 12, anchor: "start" as const, color: colors.downText },
+    { text: bottomRight, x: plot.right - 12, y: plot.bottom - 12, anchor: "end" as const, color: colors.downText },
   ];
   const viewLabel = QUADRANT_VIEWS.find((item) => item.key === view)?.label ?? "";
 
@@ -202,7 +253,7 @@ export const WatchlistQuadrant = memo(function WatchlistQuadrant({
       <rect x={plot.left} y={zeroPy} width={splitPx - plot.left} height={plot.bottom - zeroPy} fill={colors.redArea} />
       <rect x={splitPx} y={zeroPy} width={plot.right - splitPx} height={plot.bottom - zeroPy} fill={colors.redArea} />
 
-      {tickValues(yDomain.min, yDomain.max).map((tick) => (
+      {yTicks.map((tick) => (
         <g key={`y-${tick}`}>
           <line x1={plot.left} x2={plot.right} y1={y(tick)} y2={y(tick)} stroke={colors.line} strokeDasharray="3 4" />
           <text x={plot.left - 10} y={y(tick) + 4} textAnchor="end" fill={colors.muted} fontSize="10">
@@ -222,7 +273,7 @@ export const WatchlistQuadrant = memo(function WatchlistQuadrant({
       <line x1={plot.left} x2={plot.left} y1={plot.top} y2={plot.bottom} stroke={colors.line} />
 
       {quadrantLabels.map((label) => (
-        <text key={label.text} x={label.x} y={label.y} textAnchor={label.anchor} fill={colors.muted} fontSize="11" fontWeight="500">
+        <text key={label.text} x={label.x} y={label.y} textAnchor={label.anchor} fill={label.color} fontSize="11" fontWeight="600">
           {label.text}
         </text>
       ))}
@@ -230,7 +281,7 @@ export const WatchlistQuadrant = memo(function WatchlistQuadrant({
         {config.xLabel} · 中位数 {config.xMedian(config.inverseX(splitX))}
       </text>
       <text x={16} y={(plot.top + plot.bottom) / 2} textAnchor="middle" fill={colors.muted} fontSize="11" transform={`rotate(-90 16 ${(plot.top + plot.bottom) / 2})`}>
-        调整后潜在空间（%）
+        调整后潜在空间（% · 压缩刻度）
       </text>
 
       {validCompanies.map((company) => {
@@ -260,7 +311,7 @@ export const WatchlistQuadrant = memo(function WatchlistQuadrant({
               cx={cx}
               cy={cy}
               r={selected ? 8 : 5.5}
-              fill={company.quadrant.includes("红灯") ? colors.red : colors.strong}
+              fill={company.upside >= 0 ? colors.up : colors.down}
               stroke={selected ? colors.deep : colors.paper}
               strokeWidth={selected ? 3 : 1}
               opacity={selectedId && !selected ? 0.58 : 0.96}
@@ -297,9 +348,10 @@ export const UpsideComparison = memo(function UpsideComparison({
   const width = 520;
   const height = Math.max(330, sorted.length * 46 + 66);
   const plot = { left: 106, right: 462, top: 22, bottom: height - 48 };
-  const values = sorted.map((company) => company.upside);
-  const domain = paddedDomain([...values, 0], 10);
-  const x = (value: number) => scale(value, domain.min, domain.max, plot.left, plot.right);
+  const domain = compressedDomain(sorted.map((company) => compressUpside(company.upside)));
+  const ticks = compressedTicks(domain.min, domain.max);
+  const x = (value: number) =>
+    scale(compressUpside(value), domain.min, domain.max, plot.left, plot.right);
   const zeroX = x(0);
   const rowHeight = (plot.bottom - plot.top) / sorted.length;
 
@@ -311,7 +363,7 @@ export const UpsideComparison = memo(function UpsideComparison({
       role="img"
       aria-label="自选标的 DCF 潜在空间对比"
     >
-      {tickValues(domain.min, domain.max).map((tick) => (
+      {ticks.map((tick) => (
         <g key={tick}>
           <line x1={x(tick)} x2={x(tick)} y1={plot.top} y2={plot.bottom} stroke={colors.line} strokeDasharray="3 4" />
           <text x={x(tick)} y={plot.bottom + 22} textAnchor="middle" fill={colors.muted} fontSize="10">
@@ -321,7 +373,7 @@ export const UpsideComparison = memo(function UpsideComparison({
       ))}
       <line x1={zeroX} x2={zeroX} y1={plot.top} y2={plot.bottom} stroke={colors.muted} />
       <text x={(plot.left + plot.right) / 2} y={height - 8} textAnchor="middle" fill={colors.muted} fontSize="11">
-        调整后潜在空间（%）
+        调整后潜在空间（% · 压缩刻度）
       </text>
 
       {sorted.map((company, index) => {
@@ -351,7 +403,7 @@ export const UpsideComparison = memo(function UpsideComparison({
               width={Math.max(Math.abs(valueX - zeroX), 1.5)}
               height={Math.min(18, rowHeight * 0.52)}
               rx={2}
-              fill={positive ? colors.strong : colors.red}
+              fill={positive ? colors.up : colors.down}
               stroke={selected ? colors.deep : "transparent"}
               strokeWidth={selected ? 2 : 0}
               opacity={selectedId && !selected ? 0.58 : 0.96}
@@ -360,7 +412,7 @@ export const UpsideComparison = memo(function UpsideComparison({
               x={valueX + (positive ? 7 : -7)}
               y={cy + 4}
               textAnchor={positive ? "start" : "end"}
-              fill={positive ? colors.strong : colors.red}
+              fill={positive ? colors.upText : colors.downText}
               fontSize="10"
               fontWeight="500"
             >

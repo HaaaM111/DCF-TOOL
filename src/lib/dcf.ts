@@ -347,7 +347,7 @@ export function diagnoseNarrative(
     return "高增长透支";
   }
   if (!gordon.isConsistent) {
-    return "需重审 Ke";
+    return "需重审关键假设";
   }
   return "稳态估值";
 }
