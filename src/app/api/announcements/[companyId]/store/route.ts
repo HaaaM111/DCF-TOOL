@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
-import { getAuthenticatedUserId } from "@/lib/auth";
+import { companyAccessWhere } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import {
   storeCompanyAnnouncements,
@@ -17,7 +17,7 @@ export async function POST(
   const params = await pendingParams;
   const guard = await guardRequest(req);
   if (guard) return guard;
-  const owned = await prisma.company.findFirst({ where: { id: params.companyId, userId: getAuthenticatedUserId(req) }, select: { id: true } });
+  const owned = await prisma.company.findFirst({ where: companyAccessWhere(req, params.companyId), select: { id: true } });
   if (!owned) return jsonError("标的不存在", 404, "NOT_FOUND");
 
   let body: { codes?: unknown };

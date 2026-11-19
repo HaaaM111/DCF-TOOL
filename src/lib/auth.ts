@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 const scrypt = promisify(scryptCallback);
 export const SESSION_COOKIE = "vi_session";
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-const requestUsers = new WeakMap<object, string>();
+const requestUsers = new WeakMap<object, { id: string; role: string }>();
 
 export async function hashPassword(password: string) {
   const salt = randomBytes(16).toString("hex");
@@ -84,9 +84,17 @@ export async function requireOwnedCompany(userId: string, companyId: string) {
 }
 
 export function getAuthenticatedUserId(req: NextRequest) {
-  return requestUsers.get(req) ?? "";
+  return requestUsers.get(req)?.id ?? "";
 }
 
-export function attachAuthenticatedUser(req: NextRequest, userId: string) {
-  requestUsers.set(req, userId);
+export function isAdministrator(req: NextRequest) {
+  return requestUsers.get(req)?.role === "admin";
+}
+
+export function companyAccessWhere(req: NextRequest, companyId: string) {
+  return { id: companyId, ...(isAdministrator(req) ? {} : { userId: getAuthenticatedUserId(req) }) };
+}
+
+export function attachAuthenticatedUser(req: NextRequest, user: { id: string; role: string }) {
+  requestUsers.set(req, user);
 }

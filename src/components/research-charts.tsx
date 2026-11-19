@@ -1,7 +1,6 @@
 "use client";
 
 import { memo, useId, useMemo } from "react";
-import { useTheme } from "@/app/providers";
 
 export interface QuadrantCompany {
   id: string;
@@ -82,18 +81,17 @@ interface Point {
 }
 
 function useChartColors() {
-  const { resolvedMode } = useTheme();
   return {
-    dark: resolvedMode === "dark",
-    text: resolvedMode === "dark" ? "#b8b8b1" : "#494944",
-    muted: resolvedMode === "dark" ? "#87877f" : "#74746d",
-    line: resolvedMode === "dark" ? "#353531" : "#e2e2dc",
-    strong: resolvedMode === "dark" ? "#8db2a0" : "#315e49",
-    deep: resolvedMode === "dark" ? "#6c9080" : "#244334",
-    red: resolvedMode === "dark" ? "#c08a7c" : "#9c5a4e",
-    paper: resolvedMode === "dark" ? "#232321" : "#ffffff",
-    greenArea: resolvedMode === "dark" ? "rgba(141,178,160,0.08)" : "rgba(49,94,73,0.05)",
-    redArea: resolvedMode === "dark" ? "rgba(192,138,124,0.06)" : "rgba(156,90,78,0.04)",
+    dark: false,
+    text: "#494949",
+    muted: "#747474",
+    line: "#e2e2e2",
+    strong: "#333333",
+    deep: "#171717",
+    red: "#777777",
+    paper: "#ffffff",
+    greenArea: "rgba(0,0,0,0.045)",
+    redArea: "rgba(0,0,0,0.025)",
   };
 }
 

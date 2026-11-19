@@ -2,8 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { useTheme } from "@/app/providers";
-import type { ThemeMode } from "@/app/providers";
 import type { ReactNode } from "react";
 
 const NAV_ITEMS = [
@@ -63,7 +61,6 @@ export default function AppHeader({
 }: AppHeaderProps) {
   const router = useRouter();
   const pathname = usePathname();
-  const { mode, setMode } = useTheme();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [userEmail, setUserEmail] = useState("");
   const [userRole, setUserRole] = useState("");
@@ -104,10 +101,6 @@ export default function AppHeader({
     n.key === "/" ? pathname === "/" : pathname.startsWith(n.key),
   )?.key;
   const visibleNavItems = NAV_ITEMS.filter((item) => item.key !== "/admin" || userRole === "admin");
-
-  const toggleTheme = () => {
-    setMode((mode === "dark" ? "light" : "dark") as ThemeMode);
-  };
 
   const navigate = (path: string) => {
     setMobileOpen(false);
@@ -153,22 +146,6 @@ export default function AppHeader({
             <a href="/sign-up" className="navbar-btn navbar-btn-primary" hidden={Boolean(userEmail)}><SignUpIcon />Sign Up</a>
             {userEmail && <span className="navbar-user-email">{userEmail}</span>}
             {userEmail && <button type="button" className="navbar-btn navbar-btn-outline" onClick={signOut}>Sign Out</button>}
-            <button
-              type="button"
-              className="navbar-icon-btn"
-              aria-label={mode === "dark" ? "切换到浅色模式" : "切换到深色模式"}
-              onClick={toggleTheme}
-            >
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" aria-hidden="true">
-                <circle cx="12" cy="12" r="4" fill="currentColor" />
-                <path
-                  d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 6.34l1.41-1.41"
-                  stroke="currentColor"
-                  strokeWidth="1.6"
-                />
-              </svg>
-            </button>
-
             <button
               type="button"
               className="navbar-menu-btn"

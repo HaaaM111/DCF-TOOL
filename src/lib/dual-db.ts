@@ -37,18 +37,18 @@ export async function mergeCompanySnapshot(
 }
 
 /** 全部标的（含快照与假设），供排行榜使用，按更新时间倒序；传 userId 时仅返回该账号的数据 */
-export async function getAllCompaniesMerged(userId?: string) {
+export async function getAllCompaniesMerged(userId?: string, isAdmin = false) {
   const companies = await prisma.company.findMany({
-    where: userId ? { userId } : undefined,
+    where: isAdmin ? undefined : userId ? { userId } : undefined,
     orderBy: { updatedAt: "desc" },
   });
   return Promise.all(companies.map((c) => mergeCompanySnapshot(c)));
 }
 
 /** 单个标的（含快照、假设、时间线），供模型编辑/报告页使用；传 userId 时校验归属 */
-export async function getCompanyMerged(id: string, userId?: string) {
+export async function getCompanyMerged(id: string, userId?: string, isAdmin = false) {
   const company = await prisma.company.findFirst({
-    where: userId ? { id, userId } : { id },
+    where: isAdmin || !userId ? { id } : { id, userId },
   });
   if (!company) return null;
 

@@ -3,7 +3,7 @@ import { guardRequest, jsonError, jsonOk } from "@/lib/api";
 import { prisma } from "@/lib/prisma";
 import { readLlmDbSettings } from "@/lib/llm-settings";
 import { analyzeCompanyAnnouncements } from "@/lib/announcement/analyze-service";
-import { getAuthenticatedUserId } from "@/lib/auth";
+import { companyAccessWhere, getAuthenticatedUserId } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,7 +31,7 @@ export async function POST(
   }
 
   try {
-    const company = await prisma.company.findFirst({ where: { id: params.companyId, userId: getAuthenticatedUserId(req) } });
+    const company = await prisma.company.findFirst({ where: companyAccessWhere(req, params.companyId) });
     if (!company) {
       return jsonError("标的不存在", 404, "COMPANY_NOT_FOUND");
     }

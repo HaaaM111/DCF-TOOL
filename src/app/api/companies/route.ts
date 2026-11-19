@@ -4,7 +4,7 @@ import { guardRequest, jsonError, jsonOk } from "@/lib/api";
 import { prisma } from "@/lib/prisma";
 import { getAllCompaniesMerged, getCompanyMerged } from "@/lib/dual-db";
 import { assumptionsSchema, companySchema } from "@/lib/validation";
-import { getAuthenticatedUserId } from "@/lib/auth";
+import { getAuthenticatedUserId, isAdministrator } from "@/lib/auth";
 import {
   calcDcf,
   classifyQuadrant,
@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
   const guard = await guardRequest(req);
   if (guard) return guard;
 
-  const companies = await getAllCompaniesMerged(getAuthenticatedUserId(req));
+  const companies = await getAllCompaniesMerged(getAuthenticatedUserId(req), isAdministrator(req));
   return jsonOk({ companies });
 }
 

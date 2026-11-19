@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
 import { prisma } from "@/lib/prisma";
-import { getAuthenticatedUserId } from "@/lib/auth";
+import { companyAccessWhere } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,10 +13,9 @@ export async function DELETE(req: NextRequest) {
   const parts = req.nextUrl.pathname.split("/");
   const noteId = parts[parts.length - 1];
   const companyId = parts[3];
-  const userId = getAuthenticatedUserId(req);
 
   const note = await prisma.timelineEntry.findFirst({ where: { id: noteId, companyId } });
-  const company = await prisma.company.findFirst({ where: { id: companyId, userId }, select: { id: true } });
+  const company = await prisma.company.findFirst({ where: companyAccessWhere(req, companyId), select: { id: true } });
   if (!note || !company) {
     return jsonError("记录不存在", 404, "NOT_FOUND");
   }

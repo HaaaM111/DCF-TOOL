@@ -65,6 +65,6 @@ export async function guardRequest(req: NextRequest): Promise<NextResponse | nul
   if (rateLimit) return rateLimit;
   const user = await getSessionUser(req);
   if (!user) return jsonError("请先登录后继续", 401, "UNAUTHENTICATED");
-  attachAuthenticatedUser(req, user.id);
+  attachAuthenticatedUser(req, user);
   return null;
 }

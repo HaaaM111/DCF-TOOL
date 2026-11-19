@@ -10,7 +10,6 @@ import {
   createContext,
   useContext,
   useEffect,
-  useState,
   ReactNode,
 } from "react";
 import dayjs from "dayjs";
@@ -38,19 +37,19 @@ function buildTheme(mode: ResolvedMode) {
   return {
     algorithm: isDark ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
     token: {
-      colorPrimary: "#315e49",
-      colorSuccess: "#315e49",
-      colorError: "#9c5a4e",
-      colorWarning: "#a8a08c",
-      colorInfo: "#315e49",
+      colorPrimary: "#171717",
+      colorSuccess: "#555555",
+      colorError: "#555555",
+      colorWarning: "#777777",
+      colorInfo: "#333333",
       borderRadius: 5,
       fontFamily:
         'Inter, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif',
-      colorBgLayout: isDark ? "#151b18" : "#f7f8f6",
-      colorBgContainer: isDark ? "#222b26" : "#FFFFFF",
-      colorBorder: isDark ? "#333d38" : "#d9ded9",
-      colorText: isDark ? "#e4e9e6" : "#202c26",
-      colorTextSecondary: isDark ? "#828d86" : "#77817a",
+      colorBgLayout: "#ffffff",
+      colorBgContainer: "#ffffff",
+      colorBorder: "#d9d9d9",
+      colorText: "#202020",
+      colorTextSecondary: "#707070",
     },
     components: {
       Card: {
@@ -58,9 +57,9 @@ function buildTheme(mode: ResolvedMode) {
         boxShadowTertiary: "none",
       },
       Table: {
-        headerBg: isDark ? "#151b18" : "#f7f8f6",
-        headerColor: isDark ? "#828d86" : "#77817a",
-        rowHoverBg: isDark ? "#2b3d34" : "#e2e9e3",
+        headerBg: "#f5f5f5",
+        headerColor: "#707070",
+        rowHoverBg: "#f2f2f2",
       },
       Tag: {
         borderRadiusSM: 4,
@@ -75,35 +74,17 @@ function buildTheme(mode: ResolvedMode) {
 const STORAGE_KEY = "dcf-theme";
 
 export default function Providers({ children }: { children: ReactNode }) {
-  const [mode, setMode] = useState<ThemeMode>("system");
-  const [systemDark, setSystemDark] = useState(false);
-
-  useEffect(() => {
-    const mql = window.matchMedia("(prefers-color-scheme: dark)");
-    setSystemDark(mql.matches);
-    const handleChange = (e: MediaQueryListEvent) => setSystemDark(e.matches);
-    mql.addEventListener("change", handleChange);
-
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved === "light" || saved === "dark" || saved === "system") {
-      setMode(saved);
-    }
-
-    return () => mql.removeEventListener("change", handleChange);
-  }, []);
-
-  const resolvedMode: ResolvedMode =
-    mode === "system" ? (systemDark ? "dark" : "light") : mode;
+  const mode: ThemeMode = "light";
+  const resolvedMode: ResolvedMode = "light";
 
   useEffect(() => {
     const root = document.documentElement;
-    if (resolvedMode === "dark") root.classList.add("dark");
-    else root.classList.remove("dark");
-    localStorage.setItem(STORAGE_KEY, mode);
-  }, [mode, resolvedMode]);
+    root.classList.remove("dark");
+    localStorage.setItem(STORAGE_KEY, "light");
+  }, []);
 
   return (
-    <ThemeContext.Provider value={{ mode, resolvedMode, setMode }}>
+      <ThemeContext.Provider value={{ mode, resolvedMode, setMode: () => {} }}>
       <ConfigProvider locale={zhCN} theme={buildTheme(resolvedMode)}>
         <AntdApp>{children}</AntdApp>
       </ConfigProvider>

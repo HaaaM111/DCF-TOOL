@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { guardRequest, jsonOk } from "@/lib/api";
 import { prisma } from "@/lib/prisma";
-import { getAuthenticatedUserId } from "@/lib/auth";
+import { getAuthenticatedUserId, isAdministrator } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
   );
 
   const userId = getAuthenticatedUserId(req);
-  const ownedCompanies = await prisma.company.findMany({ where: { userId }, select: { id: true } });
+  const ownedCompanies = await prisma.company.findMany({ where: isAdministrator(req) ? undefined : { userId }, select: { id: true } });
   const ownedIds = ownedCompanies.map((company) => company.id);
   if (companyId && !ownedIds.includes(companyId)) {
     return jsonOk({ total: 0, page, pageSize, items: [] });

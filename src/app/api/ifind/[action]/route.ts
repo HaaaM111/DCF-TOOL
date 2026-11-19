@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
 import { prisma } from "@/lib/prisma";
-import { getAuthenticatedUserId } from "@/lib/auth";
+import { getAuthenticatedUserId, isAdministrator } from "@/lib/auth";
 import {
   resolveQuote,
   resolveFinancials,
@@ -64,7 +64,7 @@ export async function GET(req: NextRequest) {
         }
 
         const { data, source } = await resolvePriceHistory(ticker, start, end);
-        await saveHistory(ticker, data, getAuthenticatedUserId(req));
+        await saveHistory(ticker, data, getAuthenticatedUserId(req), isAdministrator(req));
         return jsonOk({ data, source, mock: source === "mock" });
       }
 
@@ -81,11 +81,12 @@ async function saveHistory(
   ticker: string,
   bars: HistoryBar[],
   userId: string,
+  isAdmin: boolean,
 ) {
   if (!bars.length) return;
 
   const company = await prisma.company.findFirst({
-    where: { ticker, userId },
+    where: { ticker, ...(isAdmin ? {} : { userId }) },
     select: { id: true },
   });
 

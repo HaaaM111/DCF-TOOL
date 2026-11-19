@@ -4,7 +4,7 @@ import { guardRequest, jsonError, jsonOk } from "@/lib/api";
 import { prisma } from "@/lib/prisma";
 import { getCompanyMerged } from "@/lib/dual-db";
 import { assumptionsSchema, companySchema } from "@/lib/validation";
-import { getAuthenticatedUserId } from "@/lib/auth";
+import { companyAccessWhere, getAuthenticatedUserId, isAdministrator } from "@/lib/auth";
 import {
   calcDcf,
   classifyQuadrant,
@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
 
   const id = idParam(req);
   const userId = getAuthenticatedUserId(req);
-  const company = await getCompanyMerged(id, userId);
+  const company = await getCompanyMerged(id, userId, isAdministrator(req));
   if (!company) return jsonError("标的不存在", 404, "NOT_FOUND");
   return jsonOk({ company });
 }
@@ -59,7 +59,7 @@ export async function PUT(req: NextRequest) {
 
   const id = idParam(req);
   const userId = getAuthenticatedUserId(req);
-  const existing = await prisma.company.findFirst({ where: { id, userId } });
+  const existing = await prisma.company.findFirst({ where: companyAccessWhere(req, id) });
   if (!existing) return jsonError("标的不存在", 404, "NOT_FOUND");
 
   let body: unknown;
@@ -156,7 +156,7 @@ export async function PUT(req: NextRequest) {
     });
   }
 
-  const company = await getCompanyMerged(id, userId);
+  const company = await getCompanyMerged(id, userId, isAdministrator(req));
   return jsonOk({ company });
 }
 
@@ -166,7 +166,7 @@ export async function DELETE(req: NextRequest) {
 
   const id = idParam(req);
   const userId = getAuthenticatedUserId(req);
-  const existing = await prisma.company.findFirst({ where: { id, userId } });
+  const existing = await prisma.company.findFirst({ where: companyAccessWhere(req, id) });
   if (!existing) return jsonError("标的不存在", 404, "NOT_FOUND");
 
   const reports = await prisma.valuationReport.findMany({

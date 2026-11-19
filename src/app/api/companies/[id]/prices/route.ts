@@ -3,7 +3,7 @@ import { guardRequest, jsonError, jsonOk } from "@/lib/api";
 import { fetchEastPriceHistory } from "@/lib/eastmoney-client";
 import { fetchTencentPriceHistory } from "@/lib/tencent-client";
 import { prisma } from "@/lib/prisma";
-import { getAuthenticatedUserId } from "@/lib/auth";
+import { companyAccessWhere } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,8 +13,7 @@ export async function GET(req: NextRequest) {
   if (guard) return guard;
 
   const id = req.nextUrl.pathname.split("/")[3];
-  const userId = getAuthenticatedUserId(req);
-  const company = await prisma.company.findFirst({ where: { id, userId }, select: { id: true, ticker: true } });
+  const company = await prisma.company.findFirst({ where: companyAccessWhere(req, id), select: { id: true, ticker: true } });
   if (!company) return jsonError("标的不存在", 404, "NOT_FOUND");
 
   const since = new Date();

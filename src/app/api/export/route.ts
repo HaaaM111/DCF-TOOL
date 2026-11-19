@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { guardRequest } from "@/lib/api";
 import { getAllCompaniesMerged } from "@/lib/dual-db";
-import { getAuthenticatedUserId } from "@/lib/auth";
+import { getAuthenticatedUserId, isAdministrator } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,7 +10,7 @@ export async function GET(req: NextRequest) {
   const guard = await guardRequest(req);
   if (guard) return guard;
 
-  const companies = await getAllCompaniesMerged(getAuthenticatedUserId(req));
+  const companies = await getAllCompaniesMerged(getAuthenticatedUserId(req), isAdministrator(req));
 
   const payload = companies.map((c: Record<string, unknown>) => ({
     company: {

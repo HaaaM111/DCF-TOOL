@@ -27,25 +27,26 @@
 }
 
 .dark {
-  --canvas: #141413;
-  --side: #1b1b19;
-  --paper: #232321;
-  --ink: #efefeb;
-  --body: #b8b8b1;
-  --muted: #87877f;
-  --quiet: #6c6c65;
-  --line: #353531;
-  --line-strong: #45453f;
-  --brand: #8db2a0;
-  --brand-deep: #6c9080;
-  --brand-soft: #2a352f;
-  --brick: #c08a7c;
-  --khaki: #918979;
-  --sage: #5e7568;
-  --panel-top: #262624;
-  --panel-bottom: #20201e;
-  --panel-inset: rgba(255, 255, 255, 0.045);
-  --panel-shadow: rgba(0, 0, 0, 0.3);
+  /* Keep older saved dark-mode state readable while the app uses its light UI. */
+  --canvas: #ffffff;
+  --side: #f5f5f3;
+  --paper: #ffffff;
+  --ink: #171717;
+  --body: #333333;
+  --muted: #686868;
+  --quiet: #858585;
+  --line: #e4e4e4;
+  --line-strong: #cfcfcf;
+  --brand: #171717;
+  --brand-deep: #000000;
+  --brand-soft: #f0f0ee;
+  --brick: #595959;
+  --khaki: #777777;
+  --sage: #999999;
+  --panel-top: #ffffff;
+  --panel-bottom: #ffffff;
+  --panel-inset: rgba(255, 255, 255, 0.9);
+  --panel-shadow: rgba(0, 0, 0, 0.035);
 }
 
 html,
@@ -1440,6 +1441,45 @@ select {
 }
 
 .home-shell .app-main { max-width: none; }
+
+/* Workspace is monochrome; green is reserved for news hover feedback. */
+:root {
+  --canvas: #ffffff;
+  --side: #f5f5f3;
+  --paper: #ffffff;
+  --ink: #171717;
+  --body: #333333;
+  --muted: #686868;
+  --quiet: #858585;
+  --line: #e4e4e4;
+  --line-strong: #cfcfcf;
+  --brand: #171717;
+  --brand-deep: #000000;
+  --brand-soft: #f0f0ee;
+  --brick: #595959;
+  --khaki: #777777;
+  --sage: #999999;
+  --panel-top: #ffffff;
+  --panel-bottom: #ffffff;
+}
+.home-shell .app-main,
+.home-shell .navbar { background: #ffffff; }
+.home-shell .navbar { border-bottom-color: #d9d9d9; }
+.home-shell .news-showcase .news-card:hover .news-card-body,
+.home-shell .news-showcase .news-card:focus-visible .news-card-body,
+.home-shell .home-news-more .news-item:hover strong,
+.home-shell .home-news-more .news-item:focus-visible strong { color: #315e49; }
+.home-shell .home-news-more .news-item:hover,
+.home-shell .home-news-more .news-item:focus-visible { background: #ffffff; }
+.auth-page { background: #ffffff; color: #171717; }
+.auth-brand, .auth-panel h1 { color: #171717; }
+.auth-panel { border-color: #dedede; background: #ffffff; box-shadow: 0 12px 36px rgba(0,0,0,.06); }
+.auth-intro, .auth-hint, .auth-switch { color: #5f5f5f; }
+.auth-panel label { color: #333333; }
+.auth-panel input { border-color: #cfcfcf; background: #ffffff; color: #171717; }
+.auth-submit { background: #171717; color: #ffffff; }
+.auth-switch a { color: #315e49; }
+.auth-footnote { color: #737373; }
 .homepage-hero {
   box-sizing: border-box;
   display: flex;
