@@ -333,11 +333,14 @@ export default function DashboardPage() {
       title: "叙事分级诊断",
       dataIndex: "diagnosis",
       width: 150,
-      render: (v: string) => (
-        <Tag color={v.includes("现金") ? "green" : v.includes("高") ? "red" : "blue"}>
-          {v || "-"}
-        </Tag>
-      ),
+      render: (v: string) => {
+        const diagnosis = typeof v === "string" ? v : "";
+        return (
+          <Tag color={diagnosis.includes("现金") ? "green" : diagnosis.includes("高") ? "red" : "blue"}>
+            {diagnosis || "-"}
+          </Tag>
+        );
+      },
     },
     {
       title: "当前市值(亿)",

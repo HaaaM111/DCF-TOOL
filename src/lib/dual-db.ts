@@ -32,6 +32,30 @@ export async function mergeCompanySnapshot(
     Object.assign(out, snapFields);
   }
 
+  // Administrators can see legacy and unassessed records that have no snapshot yet.
+  // Keep the dashboard row shape complete so optional valuation fields never crash UI code.
+  const valuationDefaults = {
+    quadrant: "",
+    diagnosis: "",
+    targetPrice: 0,
+    upside: 0,
+    originalUpside: 0,
+    impliedKe: 0,
+    forwardKe: 0,
+    wacc: 0,
+    terminalProfitY20: 0,
+    terminalFcfE3: 0,
+    impliedL: 0,
+    impliedLE3: 0,
+    impliedCagr: 0,
+    terminalProfitEst: 0,
+    transitionG: 0,
+    lastEvalDate: null,
+  };
+  for (const [key, value] of Object.entries(valuationDefaults)) {
+    if (out[key] === undefined) out[key] = value;
+  }
+
   out.assumption = assumption;
   return out;
 }
