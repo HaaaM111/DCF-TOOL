@@ -3,6 +3,7 @@
 import { FormEvent, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import BrandLogo from "@/components/brand-logo";
 
 export default function AuthForm({ mode }: { mode: "signin" | "signup" }) {
   const router = useRouter();
@@ -35,7 +36,7 @@ export default function AuthForm({ mode }: { mode: "signin" | "signup" }) {
 
   return (
     <main className="auth-page">
-      <Link className="auth-brand" href="/" aria-label="ValueInsight 首页"><span className="landing-brand-mark">V</span>ValueInsight</Link>
+      <BrandLogo className="auth-brand" href="/" label="ValueInsight 首页" />
       <section className="auth-panel">
         <p className="auth-label">VALUEINSIGHT ACCOUNT</p>
         <h1>{signup ? "创建你的账户" : "欢迎回来"}</h1>

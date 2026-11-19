@@ -1,4 +1,5 @@
 import Link from "next/link";
+import BrandLogo from "@/components/brand-logo";
 
 const stack = ["Next.js", "React", "TypeScript", "Node.js", "Prisma", "SQLite"];
 
@@ -16,9 +17,7 @@ export default function LandingPage() {
   return (
     <main className="landing-page">
       <header className="landing-nav">
-        <Link className="landing-brand" href="/" aria-label="ValueInsight 首页">
-          <span className="landing-brand-mark">V</span><span>ValueInsight</span>
-        </Link>
+        <BrandLogo className="landing-brand" href="/" label="ValueInsight 首页" />
         <nav aria-label="主导航"><a href="#technology">技术栈</a></nav>
         <div className="landing-nav-actions">
           <Link className="landing-button landing-button-quiet" href="/sign-in">Sign In</Link>

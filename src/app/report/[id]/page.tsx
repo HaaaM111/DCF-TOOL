@@ -1,6 +1,7 @@
 "use client";
 
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import DiagnosisBadge from "@/components/diagnosis-badge";
 import {
   Card,
   Row,
@@ -38,6 +39,10 @@ import { calcDcf } from "@/lib/dcf";
 import type { DcfOutput, MonteCarloResult } from "@/types/dcf";
 
 const { Title, Paragraph, Text } = Typography;
+
+/** 数据库里偶尔有空值，格式化一律走这里，避免 undefined.toFixed 把整页打崩 */
+const num = (v: unknown, d = 1) =>
+  typeof v === "number" && Number.isFinite(v) ? v.toFixed(d) : "—";
 
 interface CompanyData {
   id: string;
@@ -228,6 +233,7 @@ export default function ReportPage() {
 
   const [company, setCompany] = useState<CompanyData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [knobPayout, setKnobPayout] = useState(0.7);
   const [knobExitPe, setKnobExitPe] = useState(7);
   const [knobG, setKnobG] = useState(0.012);
@@ -240,17 +246,40 @@ export default function ReportPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const res = await fetch(`/api/companies/${id}`);
-    const json = await res.json();
-    setCompany(json.company);
-    setLoading(false);
-
+    setLoadError("");
     try {
-      const pRes = await fetch(`/api/companies/${id}/prices`);
-      const pJson = await pRes.json();
-      setPrices(pJson.prices ?? []);
+      const res = await fetch(`/api/companies/${id}`, { cache: "no-store" });
+      if (!res.ok) {
+        setCompany(null);
+        setLoadError(
+          res.status === 404
+            ? "这个标的已不存在（可能被合并或删除），请回看板重新选择。"
+            : "标的数据加载失败，请稍后重试。",
+        );
+        return;
+      }
+      const json = await res.json();
+      if (!json?.company) {
+        setCompany(null);
+        setLoadError("这个标的已不存在（可能被合并或删除），请回看板重新选择。");
+        return;
+      }
+      setCompany(json.company);
+
+      try {
+        const pRes = await fetch(`/api/companies/${id}/prices`);
+        if (pRes.ok) {
+          const pJson = await pRes.json();
+          setPrices(Array.isArray(pJson?.prices) ? pJson.prices : []);
+        }
+      } catch {
+        /* 价格序列缺失不影响报告主体 */
+      }
     } catch {
-      /* ignore */
+      setCompany(null);
+      setLoadError("标的数据加载失败，请稍后重试。");
+    } finally {
+      setLoading(false);
     }
   }, [id]);
 
@@ -330,13 +359,19 @@ export default function ReportPage() {
 
   const knobOutput = useMemo(() => {
     if (!company?.assumption) return null;
-    const a = { ...company.assumption, payoutRate2: knobPayout, exitPe: knobExitPe, perpetualG: knobG };
-    return calcDcf(a, {
-      currentPrice: company.currentPrice,
-      shares: company.shares,
-      netCash: company.netCash,
-      e0: company.e0,
-    });
+    try {
+      const a = { ...company.assumption, payoutRate2: knobPayout, exitPe: knobExitPe, perpetualG: knobG };
+      return calcDcf(a, {
+        currentPrice: company.currentPrice,
+        shares: company.shares,
+        netCash: company.netCash,
+        e0: company.e0,
+      });
+    } catch (e) {
+      // 旋钮组合可能落到非法参数（如 Ke ≤ g），不能让整页崩掉
+      console.error("旋钮 DCF 计算失败:", e);
+      return null;
+    }
   }, [company, knobPayout, knobExitPe, knobG]);
 
   const profile = useMemo(() => {
@@ -378,7 +413,7 @@ export default function ReportPage() {
     return (
       <AppHeader title="估值报告">
         <div className="p-10 text-center">
-          <Empty description="标的不存在" />
+          <Empty description={loadError || "标的不存在"} />
           <Button className="mt-4" onClick={() => router.push("/dashboard")}>
             返回看板
           </Button>
@@ -419,7 +454,7 @@ export default function ReportPage() {
           <Col xs={12} md={6}>
             <Card>
               <Statistic title="当前股价 / 市值" value={c.currentPrice} precision={2} prefix="¥" />
-              <div className="text-xs text-muted">{c.marketCap.toFixed(1)} 亿 ｜ 总股本 {c.shares} 亿股</div>
+              <div className="text-xs text-muted">{num(c.marketCap)} 亿 ｜ 总股本 {num(c.shares, 2)} 亿股</div>
             </Card>
           </Col>
           <Col xs={12} md={6}>
@@ -432,7 +467,7 @@ export default function ReportPage() {
                 prefix={c.upside >= 0 ? "+" : ""}
                 styles={{ content: { color: c.upside >= 0 ? "var(--brand)" : "var(--brick)" } }}
               />
-              <div className="text-xs text-muted">合理目标价：¥{c.targetPrice.toFixed(2)}</div>
+              <div className="text-xs text-muted">合理目标价：¥{num(c.targetPrice, 2)}</div>
             </Card>
           </Col>
           <Col xs={12} md={6}>
@@ -451,7 +486,7 @@ export default function ReportPage() {
           <Col xs={12} md={6}>
             <Card>
               <Statistic title="WACC 加权资本成本" value={c.wacc * 100} precision={2} suffix="%" styles={{ content: { color: "var(--khaki)" } }} />
-              <div className="text-xs text-muted">Ke {(c.forwardKe * 100).toFixed(1)}% ｜ Kd 税后 {(c.kd * (1 - c.taxRate) * 100).toFixed(2)}%</div>
+              <div className="text-xs text-muted">Ke {num((c.forwardKe ?? NaN) * 100)}% ｜ Kd 税后 {num((c.kd ?? NaN) * (1 - (c.taxRate ?? 0)) * 100, 2)}%</div>
             </Card>
           </Col>
         </Row>
@@ -587,7 +622,7 @@ export default function ReportPage() {
                 { title: "L/E0 倍数", dataIndex: "l", render: (v: number) => `${(v / c.e0).toFixed(2)}x` },
                 {
                   title: "叙事分级诊断",
-                  render: () => <Tag color={c.diagnosis.includes("现金") ? "green" : "blue"}>{c.diagnosis}</Tag>,
+                  render: () => <DiagnosisBadge value={c.diagnosis} />,
                 },
                 { title: "终局敏感度", render: () => "-" },
               ]}
@@ -811,7 +846,7 @@ export default function ReportPage() {
               icon={<CopyOutlined />}
               onClick={() =>
                 copyPrompt(
-                  `请用大白话解读这份 DCF 预期差：目标价 ¥${c.targetPrice.toFixed(2)}（+${c.upside.toFixed(1)}%），隐含终局利润 L=${r?.l.toFixed(0)}亿，L/E3=${r?.lE3.toFixed(1)}x。300 字以内。`,
+                  `请用大白话解读这份 DCF 预期差：目标价 ¥${num(c.targetPrice, 2)}（${num(c.upside, 1)}%），隐含终局利润 L=${num(r?.l, 0)}亿，L/E3=${num(r?.lE3, 1)}x。300 字以内。`,
                 )
               }
             >

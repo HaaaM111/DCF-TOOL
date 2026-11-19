@@ -91,12 +91,15 @@ async function saveHistory(
   });
 
   for (const bar of bars) {
+    // 同一交易日只保留一条快照：开盘/盘中/收盘多次同步都会落到同一个自然日，
+    // 否则走势图会出现同日多点、K 线状抖动。
+    const day = new Date(`${bar.date.slice(0, 10)}T00:00:00.000Z`);
     await prisma.priceSnapshot.upsert({
-      where: { ticker_date: { ticker, date: new Date(bar.date) } },
-      update: { close: bar.close, volume: bar.volume ?? 0 },
+      where: { ticker_date: { ticker, date: day } },
+      update: { close: bar.close, volume: bar.volume ?? 0, companyId: company?.id },
       create: {
         ticker,
-        date: new Date(bar.date),
+        date: day,
         close: bar.close,
         volume: bar.volume ?? 0,
         companyId: company?.id,

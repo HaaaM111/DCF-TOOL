@@ -450,6 +450,27 @@ function lastAnnualReportDate(): string {
 }
 
 /**
+ * 仅取货币资金（资产负债表 MONETARYFUNDS），返回亿元。
+ * 用于 iFinD 财务口径缺失货币资金时补齐，避免净现金被误算成「-有息负债」。
+ * 仅 A 股支持（港股抛错）。
+ */
+export async function fetchEastCash(ticker: string): Promise<number> {
+  if (!/\.(SH|SZ)$/.test(ticker.trim().toUpperCase())) {
+    throw new Error(`东财货币资金兜底仅支持 A 股：${ticker}`);
+  }
+  const reportDate = lastAnnualReportDate();
+  const emCode = toEmCode(ticker);
+  const balanceUrl =
+    `${EMWEB_BASE}/PC_HSF10/NewFinanceAnalysis/ZcfzbAjaxNew` +
+    `?companyType=4&reportDateType=0&reportType=1&dates=${reportDate}&code=${emCode}`;
+  const balRaw = await eastGet<unknown>(balanceUrl, `cash ${ticker}`);
+  const balParsed = emwebSchema.safeParse(balRaw);
+  const row = balParsed.success ? balParsed.data.data?.[0] : undefined;
+  if (!row?.MONETARYFUNDS) throw new Error(`东财资产负债表无 ${ticker} 的货币资金`);
+  return Number((row.MONETARYFUNDS / 1e8).toFixed(2));
+}
+
+/**
  * 财务数据兜底（仅 A 股）
  * 返回结构与 ifind-client.fetchFinancials 一致（单位：亿元 / 亿股），
  * 另附 incomplete 标记（港股不支持时直接抛错，避免返回残缺数据）
@@ -536,7 +557,7 @@ export async function fetchEastFinancials(ticker: string) {
   return {
     ticker,
     name: mainRow.SECURITY_NAME_ABBR || ticker,
-    cash: 0, // 与 ifind 口径一致：货币资金暂不填
+    cash: Number(((balRow?.MONETARYFUNDS ?? 0) / YI).toFixed(2)), // 货币资金（资产负债表 MONETARYFUNDS）
     debt: Number((debt / YI).toFixed(2)),
     shares: Number(((mainRow.TOTAL_SHARE ?? 0) / 1e8).toFixed(2)),
     cfo: Number((cfo / YI).toFixed(2)),

@@ -17,6 +17,7 @@ import {
   fetchEastQuote,
   fetchEastPriceHistory,
   fetchEastFinancials,
+  fetchEastCash,
   isEastMoneyEnabled,
 } from "./eastmoney-client";
 import {
@@ -179,6 +180,24 @@ export async function resolveQuote(ticker: string): Promise<Resolved<QuoteData>>
 // 财务数据：iFinD → 东财 → mock
 // ============================================================
 
+/**
+ * 货币资金兜底：iFinD 未返回货币资金（cash 为 0）时，用东财资产负债表补齐。
+ * 净现金 = 货币资金 − 有息负债，缺失货币资金会把净现金算成「-有息负债」，
+ * 进而让 DCF 目标价变成负数或接近 0（首页四象限被极端值拉爆）。
+ */
+async function withCashFallback<T extends { cash: number }>(
+  ticker: string,
+  data: T,
+): Promise<T> {
+  if (data.cash > 0 || !isEastMoneyEnabled()) return data;
+  try {
+    const cash = await fetchEastCash(ticker);
+    return cash > 0 ? { ...data, cash } : data;
+  } catch {
+    return data;
+  }
+}
+
 export async function resolveFinancials(
   ticker: string,
 ): Promise<Resolved<FinancialsResult>> {
@@ -186,7 +205,7 @@ export async function resolveFinancials(
   if (hasIfindCredentials()) {
     try {
       const f = await fetchFinancials(ticker);
-      return { source: "ifind", data: f };
+      return { source: "ifind", data: await withCashFallback(ticker, f) };
     } catch {
       // iFinD 失败，落到东财兜底
     }

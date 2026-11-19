@@ -435,8 +435,9 @@ export default function AgentPage() {
   const activeHistory = history.find((it) => it.company.id === companyId);
 
   return (
-    <div className="agent-shell">
+    <>
       <AppHeader
+        fluid
         title="智能体对话"
         subtitle="绑定标的 · 基于 DCF 假设与公告信号问答 · 可要求重新拉取公告"
         actions={
@@ -444,7 +445,7 @@ export default function AgentPage() {
             API 配置
           </Button>
         }
-      />
+      >
 
       <div className="agent-main">
         {/* 移动端遮罩 */}
@@ -718,6 +719,7 @@ export default function AgentPage() {
           />
         )}
       </Modal>
-    </div>
+      </AppHeader>
+    </>
   );
 }
