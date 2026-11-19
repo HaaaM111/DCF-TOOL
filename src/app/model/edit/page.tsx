@@ -217,7 +217,6 @@ function ModelEditContent() {
     if (!tickerParam) return;
     setForm((f) => ({ ...f, ticker: tickerParam }));
     fetchBasics(tickerParam);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const derived = useMemo(() => {
