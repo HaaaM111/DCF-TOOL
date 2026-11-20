@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { calculateOperatingValuation, operatingValuationSchema, type OperatingValuationInput } from "./operating-valuation";
 import { median } from "./relative-multiples";
+import { centeredRateAxis } from "./sensitivity-grid";
 import { seededRandom, standardNormal, summarizePrices } from "./simulation-statistics";
 
 const axis = z.array(z.number().min(-0.99).max(1)).min(1).max(15);
@@ -113,18 +114,21 @@ function simulate(input: OperatingAnalysisInput, config: Simulation) {
     rejected: config.samples - workbook.length, config };
 }
 
-export function analyzeOperatingValuation(input: OperatingAnalysisInput) {
-  const base = calculateOperatingValuation(input);
-  const config = input.scenarios;
-  const defaultAxis = (center: number, step: number) =>
-    [-2, -1, 0, 1, 2].map((offset) => Number((center + offset * step).toFixed(8)));
-  const rates = [...new Set(config?.sensitivity?.wacc ?? defaultAxis(input.wacc, 0.01))];
-  const growth = [...new Set(config?.sensitivity?.g ?? defaultAxis(input.terminalGrowth, 0.005))];
-  const heatmap = rates.flatMap((wacc) => growth.map((g) => {
+export function operatingSensitivity(input: OperatingAnalysisInput) {
+  const custom = input.scenarios?.sensitivity;
+  const rates = centeredRateAxis(input.wacc, 0.01, custom?.wacc);
+  const growth = centeredRateAxis(input.terminalGrowth, 0.005, custom?.g);
+  return rates.flatMap((wacc) => growth.map((g) => {
     const valid = feasible(wacc, g);
     return { wacc, g, workbookPrice: valid ? workbookScenarioPrice(input, wacc, g) : null,
       coherentPrice: valid ? calculateOperatingValuation({ ...input, wacc, terminalGrowth: g }).prices.reoi : null };
   }));
+}
+
+export function analyzeOperatingValuation(input: OperatingAnalysisInput) {
+  const base = calculateOperatingValuation(input);
+  const config = input.scenarios;
+  const heatmap = operatingSensitivity(input);
   const peers = config?.operatingPeers;
   const peerValuation = peers ? {
     source: peers.source, availableOn: peers.availableOn, quoteDate: peers.quoteDate,

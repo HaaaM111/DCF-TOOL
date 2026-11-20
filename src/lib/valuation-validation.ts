@@ -11,6 +11,7 @@
 
 import { calcForwardDcf } from "./dcf";
 import type { CompanyBasics, DcfAssumptions } from "@/types/dcf";
+import { centeredRateAxis, type SensitivityCellPrice } from "./sensitivity-grid";
 
 const num = (v: number) => (Number.isFinite(v) ? v : 0);
 
@@ -67,11 +68,7 @@ export interface ValidationResult {
   psPercentile: number;
 }
 
-export interface SensitivityHeatmapCell {
-  wacc: number;
-  g: number;
-  targetPrice: number;
-}
+export type SensitivityHeatmapCell = SensitivityCellPrice;
 
 // ============================================================
 // 工具函数
@@ -223,39 +220,22 @@ export function crossValidate(
 }
 
 // ============================================================
-// 4. 2D 敏感性热力图（WACC × 永续 g）
+// 4. 简化股东回报模型：Ke × 永续 g
 // ============================================================
 
 /**
- * 生成 WACC × 永续 g 的二维敏感性矩阵
+ * 以已保存的 Ke 和永续 g 为中心生成矩阵，保留无效格。
  * 每个组合重跑 calcForwardDcf，记录调整后目标价
  */
 export function calcSensitivityHeatmap(
   a: DcfAssumptions,
   b: CompanyBasics,
 ): SensitivityHeatmapCell[] {
-  const waccRange = [0.07, 0.08, 0.09, 0.1, 0.11];
-  const gRange = [-0.01, 0, 0.01, 0.02, 0.03];
-
-  const cells: SensitivityHeatmapCell[] = [];
-  for (const wacc of waccRange) {
-    for (const g of gRange) {
-      // 永续 g 必须 < wacc，否则 Gordon 爆炸
-      if (g >= wacc) continue;
-      const sampled: DcfAssumptions = {
-        ...a,
-        ke: wacc,
-        perpetualG: g,
-      };
-      const forward = calcForwardDcf(sampled, b);
-      cells.push({
-        wacc,
-        g,
-        targetPrice: num(forward.adjustedTargetPrice),
-      });
-    }
-  }
-  return cells;
+  return centeredRateAxis(a.ke, 0.01).flatMap((wacc) => centeredRateAxis(a.perpetualG, 0.005).map((g) => {
+    const valid = wacc > 0 && wacc <= 1 && g > -1 && g < wacc;
+    const price = valid ? calcForwardDcf({ ...a, ke: wacc, perpetualG: g }, b).adjustedTargetPrice : null;
+    return { wacc, g, targetPrice: price !== null && Number.isFinite(price) ? price : null };
+  }));
 }
 
 // ============================================================

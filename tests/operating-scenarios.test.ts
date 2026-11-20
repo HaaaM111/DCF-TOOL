@@ -25,6 +25,17 @@ test("workbook sensitivity freezes base ReOI and blanks invalid spreads while co
   assert.equal(result.heatmap[3].coherentPrice, null);
 });
 
+test("custom operating axes preserve exact saved rates and both methods anchor to the same base price", () => {
+  const input = operatingAnalysisSchema.parse({ ...data, wacc: 0.0950632112467, terminalGrowth: 0.0280611221334,
+    scenarios: { sensitivity: { wacc: [0.08, 0.12], g: [0.01, 0.04] } } });
+  const result = analyzeOperatingValuation(input);
+  assert.equal(result.heatmap.length, 9);
+  const base = result.heatmap.find((cell) => cell.wacc === input.wacc && cell.g === input.terminalGrowth);
+  assert.ok(base);
+  near(base.coherentPrice!, result.prices.fcff);
+  near(base.workbookPrice!, result.prices.reoi);
+});
+
 test("scenario simulation is deterministic and reproduces the base case without shocks", () => {
   const config = { samples: 100, seed: 31, waccStd: 0, growthStd: 0 };
   const input = operatingAnalysisSchema.parse({ ...data, scenarios: { simulation: config } });

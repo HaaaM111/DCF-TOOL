@@ -96,8 +96,8 @@ export interface GordonCheckResult {
 /** 敏感性矩阵单元 */
 export interface SensitivityCell {
   param: number;          // 参数值
-  l: number;              // 隐含终局利润 L
-  lE3: number;            // L/E3
+  l: number | null;       // 无有效组合时为空
+  lE3: number | null;     // E3 非正时不计算倍数
 }
 
 /** 敏感性矩阵 */

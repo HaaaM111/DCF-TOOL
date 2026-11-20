@@ -104,51 +104,38 @@ export function FcfBars({ rows }: { rows: { year: number; fcf: number; pvFcf: nu
 export function TrendChart({
   prices,
   valuation = [],
-  p5,
-  p95,
+  currency = "当地币",
 }: {
   prices: { date: string; close: number }[];
-  valuation?: { date: string; targetPrice: number }[];
-  p5?: number;
-  p95?: number;
+  valuation?: { date: string; targetPrice: number | null }[];
+  currency?: string;
 }) {
   const { mode } = useTheme();
   const palette = terminalPalette[mode];
-  const dates = prices.map((p) => p.date);
-  const closeData = prices.map((p) => p.close);
-
-  // 估值数据对齐到 dates
-  const valMap = new Map(valuation.map((v) => [v.date, v.targetPrice]));
-  const valData = dates.map((d) => valMap.get(d) ?? null);
-
-  // 置信区间带（若提供 p5/p95）
-  const bandLower = p5 != null ? dates.map(() => p5) : [];
-  const bandUpper = p95 != null ? dates.map(() => p95) : [];
+  const closeByDate = new Map(prices.map((p) => [p.date, p.close]));
+  const sorted = [...valuation].sort((a, b) => a.date.localeCompare(b.date));
+  const firstPriceDate = [...closeByDate.keys()].sort()[0];
+  const dates = [...new Set([...closeByDate.keys(),
+    ...sorted.filter((item) => !firstPriceDate || item.date >= firstPriceDate).map((item) => item.date)])].sort();
+  const closeData = dates.map((date) => closeByDate.get(date) ?? null);
+  let version = 0;
+  let target: number | null = null;
+  const valData = dates.map((date) => {
+    while (version < sorted.length && sorted[version].date <= date) target = sorted[version++].targetPrice;
+    return target;
+  });
 
   const option = {
     tooltip: { trigger: "axis" },
-    legend: { data: ["收盘价", "DCF 目标价", "置信区间"], top: 0 },
-    grid: { left: 55, right: 55, top: 40, bottom: 60 },
+    legend: { data: ["收盘价", ...(valData.some((value) => value !== null) ? ["已发布目标价"] : [])], top: 0 },
+    grid: { left: 55, right: 30, top: 40, bottom: 60 },
     xAxis: {
       type: "category",
       data: dates,
       axisLabel: { fontSize: 10, hideOverlap: true },
       boundaryGap: false,
     },
-    yAxis: [
-      {
-        type: "value",
-        name: "股价 (元)",
-        position: "left",
-        axisLabel: { fontSize: 10 },
-      },
-      {
-        type: "value",
-        name: "目标价 (元)",
-        position: "right",
-        axisLabel: { fontSize: 10 },
-      },
-    ],
+    yAxis: { type: "value", name: `${currency}/股`, scale: true, axisLabel: { fontSize: 10 } },
     dataZoom: [
       { type: "inside", start: 0, end: 100 },
       { type: "slider", start: 0, end: 100, height: 20, bottom: 10 },
@@ -158,44 +145,18 @@ export function TrendChart({
         name: "收盘价",
         type: "line",
         data: closeData,
+        connectNulls: true,
         showSymbol: false,
-        lineStyle: { width: 2, color: palette.link },
+        lineStyle: { width: 2, color: palette.accent }, itemStyle: { color: palette.accent },
       },
       {
-        name: "DCF 目标价",
+        name: "已发布目标价",
         type: "line",
-        yAxisIndex: 1,
         data: valData,
+        step: "end",
         symbol: "circle",
-        lineStyle: { width: 2, color: palette.positive, type: "dashed" },
+        lineStyle: { width: 2, color: palette.positive, type: "dashed" }, itemStyle: { color: palette.positive },
       },
-      // 置信区间带（用两个面积图叠加实现）
-      ...(p5 != null && p95 != null
-        ? [
-            {
-              name: "置信上限",
-              type: "line",
-              yAxisIndex: 1,
-              data: bandUpper,
-              symbol: "none",
-              lineStyle: { opacity: 0 },
-              stack: "band",
-              areaStyle: { color: palette.chartUp },
-              tooltip: { show: false },
-              legendHoverLink: false,
-            },
-            {
-              name: "置信区间",
-              type: "line",
-              yAxisIndex: 1,
-              data: bandLower.map((v, i) => (bandUpper[i] ?? 0) - v),
-              symbol: "none",
-              lineStyle: { opacity: 0 },
-              stack: "band",
-              areaStyle: { color: palette.chartUp },
-            },
-          ]
-        : []),
     ],
   };
 

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { calcDcf,calcForwardDcf } from "../src/lib/dcf";
 import { simulateWithJumps } from "../src/lib/jump-simulation";
 import { compareMultiples } from "../src/lib/relative-multiples";
-import { crossValidate,calcRelativeValuation } from "../src/lib/valuation-validation";
+import { crossValidate,calcRelativeValuation,calcSensitivityHeatmap } from "../src/lib/valuation-validation";
 import { assumptionsSchema,companySchema } from "../src/lib/validation";
 const a={baseFcf:10,g1:.05,g2:.03,g3:.02,perpetualG:.01,ke:.1,payoutRate1:.5,payoutRate2:.7,e1:10,e2:11,e3:12,reverseR:.1,exitPe:8,transitionG:.03,terminalProfitEst:20};
 const b={currentPrice:10,shares:10,netCash:5,e0:10};
@@ -23,3 +23,17 @@ test("missing EBIT is unavailable, not zero or inferred from net profit",()=>{co
 test("legacy PE valuation uses peer median rather than mean",()=>{const r=calcRelativeValuation(100,10,50,40,[...peers,{...subject,ticker:"P4",marketCap:100000}]);assert.equal(r.peValue,120);});
 
 test("PE mirror bridges FCF payouts to terminal net profit",()=>{const r=calcDcf({...a,g1:0,g2:0,g3:0,perpetualG:0,exitPe:10,terminalProfitEst:20},b);assert.ok(Math.abs(r.gordon.impliedKe-.035)<1e-12);});
+
+test("legacy heatmap centers on saved assumptions and retains null cells for invalid spreads", () => {
+  const input = { ...a, ke: 0.065, perpetualG: 0.06, reverseR: 0.066, e3: 0 };
+  const matrix = calcSensitivityHeatmap(input, b);
+  assert.equal(matrix.length, 25);
+  assert.equal(matrix.find((point) => point.wacc === input.ke && point.g === input.perpetualG)?.targetPrice,
+    calcForwardDcf(input, b).adjustedTargetPrice);
+  assert.ok(matrix.some((point) => point.targetPrice === null));
+  assert.ok(matrix.filter((point) => point.g >= point.wacc).every((point) => point.targetPrice === null));
+  const reverse = calcDcf(input, b);
+  assert.equal(reverse.sensitivity.r.find((point) => point.param === input.reverseR)?.l, reverse.reverse.l);
+  assert.ok(reverse.sensitivity.r.some((point) => point.l === null));
+  assert.ok(reverse.sensitivity.g.every((point) => point.lE3 === null));
+});

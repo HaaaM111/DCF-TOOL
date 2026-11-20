@@ -49,6 +49,14 @@ export async function POST(req: NextRequest) {
       "VALIDATION_ERROR",
     );
   }
+  const aParsed = assumptionsSchema.safeParse(rawA);
+  if (rawA !== undefined && !aParsed.success) {
+    return jsonError(
+      `估值假设校验失败：${aParsed.error.issues.map((issue) => issue.message).join("；")}`,
+      422,
+      "VALIDATION_ERROR",
+    );
+  }
   const c = cParsed.data;
 
   // 同代码去重：ticker 唯一，已存在则返回冲突
@@ -82,7 +90,6 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  const aParsed = assumptionsSchema.safeParse(rawA);
   if (aParsed.success) {
     const a = aParsed.data;
     const output = calcDcf(a, {

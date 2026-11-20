@@ -4,6 +4,7 @@ import { reviewAssumptions } from "@/lib/assumption-review";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Card,
+  Collapse,
   Row,
   Col,
   Statistic,
@@ -29,12 +30,12 @@ import {
 } from "@ant-design/icons";
 import { useRouter } from "next/navigation";
 import OperatingValuationPanel from "@/components/operating-valuation-panel";
+import CompanySensitivityPanel from "@/components/company-sensitivity-panel";
 import ValuationAttributionPanel from "@/components/valuation-attribution-panel";
 import { ValueDonut, FcfBars, TrendChart, ConfidenceChart } from "@/components/charts";
 import {
   PeerCompareChart,
   ValidationGauge,
-  SensitivityHeatmap,
 } from "@/components/validation-charts";
 import { calcDcf } from "@/lib/dcf";
 import type { DcfOutput, MonteCarloResult } from "@/types/dcf";
@@ -103,7 +104,7 @@ interface CompanyData {
 interface ValidationResponse {
   validation: {
     absoluteValue: number | null;
-    relativeValue: number;
+    relativeValue: number | null;
     currentPe: number;
     currentPb: number;
     currentPs: number;
@@ -119,9 +120,6 @@ interface ValidationResponse {
     conclusion: string;
     multiples: Awaited<ReturnType<typeof calculatePeerValuation>>["multiples"];
     peerSelection: Awaited<ReturnType<typeof calculatePeerValuation>>["evidence"];
-    sensitivityHeatmap: { wacc: number; g: number; targetPrice: number | null }[];
-    sensitivityRate: "WACC" | "Ke";
-    sensitivityCurrency: string;
   };
   peers: { ticker: string; name: string; pe: number; pb: number; ps: number }[];
   hasHistory: boolean;
@@ -134,16 +132,18 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
   const comparables = section === "comparables";
   const attribution = section === "attribution";
   const needsSimulation = overview || sensitivity;
-  const needsValidation = sensitivity || comparables;
+  const needsValidation = comparables;
 
   const [company, setCompany] = useState<CompanyData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [knobPayout, setKnobPayout] = useState(0.7);
-  const [knobExitPe, setKnobExitPe] = useState(7);
-  const [knobG, setKnobG] = useState(0.012);
+  const [knobPayout, setKnobPayout] = useState<number>();
+  const [knobExitPe, setKnobExitPe] = useState<number>();
+  const [knobG, setKnobG] = useState<number>();
   const [noteDate, setNoteDate] = useState<string>(new Date().toISOString().slice(0, 10));
   const [noteContent, setNoteContent] = useState("");
   const [prices, setPrices] = useState<{ date: string; close: number }[]>([]);
+  const [publishedPrices, setPublishedPrices] = useState<{ date: string; targetPrice: number | null }[]>([]);
+  const [priceCurrency, setPriceCurrency] = useState<string>();
   const [mcResult, setMcResult] = useState<MonteCarloResult | null>(null);
   const [mcLoading, setMcLoading] = useState(false);
   const [jumpEnabled,setJumpEnabled]=useState(false);
@@ -172,7 +172,12 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
     const controller = new AbortController();
     fetch("/api/companies/" + encodeURIComponent(id) + "/prices", { signal: controller.signal })
       .then((response) => response.json())
-      .then((data) => { if (!controller.signal.aborted) setPrices(data.prices ?? []); })
+      .then((data) => {
+        if (controller.signal.aborted) return;
+        setPrices(data.prices ?? []);
+        setPublishedPrices(data.valuation ?? []);
+        setPriceCurrency(data.currency ?? undefined);
+      })
       .catch(() => {});
     return () => controller.abort();
   }, [id, overview]);
@@ -215,7 +220,7 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
     };
   }, [company, needsSimulation, jumpEnabled, jumpLambda, jumpMean, jumpStd]);
 
-  // 敏感性和同行对比共用确定性估值验证。
+  // 同行对比允许依赖外部行情；敏感性独立读取底稿。
   useEffect(() => {
     if (!company || !needsValidation) return;
     let cancelled = false;
@@ -258,15 +263,16 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
 
   // 三旋钮：调整派现率/ExitPE/永续g 后重算隐含 Ke
   const knobOutput = useMemo(() => {
-    if (!company?.assumption) return null;
-    const a = { ...company.assumption, payoutRate2: knobPayout, exitPe: knobExitPe, perpetualG: knobG };
-    return calcDcf(a, {
+    if (!sensitivity || company?.primaryValuation.kind !== "legacy" || !company.assumption) return null;
+    const saved = company.assumption;
+    const a = { ...saved, payoutRate2: knobPayout ?? saved.payoutRate2, exitPe: knobExitPe ?? saved.exitPe, perpetualG: knobG ?? saved.perpetualG };
+    try { return calcDcf(a, {
       currentPrice: company.currentPrice,
       shares: company.shares,
       netCash: company.netCash,
       e0: company.e0,
-    });
-  }, [company, knobPayout, knobExitPe, knobG]);
+    }); } catch { return null; }
+  }, [company, sensitivity, knobPayout, knobExitPe, knobG]);
 
   // 公司画像（规则引擎）—— 必须在 early return 之前调用
   const profile = useMemo(() => {
@@ -283,7 +289,9 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
           : r.lE3 > 40
             ? "高增长透支型：市场给了极高的终局利润倍数，预期已相当饱满。"
             : "稳态估值型：市场隐含终局利润处于合理区间。";
-    const body = `市值 ${c.marketCap.toFixed(0)} 亿，净现金 ${c.netCash.toFixed(0)} 亿（占股权价值 ${((c.netCash / (f.adjustedEquityValue || 1)) * 100).toFixed(0)}%）；Capex/D&A = ${(c.capex / c.da).toFixed(2)}，投资不足折旧一半，收缩收获型轻资产，现金持续释放；前 5 年 CAGR ${(c.assumption?.g1 ?? 0) * 100}%。`;
+    const cashShare = f.adjustedEquityValue > 0 ? `，占模型股权价值 ${(c.netCash / f.adjustedEquityValue * 100).toFixed(0)}%` : "";
+    const capexShare = c.da > 0 && c.capex > 0 ? (c.capex / c.da).toFixed(2) : "待核验";
+    const body = `市值 ${c.marketCap.toFixed(0)} 亿，净现金 ${c.netCash.toFixed(0)} 亿${cashShare}。本期 Capex/D&A ${capexShare}，模型前五年现金流增速假设 ${((c.assumption?.g1 ?? 0) * 100).toFixed(1)}%。`;
     const marketBet = `隐含终局利润 ${r.l.toFixed(0)} 亿，L/E3 = ${r.lE3.toFixed(1)}x（${c.diagnosis}），隐含 20 年 CAGR ${r.impliedCagr.toFixed(1)}%。`;
     const modelSays = `股东回报口径 +${f.adjustedUpside.toFixed(1)}%（原版 +${f.originalUpside.toFixed(1)}%，裂口 ${(f.adjustedUpside - f.originalUpside).toFixed(0)}pct = 留存再投资回报 vs 无风险的分歧）；价值构成以「${f.composition.netCash > f.composition.explicit ? "净现金" : "显性期"}」为主。`;
     const check = g.isConsistent
@@ -315,10 +323,15 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
   const c = company;
   const primary = c.primaryValuation;
   const publication = primary.kind === "operating" ? primary.publication : undefined;
+  const hasPublishedPrices = publishedPrices.some((item) => item.targetPrice !== null);
   const f = output?.forward;
   const r = output?.reverse;
   const g = output?.gordon;
-  const sens = output?.sensitivity;
+  const sens = primary.kind === "legacy" ? output?.sensitivity : undefined;
+  const payout = knobPayout ?? c.assumption?.payoutRate2 ?? 0;
+  const exitPe = knobExitPe ?? c.assumption?.exitPe ?? 0;
+  const perpetualG = knobG ?? c.assumption?.perpetualG ?? 0;
+  const formatRate = (v: number) => `${Number((v * 100).toFixed(4))}%`;
 
   const sensitivityColumns = (label: string) => [
     { title: label, dataIndex: "param", width: 100 },
@@ -326,13 +339,13 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
       title: "隐含 L (亿)",
       dataIndex: "l",
       width: 120,
-      render: (v: number) => <span className="txt-mid">{v.toFixed(0)}</span>,
+      render: (v: number | null) => v === null ? "—" : <span className="txt-mid">{v.toFixed(2)}</span>,
     },
     {
       title: "L/E3",
       dataIndex: "lE3",
       width: 100,
-      render: (v: number) => `${v.toFixed(2)}x`,
+      render: (v: number | null) => v === null ? "—" : `${v.toFixed(2)}x`,
     },
   ];
 
@@ -426,15 +439,14 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
       {/* 股价 vs DCF 估值趋势图 */}
         <Card
           size="small"
-          title="股价走势"
-          extra={<span className="text-xs text-terminal-muted">历史收盘价</span>}
+          title={hasPublishedPrices ? "收盘价与主估值" : "股价走势"}
+          extra={<span className="text-xs text-terminal-muted">{hasPublishedPrices ? "目标价从发布日期起显示" : "历史收盘价"}</span>}
           className="mb-4"
         >
           {prices.length > 0 ? <TrendChart
             prices={prices}
-            valuation={[]}
-            p5={primary.kind === "legacy" ? mcResult?.p5 : undefined}
-            p95={primary.kind === "legacy" ? mcResult?.p95 : undefined}
+            valuation={publishedPrices}
+            currency={priceCurrency}
           /> : <Empty description="暂无历史行情" />}
         </Card>
 
@@ -468,30 +480,32 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
       </div>
       </>}
 
-      {sensitivity && <>
+      {sensitivity && <CompanySensitivityPanel key={c.id} companyId={c.id} />}
+
+      {sensitivity && primary.kind === "legacy" && c.assumption && <>
       {/* 三旋钮解算 */}
-      <Card title="三旋钮解算（点击翻译项即按一键采用）" className="mb-4">
+      <Card title="简化模型情景试算" className="mb-4">
         <Row gutter={[16, 16]}>
           <Col xs={24} md={8}>
             <Card size="small" className="scenario-knob scenario-knob-payout">
-              <div className="text-sm">① 派现率 — {knobPayout >= 0.7 ? "75%" : "50%"}（当前 {(knobPayout * 100).toFixed(0)}%）</div>
-              <Button size="small" onClick={() => setKnobPayout(knobPayout >= 0.7 ? 0.5 : 0.75)}>
+              <div className="text-sm">终局派现率：{formatRate(payout)}</div>
+              <Button size="small" onClick={() => setKnobPayout(payout >= 0.7 ? 0.5 : 0.75)}>
                 切换派现率
               </Button>
             </Card>
           </Col>
           <Col xs={24} md={8}>
             <Card size="small" className="scenario-knob scenario-knob-exit">
-              <div className="text-sm">② Exit PE — 当前 {knobExitPe}x</div>
-              <Button size="small" onClick={() => setKnobExitPe(knobExitPe >= 7 ? 4.7 : 7)}>
+              <div className="text-sm">Exit PE：{exitPe}x</div>
+              <Button size="small" onClick={() => setKnobExitPe(exitPe >= 7 ? 4.7 : 7)}>
                 切换 Exit PE
               </Button>
             </Card>
           </Col>
           <Col xs={24} md={8}>
             <Card size="small" className="scenario-knob scenario-knob-growth">
-              <div className="text-sm">③ 永续 g — 当前 {(knobG * 100).toFixed(1)}%</div>
-              <Button size="small" onClick={() => setKnobG(knobG > 0 ? 0 : 0.012)}>
+              <div className="text-sm">永续 g：{formatRate(perpetualG)}</div>
+              <Button size="small" onClick={() => setKnobG(perpetualG > 0 ? 0 : 0.012)}>
                 切换永续 g
               </Button>
             </Card>
@@ -501,17 +515,23 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
           <Alert
             type="warning"
             showIcon
-            title={`旋钮调整后：隐含 Ke ${(knobOutput.reverse.impliedKe * 100).toFixed(1)}%，目标价 ¥${knobOutput.forward.adjustedTargetPrice.toFixed(2)}（${knobOutput.forward.adjustedUpside >= 0 ? "+" : ""}${knobOutput.forward.adjustedUpside.toFixed(1)}%）`}
+            title={`Exit PE 镜像 Ke：${knobOutput.gordon.isApplicable ? formatRate(knobOutput.gordon.impliedKe) : "不适用"} · Gordon 每股估值 ${knobOutput.forward.adjustedTargetPrice.toFixed(2)}`}
+            description="Exit PE 只用于镜像校验，不进入正向 Gordon 终值公式；试算不会保存假设。"
           />
         )}
+        {!knobOutput && <Alert type="info" showIcon title="当前试算参数无有效估值，请检查永续增长率和折现率。" />}
       </Card>
 
       </>}
 
       {section === "models" && <>
-      <OperatingValuationPanel key={c.id} ticker={c.ticker} companyId={c.id} publication={publication} onPublished={() => { void load(); }} />
+      <OperatingValuationPanel key={c.id} ticker={c.ticker} companyId={c.id} publication={publication} onPublished={(next) => {
+        const upside = next.comparableQuote === null || next.retrospective ? null : (next.price / next.comparableQuote - 1) * 100;
+        setCompany((previous) => previous ? { ...previous, targetPrice: next.price, upside,
+          primaryValuation: { kind: "operating", publication: next, price: next.price, upside } } : previous);
+      }} />
 
-      {/* 口径对照 */}
+      {f && <Collapse items={[{ key: "legacy", label: "存量简化模型 · 口径与价值拆解", children: <>
       <Alert
         className="mb-3"
         type="info"
@@ -559,7 +579,7 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
           </section>
         </div>
       </Card>
-
+      </> }]} />}
       </>}
 
       {sensitivity && <>
@@ -567,17 +587,17 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
       {sens && (
         <Card
           title="二、逆向 DCF 财务穿透 · 市场隐含终局分析"
-          extra={<Tag>参数 r={((c.assumption?.reverseR ?? 0) * 100).toFixed(0)}% / 退出PE={c.assumption?.exitPe}x</Tag>}
+          extra={<Tag>参数 r={formatRate(c.assumption?.reverseR ?? 0)} / 退出PE={c.assumption?.exitPe}x</Tag>}
           className="mb-4"
         >
           <Table
             size="small"
             pagination={false}
             columns={[
-              { title: "折现率 r", dataIndex: "param", align: "right", render: (v: number) => `${(v * 100).toFixed(0)}%` },
-              { title: "隐含终局利润 L", dataIndex: "l", align: "right", render: (v: number) => `${v.toFixed(0)} 亿` },
-              { title: "L/E3 倍数", dataIndex: "lE3", align: "right", render: (v: number) => `${v.toFixed(2)}x` },
-              { title: "L/E0 倍数", dataIndex: "l", align: "right", responsive: ["md"], render: (v: number) => c.e0 ? `${(v / c.e0).toFixed(2)}x` : "不可用" },
+              { title: "折现率 r", dataIndex: "param", align: "right", render: formatRate },
+              { title: "隐含终局现金流 L", dataIndex: "l", align: "right", render: (v: number | null) => v === null ? "—" : `${v.toFixed(2)} 亿` },
+              { title: "L/E3 倍数", dataIndex: "lE3", align: "right", render: (v: number | null) => v === null ? "—" : `${v.toFixed(2)}x` },
+              { title: "L/E0 倍数", dataIndex: "l", align: "right", responsive: ["md"], render: (v: number | null) => v !== null && c.e0 > 0 ? `${(v / c.e0).toFixed(2)}x` : "—" },
               {
                 title: "叙事分级诊断",
                 responsive: ["md"],
@@ -587,11 +607,12 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
             dataSource={sens.r.map((cell) => ({ ...cell, key: cell.param }))}
           />
 
-          <Divider>三、三变量敏感性矩阵 · 隐含终局利润 L 对关键参数的弹性</Divider>
+          <Divider>逆向情景切片</Divider>
+          <p className="mb-3 text-xs text-terminal-muted">Gordon 切片反推终局现金流；退出 PE 切片反推终局净利润。两种口径不可直接混用。</p>
           <Row gutter={[16, 16]}>
             <Col xs={24} md={8}>
               <Card size="small" title="① L_conservative 对折现率 r">
-                <Table size="small" pagination={false} columns={sensitivityColumns("折现率")} dataSource={sens.r.map((x) => ({ ...x, param: `${(x.param * 100).toFixed(0)}%`, key: x.param }))} />
+                <Table size="small" pagination={false} columns={sensitivityColumns("折现率")} dataSource={sens.r.map((x) => ({ ...x, param: formatRate(x.param), key: x.param }))} />
               </Card>
             </Col>
             <Col xs={24} md={8}>
@@ -601,7 +622,7 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
             </Col>
             <Col xs={24} md={8}>
               <Card size="small" title="③ L_gordon 对永续 g">
-                <Table size="small" pagination={false} columns={sensitivityColumns("永续g")} dataSource={sens.g.map((x) => ({ ...x, param: `${(x.param * 100).toFixed(0)}%`, key: x.param }))} />
+                <Table size="small" pagination={false} columns={sensitivityColumns("永续g")} dataSource={sens.g.map((x) => ({ ...x, param: formatRate(x.param), key: x.param }))} />
               </Card>
             </Col>
           </Row>
@@ -655,7 +676,7 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
       </>}
 
       {needsValidation && <Card
-        title={comparables ? "绝对与相对估值交叉验证" : "敏感性热力图"}
+        title="绝对与相对估值交叉验证"
         extra={comparables && (
           <Tag color={validation?.validation?.conclusion === "一致" ? "green" : "orange"}>
             {validation?.validation?.conclusion ?? (validationLoading ? "计算中" : "待验证")}
@@ -747,16 +768,6 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
               { title: "数据核验", render: (_, peer) => peer.excluded ?? `财报 ${peer.financialSource} / 行情 ${peer.quoteSource}` },
             ]} />
             </>}
-            {/* 敏感性热力图 */}
-            {sensitivity && <Card size="small" title={`敏感性热力图（${validation.validation.sensitivityRate} × 永续 g）`} className="mt-4">
-              {validation.validation.sensitivityHeatmap &&
-              Array.isArray(validation.validation.sensitivityHeatmap) &&
-              validation.validation.sensitivityHeatmap.length > 0 ? (
-                <SensitivityHeatmap matrix={validation.validation.sensitivityHeatmap} rateLabel={validation.validation.sensitivityRate} currency={validation.validation.sensitivityCurrency} />
-              ) : (
-                <div className="text-center py-8 text-terminal-muted">估值输入待核验</div>
-              )}
-            </Card>}
           </>
         ) : (
           <Empty description="估值验证失败，请稍后重试" />

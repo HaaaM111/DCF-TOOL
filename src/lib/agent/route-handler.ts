@@ -1,3 +1,4 @@
+import { writeAppSetting } from "@/lib/app-setting-write";
 import { reviewAssumptions } from "@/lib/assumption-review";
 import { readMetrics } from "@/lib/financial-metrics";
 import "server-only";
@@ -79,7 +80,7 @@ export async function handleAgentChat(req:NextRequest){
     finally{
       // Persist only server-produced messages and evidence, never credentials or internal reasoning.
       try{
-        await prisma.appSetting.upsert({where:{key:`agent_run:${runId}`},create:{key:`agent_run:${runId}`,value:JSON.stringify({runId,companyId,completed,maxSteps,trace,createdAt:new Date().toISOString()})},update:{}});
+        await writeAppSetting(prisma, `agent_run:${runId}`, JSON.stringify({runId,companyId,completed,maxSteps,trace,createdAt:new Date().toISOString()}), true);
         const last=messages.filter(m=>m.role==="user").at(-1);
         if(last)await prisma.agentConversation.createMany({data:[{companyId,role:"user",content:last.content},...(reply?[{companyId,role:"assistant",content:reply}]:[])]});
       }catch{ /* Do not fail a completed stream because history storage is unavailable. */ }

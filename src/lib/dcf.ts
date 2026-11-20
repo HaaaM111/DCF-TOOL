@@ -243,7 +243,7 @@ export function calcSensitivity(
   b: CompanyBasics,
   forward: ForwardDcfResult,
 ): SensitivityMatrix {
-  const e3 = num(a.e3) || 1e-9;
+  const e3 = num(a.e3);
   const marketCap = num(b.currentPrice) * num(b.shares);
   const netCash = num(b.netCash);
 
@@ -256,30 +256,33 @@ export function calcSensitivity(
     return tvPv * Math.pow(1 + r, 20);
   };
 
+  const rate = num(a.reverseR) || num(a.ke);
+  const growth = num(a.perpetualG);
+  const axis = (base: number, step: number) =>
+    [-2, -1, 0, 1, 2].map((offset) => offset === 0 ? base : Number((base + offset * step).toFixed(10)));
+  const cell = (param: number, value: number | null) => {
+    const l = value !== null && Number.isFinite(value) ? value : null;
+    return { param, l, lE3: l !== null && e3 > 0 && Number.isFinite(l / e3) ? l / e3 : null };
+  };
+  const gordon = (r: number, g: number) =>
+    r > 0 && r <= 1 && g > -1 && r - g > 1e-6 ? impliedTvAt(r) * (r - g) / (1 + g) : null;
+
   // ① L 对折现率 r（Gordon 永续）
-  const rValues = [0.08, 0.09, 0.1, 0.11, 0.12];
+  const rValues = axis(rate, 0.01);
   const rCells = rValues.map((r) => {
-    const tv = impliedTvAt(r);
-    const g = num(a.perpetualG);
-    const l = r - g > 1e-6 ? (tv * (r - g)) / (1 + g) : 0;
-    return { param: r, l: num(l), lE3: num(l / e3) };
+    return cell(r, gordon(r, growth));
   });
 
   // ② L 对退出 PE（终值 = L * ExitPE）
   const peValues = [0.6, 0.8, 1, 1.2, 1.4].map(x=>x*a.exitPe);
   const peCells = peValues.map((pe) => {
-    const tv = impliedTvAt(num(a.reverseR) || num(a.ke));
-    const l = pe > 0 ? tv / pe : 0;
-    return { param: pe, l: num(l), lE3: num(l / e3) };
+    return cell(pe, pe > 0 ? impliedTvAt(rate) / pe : null);
   });
 
   // ③ L 对永续 g（Gordon）
-  const gValues = [-0.01, 0, 0.01, 0.02, 0.03];
+  const gValues = axis(growth, 0.005);
   const gCells = gValues.map((g) => {
-    const r = num(a.reverseR) || num(a.ke);
-    const tv = impliedTvAt(r);
-    const l = r - g > 1e-6 ? (tv * (r - g)) / (1 + g) : 0;
-    return { param: g, l: num(l), lE3: num(l / e3) };
+    return cell(g, gordon(rate, g));
   });
 
   return { r: rCells, exitPe: peCells, g: gCells };

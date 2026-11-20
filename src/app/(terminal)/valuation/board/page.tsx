@@ -12,13 +12,11 @@ import {
   Space,
   Input,
   Modal,
-  Upload,
   App,
   Tooltip,
 } from "antd";
 import {
   PlusOutlined,
-  ImportOutlined,
   ExportOutlined,
   ReloadOutlined,
   SearchOutlined,
@@ -102,7 +100,6 @@ export default function DashboardPage() {
   const [quadrantFilter, setQuadrantFilter] = useState<string>("");
   const [keyword, setKeyword] = useState("");
   const [selectedId, setSelectedId] = useState<string>();
-  const [importModalOpen, setImportModalOpen] = useState(false);
   const { message } = App.useApp();
 
   const loadData = useCallback(async () => {
@@ -180,29 +177,10 @@ export default function DashboardPage() {
     });
   };
 
-  const handleImport = async (file: File) => {
-    const formData = new FormData();
-    formData.append("file", file);
-    const res = await fetch("/api/import", {
-      method: "POST",
-      body: file,
-      headers: { "Content-Type": "application/json" },
-    });
-    if (res.ok) {
-      const json = await res.json();
-      message.success(`导入完成：新增 ${json.created} 条，跳过 ${json.skipped} 条`);
-      setImportModalOpen(false);
-      loadData();
-    } else {
-      const err = await res.json().catch(() => ({}));
-      message.error(err.error ?? "导入失败");
-    }
-    return false;
-  };
-
   const handleExport = async () => {
     try {
       const res = await fetch("/api/export");
+      if (!res.ok) throw new Error("Export unavailable");
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -527,9 +505,6 @@ export default function DashboardPage() {
             <Button icon={<ReloadOutlined />} onClick={loadData}>
               刷新
             </Button>
-            <Button icon={<ImportOutlined />} onClick={() => setImportModalOpen(true)}>
-              导入 JSON
-            </Button>
             <Button icon={<ExportOutlined />} onClick={handleExport}>
               导出 JSON
             </Button>
@@ -639,24 +614,6 @@ export default function DashboardPage() {
 
       </div>
 
-      {/* 导入弹窗 */}
-      <Modal
-        title="导入 JSON"
-        open={importModalOpen}
-        onCancel={() => setImportModalOpen(false)}
-        footer={null}
-      >
-        <Upload
-          accept=".json,application/json"
-          showUploadList={false}
-          beforeUpload={handleImport}
-        >
-          <Button icon={<ImportOutlined />}>选择 JSON 文件</Button>
-        </Upload>
-        <p className="text-xs text-terminal-muted mt-3">
-          文件需符合系统 Schema，最大 5MB。重复 ticker 将被跳过。
-        </p>
-      </Modal>
     </div>
   );
 }

@@ -40,11 +40,11 @@ export function ValidationGauge({
   conclusion,
 }: {
   absoluteValue: number | null;
-  relativeValue: number;
+  relativeValue: number | null;
   diffRate: number | null;
   conclusion: string;
 }) {
-  if(diffRate === null || absoluteValue === null) return <div role="status">交叉验证需要同一估值日、币种及有效同行数据。</div>;
+  if(diffRate === null || absoluteValue === null || relativeValue === null) return <div role="status">交叉验证需要同一估值日、币种及有效同行数据。</div>;
   const isDeviating = diffRate >= 20;
   const maxVal = Math.max(absoluteValue, relativeValue) * 1.1 || 1;
   const absPct = (absoluteValue / maxVal) * 100;
@@ -112,11 +112,12 @@ export function ValidationGauge({
  * 颜色越绿估值越高，越红估值越低
  */
 export function SensitivityHeatmap({
-  matrix, rateLabel = "Ke", currency = "CNY",
+  matrix, rateLabel = "Ke", currency = "CNY", base,
 }: {
-  matrix: (Omit<SensitivityHeatmapCell, "targetPrice"> & { targetPrice: number | null })[];
+  matrix: SensitivityHeatmapCell[];
   rateLabel?: string;
   currency?: string;
+  base?: { wacc: number; g: number; price: number };
 }) {
   if (!Array.isArray(matrix) || matrix.length === 0) {
     return <div style={{ height: 360, display: "flex", alignItems: "center", justifyContent: "center", color: "#94a3b8" }}>暂无热力图数据</div>;
@@ -124,24 +125,30 @@ export function SensitivityHeatmap({
   const waccValues = Array.from(new Set(matrix.map((c) => c.wacc))).sort((a, b) => a - b);
   const gValues = Array.from(new Set(matrix.map((c) => c.g))).sort((a, b) => a - b);
 
-  const prices = matrix.flatMap(({ targetPrice }) => targetPrice === null ? [] : [targetPrice]);
+  const prices = matrix.flatMap(({ targetPrice }) => targetPrice === null || !Number.isFinite(targetPrice) ? [] : [targetPrice]);
   const minP = prices.length ? Math.min(...prices) : 0;
   const maxP = prices.length ? Math.max(...prices) : 1;
   const rate = (value: number) => `${Number((value * 100).toFixed(4))}%`;
 
   const data = matrix.flatMap((c) => {
-    if (c.targetPrice === null) return [];
+    if (c.targetPrice === null || !Number.isFinite(c.targetPrice)) return [];
     const x = gValues.indexOf(c.g);
     const y = waccValues.indexOf(c.wacc);
-    return [[x, y, c.targetPrice]];
+    const isBase = base?.wacc === c.wacc && base.g === c.g;
+    return [{ value: [x, y, c.targetPrice], itemStyle: isBase ? { borderWidth: 2, borderColor: "#17231e" } : undefined }];
   });
+  const invalid = matrix.flatMap((c) => c.targetPrice === null || !Number.isFinite(c.targetPrice)
+    ? [[gValues.indexOf(c.g), waccValues.indexOf(c.wacc), 0]] : []);
 
   const option = {
     tooltip: {
       position: "top",
-      formatter: (p: { value: number[] }) => {
+      formatter: (p: { value: number[]; seriesIndex: number }) => {
         const [x, y, v] = p.value;
-        return `${rateLabel}=${rate(waccValues[y])}<br/>永续 g=${rate(gValues[x])}<br/>每股价值=${v.toFixed(2)} ${currency}`;
+        const axes = `${rateLabel}=${rate(waccValues[y])}<br/>永续 g=${rate(gValues[x])}`;
+        if (p.seriesIndex === 1) return `${axes}<br/>超出模型范围或不满足利率条件`;
+        const isBase = base && waccValues[y] === base.wacc && gValues[x] === base.g;
+        return `${axes}<br/>${isBase ? "基准 · " : ""}每股价值=${v.toFixed(2)} ${currency}`;
       },
     },
     grid: { height: "60%", top: "10%", left: 60, right: 30 },
@@ -162,9 +169,10 @@ export function SensitivityHeatmap({
       nameLocation: "middle",
       nameGap: 40,
     },
-    visualMap: {
+    visualMap: [{
       min: minP,
       max: maxP > minP ? maxP : minP + 1,
+      seriesIndex: 0,
       calculable: true,
       orient: "horizontal",
       left: "center",
@@ -172,7 +180,7 @@ export function SensitivityHeatmap({
       inRange: {
         color: ["#DC2626", "#F59E0B", "#10B981"], // 红→黄→绿
       },
-    },
+    }, { show: false, min: 0, max: 1, seriesIndex: 1, inRange: { color: ["#a5aaa6", "#a5aaa6"] } }],
     series: [
       {
         name: "目标价",
@@ -181,8 +189,21 @@ export function SensitivityHeatmap({
         label: { show: true, fontSize: 10, color: "#000", formatter: (p: { value: number[] }) => p.value[2].toFixed(2) },
         emphasis: { itemStyle: { shadowBlur: 10, shadowColor: "rgba(0,0,0,0.5)" } },
       },
+      {
+        name: "不可用组合",
+        type: "heatmap",
+        data: invalid,
+        itemStyle: { color: "#a5aaa6", opacity: 0.32 },
+        label: { show: true, color: "#434843", formatter: "—" },
+      },
     ],
   };
 
-  return <ReactECharts option={option} style={{ width: "100%", height: 360 }} notMerge lazyUpdate />;
+  return <>
+    {base && <p className="mb-1 text-xs text-terminal-muted">
+      基准：{rateLabel} {rate(base.wacc)} · 永续 g {rate(base.g)} · {base.price.toFixed(2)} {currency}/股（图中描边）
+    </p>}
+    <ReactECharts option={option} style={{ width: "100%", height: 360 }} notMerge lazyUpdate />
+    {invalid.length > 0 && <p className="text-xs text-terminal-muted">灰格「—」为不可用组合，不计入色阶。</p>}
+  </>;
 }

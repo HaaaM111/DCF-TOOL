@@ -9,7 +9,7 @@ import { guardRequest, jsonError, jsonOk } from "@/lib/api";
 import { prisma } from "@/lib/prisma";
 import { getCompanyMerged } from "@/lib/dual-db";
 import { assumptionsSchema, companySchema } from "@/lib/validation";
-import { activeOperatingKey, operatingRevisionPrefix } from "@/lib/operating-model-store";
+import { activeOperatingKey, operatingPublicationPrefix, operatingRevisionPrefix } from "@/lib/operating-model-store";
 import {
   calcDcf,
   classifyQuadrant,
@@ -87,6 +87,14 @@ export async function PUT(req: NextRequest) {
     );
   }
 
+  const aParsed = assumptionsSchema.safeParse(rawA);
+  if (rawA !== undefined && !aParsed.success) {
+    return jsonError(
+      `估值假设校验失败：${aParsed.error.issues.map((issue) => issue.message).join("；")}`,
+      422,
+      "VALIDATION_ERROR",
+    );
+  }
   const c = cParsed.data;
 
   // 更新公司档案（用户库）
@@ -95,7 +103,6 @@ export async function PUT(req: NextRequest) {
     data: companyFields(c),
   });
 
-  const aParsed = assumptionsSchema.safeParse(rawA);
   if (aParsed.success) {
     const a = aParsed.data;
     const output = calcDcf(a, {
@@ -201,7 +208,13 @@ export async function DELETE(req: NextRequest) {
     prisma.peerValuation.deleteMany({ where: { companyId: id } }),
     // 8. 历史估值
     prisma.historicalValuation.deleteMany({ where: { companyId: id } }),
-    prisma.appSetting.deleteMany({ where: { OR: [{ key: activeOperatingKey(id) }, { key: { startsWith: operatingRevisionPrefix(id) } }] } }),
+    prisma.appSetting.deleteMany({
+      where: { OR: [
+        { key: activeOperatingKey(id) },
+        { key: { startsWith: operatingRevisionPrefix(id) } },
+        { key: { startsWith: operatingPublicationPrefix(id) } },
+      ] },
+    }),
     // 9. 公司档案本身
     prisma.company.delete({ where: { id } }),
   ]);

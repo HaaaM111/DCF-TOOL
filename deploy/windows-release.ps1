@@ -181,6 +181,16 @@ const expected = JSON.parse(fs.readFileSync('deployment-state/database-counts.js
       throw Error('Published DCF or data verification failed');
     checkedValuation = true;
     const companyId = companies.find(company => company.ticker === checkTicker).id;
+    const companyApi = 'http://127.0.0.1:3000/api/companies/' + encodeURIComponent(companyId);
+    const heatmap = await fetch(companyApi + '/sensitivity', { headers, signal: AbortSignal.timeout(10000) });
+    if (!heatmap.ok) throw Error('Sensitivity endpoint failed');
+    const { sensitivity } = await heatmap.json();
+    if (sensitivity?.kind !== 'operating' || sensitivity.rateLabel !== 'WACC' ||
+        sensitivity.base.price !== value.valuation.publication.price ||
+        ![sensitivity.matrix, sensitivity.workbookMatrix].every(matrix => matrix?.some(cell =>
+          cell.wacc === sensitivity.base.wacc && cell.g === sensitivity.base.g &&
+          cell.targetPrice !== null && Math.abs(cell.targetPrice - sensitivity.base.price) < 1e-8)))
+      throw Error('Sensitivity baseline failed reconciliation');
     const attribution = await fetch('http://127.0.0.1:3000/api/validation/attribution?companyId=' + encodeURIComponent(companyId), { headers, signal: AbortSignal.timeout(10000) });
     if (!attribution.ok) throw Error('Attribution evidence endpoint failed');
     const evidence = await attribution.json();

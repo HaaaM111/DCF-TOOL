@@ -113,7 +113,8 @@ function ValuationResult({ result }: { result: OperatingModelAnalysis }) {
             {method === "coherentPrice" ? "每格按情景 WACC 重算资本费用和现值。" : "沿用基准 ReOI，每格更换折现率与永续增长率。"}
             {" "}空白表示参数组合超出模型范围。
           </Paragraph>
-          <SensitivityHeatmap rateLabel="WACC" currency={input.currency} matrix={result.heatmap.map((cell) => ({
+          <SensitivityHeatmap rateLabel="WACC" currency={input.currency}
+            base={{ wacc: input.wacc, g: input.terminalGrowth, price: result.prices.reoi }} matrix={result.heatmap.map((cell) => ({
             wacc: cell.wacc, g: cell.g, targetPrice: cell[method],
           }))} />
         </>,

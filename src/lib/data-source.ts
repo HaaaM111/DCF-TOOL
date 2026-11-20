@@ -344,6 +344,7 @@ export async function resolvePriceHistory(
     if (eastQuoteAvailable(ticker)) {
       try {
         const bars = await fetchEastPriceHistory(ticker, start, end);
+        if (!bars.length) throw new Error("东财未返回有效日线");
         const resolved: Resolved<HistoryBar[]> = {
           source: "eastmoney",
           data: bars,
@@ -363,6 +364,7 @@ export async function resolvePriceHistory(
     if (hasIfindCredentials()) {
       try {
         const bars = await fetchPriceHistory(ticker, start, end);
+        if (!bars.length) throw new Error("iFinD 未返回有效日线");
         const resolved: Resolved<HistoryBar[]> = { source: "ifind", data: bars };
         historyCache.set(cacheKey, {
           data: resolved,
@@ -379,7 +381,7 @@ export async function resolvePriceHistory(
     historyCache.set(cacheKey, {
       data: resolved,
       source: "mock",
-      expiresAt: Date.now() + HISTORY_TTL_MS,
+      expiresAt: Date.now() + 5 * 60_000,
     });
     return resolved;
   });

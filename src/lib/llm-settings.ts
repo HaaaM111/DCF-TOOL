@@ -7,6 +7,7 @@
  */
 import { prisma } from "@/lib/prisma";
 import type { LlmConfig } from "@/lib/ai-client";
+import { writeAppSetting } from "@/lib/app-setting-write";
 
 export const LLM_SETTING_KEYS = {
   baseUrl: "llm_base_url",
@@ -45,11 +46,7 @@ export async function writeLlmDbSettings(cfg: {
   await prisma.$transaction(async (tx) => {
   for (const [key, value] of writes) {
     if (value) {
-      await tx.appSetting.upsert({
-        where: { key },
-        update: { value },
-        create: { key, value },
-      });
+      await writeAppSetting(tx, key, value);
     } else {
       await tx.appSetting.deleteMany({ where: { key } });
     }
