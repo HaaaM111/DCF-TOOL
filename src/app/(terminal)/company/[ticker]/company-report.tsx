@@ -21,7 +21,6 @@ import {
   App,
 } from "antd";
 import {
-  ArrowUpOutlined,
   CheckCircleFilled,
   CloseCircleFilled,
   CopyOutlined,
@@ -30,6 +29,7 @@ import {
 } from "@ant-design/icons";
 import { useRouter } from "next/navigation";
 import OperatingValuationPanel from "@/components/operating-valuation-panel";
+import ValuationAttributionPanel from "@/components/valuation-attribution-panel";
 import { ValueDonut, FcfBars, TrendChart, ConfidenceChart } from "@/components/charts";
 import {
   PeerCompareChart,
@@ -117,7 +117,6 @@ interface ValidationResponse {
     premiumDiscount: number;
     diffRate: number | null;
     conclusion: string;
-    aiAttribution: string | null;
     multiples: Awaited<ReturnType<typeof calculatePeerValuation>>["multiples"];
     peerSelection: Awaited<ReturnType<typeof calculatePeerValuation>>["evidence"];
     sensitivityHeatmap: { wacc: number; g: number; targetPrice: number | null }[];
@@ -126,7 +125,6 @@ interface ValidationResponse {
   };
   peers: { ticker: string; name: string; pe: number; pb: number; ps: number }[];
   hasHistory: boolean;
-  aiEnabled: boolean;
 }
 
 export default function CompanyReport({ id, section }: { id: string; section: CompanySection }) {
@@ -136,7 +134,7 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
   const comparables = section === "comparables";
   const attribution = section === "attribution";
   const needsSimulation = overview || sensitivity;
-  const needsValidation = sensitivity || comparables || attribution;
+  const needsValidation = sensitivity || comparables;
 
   const [company, setCompany] = useState<CompanyData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -152,7 +150,6 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
   const [jumpLambda,setJumpLambda]=useState(0.1);
   const [jumpMean,setJumpMean]=useState(-0.2);
   const [jumpStd,setJumpStd]=useState(0.1);
-  const [attributionLoading,setAttributionLoading]=useState(false);
   const [validation, setValidation] = useState<ValidationResponse | null>(null);
   const [validationLoading, setValidationLoading] = useState(needsValidation);
   const { message } = App.useApp();
@@ -218,7 +215,7 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
     };
   }, [company, needsSimulation, jumpEnabled, jumpLambda, jumpMean, jumpStd]);
 
-  // 估值验证（绝对 × 相对 交叉验证 + AI 归因）
+  // 敏感性和同行对比共用确定性估值验证。
   useEffect(() => {
     if (!company || !needsValidation) return;
     let cancelled = false;
@@ -231,28 +228,7 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
     })
       .then((r) => r.json())
       .then((d) => {
-        if (!cancelled && d.validation) {
-          setValidation(d);
-          if (attribution && d.attributionPending) {
-            setAttributionLoading(true);
-            const updateAttribution = (aiAttribution: string) => {
-              if (!cancelled) setValidation((previous) => previous && {
-                ...previous, validation: { ...previous.validation, aiAttribution },
-              });
-            };
-            fetch("/api/validation/attribution", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ companyId: company.id }),
-            })
-              .then(async (response) => {
-                if (!response.ok) throw new Error();
-                updateAttribution((await response.json()).aiAttribution);
-              })
-              .catch(() => updateAttribution("分析服务暂时不可用，请稍后重试"))
-              .finally(() => { if (!cancelled) setAttributionLoading(false); });
-          }
-        }
+        if (!cancelled && d.validation) setValidation(d);
       })
       .catch(() => {})
       .finally(() => {
@@ -261,7 +237,7 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
     return () => {
       cancelled = true;
     };
-  }, [attribution, company, needsValidation]);
+  }, [company, needsValidation]);
 
   // 用客户端引擎重算（用于三旋钮与敏感性交互）
   const output: DcfOutput | null = useMemo(() => {
@@ -679,7 +655,7 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
       </>}
 
       {needsValidation && <Card
-        title={comparables ? "绝对与相对估值交叉验证" : sensitivity ? "敏感性热力图" : "AI 归因分析"}
+        title={comparables ? "绝对与相对估值交叉验证" : "敏感性热力图"}
         extra={comparables && (
           <Tag color={validation?.validation?.conclusion === "一致" ? "green" : "orange"}>
             {validation?.validation?.conclusion ?? (validationLoading ? "计算中" : "待验证")}
@@ -771,23 +747,6 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
               { title: "数据核验", render: (_, peer) => peer.excluded ?? `财报 ${peer.financialSource} / 行情 ${peer.quoteSource}` },
             ]} />
             </>}
-            {attribution && <>
-            {attributionLoading && <div className="agent-tool-status" role="status"><i/>正在生成归因…</div>}
-            {validation.validation.aiAttribution ? (
-              <Card
-                size="small"
-                style={{
-                  borderColor: (validation.validation.diffRate ?? 0) >= 20 ? "#FAAD14" : "#52C41A",
-                  borderWidth: 2,
-                }}
-              >
-                <Paragraph style={{ whiteSpace: "pre-wrap", marginBottom: 0 }}>
-                  {validation.validation.aiAttribution}
-                </Paragraph>
-              </Card>
-            ) : !attributionLoading && <Empty description="暂无 AI 归因结果" />}
-            </>}
-
             {/* 敏感性热力图 */}
             {sensitivity && <Card size="small" title={`敏感性热力图（${validation.validation.sensitivityRate} × 永续 g）`} className="mt-4">
               {validation.validation.sensitivityHeatmap &&
@@ -805,10 +764,10 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
       </Card>}
 
       {section === "notes" && <>
-      {/* 六、公司画像 */}
+      {/* 公司画像 */}
       {profile && (
         <Card
-          title="六、公司画像（规则引擎自动生成）"
+          title="公司画像（规则引擎自动生成）"
           extra={<Tag color="gold">v6.5 · 保存即刷新，脱机可用</Tag>}
           className="mb-4"
         >
@@ -830,9 +789,9 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
         </Card>
       )}
 
-      {/* 六、人文画像与复盘时间线 */}
+      {/* 复盘记录 */}
       <Card
-        title="六、人文画像与复盘时间线"
+        title="复盘记录"
         extra={`共 ${c.timeline?.length ?? 0} 条 · 可追加/删除`}
         className="mb-4"
       >
@@ -870,56 +829,7 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
 
       </>}
 
-      {attribution && <>
-      {/* 七、预期差解构台 */}
-      <Card
-        title="七、预期差解构台 —— 市场定价 vs 你的账，差在哪？"
-        extra={<Tag color="blue">说人话版 · 机器摆数字 · 按钮在底部</Tag>}
-        className="mb-4"
-      >
-        <Alert
-          type={(f?.adjustedUpside ?? 0)>=0?"success":"warning"}
-          showIcon
-          icon={<ArrowUpOutlined />}
-          title={(f?.adjustedUpside ?? 0)>=0?"模型估值高于市价，请检查假设与市场分歧":"模型估值低于市价，请检查增长和回报率假设"}
-          description={`基于已保存假设，股权价值 ${(f?.adjustedEquityValue ?? 0).toFixed(1)} 亿元，当前市值 ${c.marketCap.toFixed(1)} 亿元，模型隐含空间 ${(f?.adjustedUpside ?? 0).toFixed(1)}%。这是条件估值，分歧原因需要额外证据。`}
-        />
-
-        <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Card size="small" title="扩张性投入代理指标">
-            <div className="font-mono text-xl font-semibold txt-pos">{c.da>0 ? `${(Math.max(0,c.capex-c.da)/c.da*100).toFixed(1)}%` : "数据不足"}</div>
-            <div className="text-xs text-terminal-muted mt-1">
-              算式：折旧 {c.da.toFixed(0)} 亿（Capex/D&A {(c.capex / c.da).toFixed(2)}）→ 扩张性投入代理值为 max(Capex−D&A,0)/D&A，不能直接等同于可释放现金
-            </div>
-          </Card>
-          <Card size="small" title="首年模型股息 / 市值">
-            <div className="font-mono text-xl font-semibold txt-pos">{c.marketCap>0?`${((f?.rows[0]?.dividend??0)/c.marketCap*100).toFixed(1)}%`:"数据不足"}</div>
-            <div className="text-xs text-terminal-muted mt-1">
-              算式：年分红 {(f?.rows[0]?.dividend ?? 0).toFixed(0)} 亿 ÷ 市值 {c.marketCap.toFixed(0)} 亿 = 以上工具计算值
-            </div>
-          </Card>
-          <Card size="small" title="派现终值现值 / 市值">
-            <div className="font-mono text-xl font-semibold txt-pos">{c.marketCap>0?`${((f?.pvTerminal??0)/c.marketCap*100).toFixed(1)}%`:"数据不足"}</div>
-            <div className="text-xs text-terminal-muted mt-1">
-              算式：第20年FCF {(f?.fcfY20 ?? 0).toFixed(0)} 亿 → 永续终值 {(f?.terminalValue ?? 0).toFixed(0)} 亿（Ke {(c.forwardKe * 100).toFixed(1)}%）→ 折现20年 = {(f?.pvTerminal ?? 0).toFixed(0)} 亿 ÷ 市值 = 以上工具计算值
-            </div>
-          </Card>
-        </div>
-
-        <div className="mt-4 flex gap-2">
-          <Button
-            icon={<CopyOutlined />}
-            onClick={() =>
-              copyPrompt(
-                "请根据已发布的主估值底稿解释估值差异、输入口径和剩余的数据缺口。300 字以内。",
-              )
-            }
-          >
-            复制 AI 解读提示词
-          </Button>
-        </div>
-      </Card>
-      </>}
+      {attribution && <ValuationAttributionPanel key={c.id} companyId={c.id} />}
       </div>
     </div>
   );

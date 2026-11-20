@@ -149,7 +149,7 @@ const expected = JSON.parse(fs.readFileSync('deployment-state/database-counts.js
   const company = companies[0];
   if (company) {
     const report = '/company/' + encodeURIComponent(company.ticker);
-    routes.push(report, report + '/sensitivity', report + '/ai-attribution');
+    routes.push(report, report + '/sensitivity', report + '/ai-attribution', report + '/notes');
   }
   for (const route of routes) {
     const page = await fetch('http://127.0.0.1:3000' + route, { headers, signal: AbortSignal.timeout(10000) });
@@ -176,6 +176,12 @@ const expected = JSON.parse(fs.readFileSync('deployment-state/database-counts.js
         !value.valuation?.result?.priceMatches || !value.valuation?.result?.reconciliation?.passed)
       throw Error('Published DCF or data verification failed');
     checkedValuation = true;
+    const companyId = companies.find(company => company.ticker === checkTicker).id;
+    const attribution = await fetch('http://127.0.0.1:3000/api/validation/attribution?companyId=' + encodeURIComponent(companyId), { headers, signal: AbortSignal.timeout(10000) });
+    if (!attribution.ok) throw Error('Attribution evidence endpoint failed');
+    const evidence = await attribution.json();
+    if (evidence.evidence?.primary?.kind !== 'operating' || !evidence.evidence?.primary?.price ||
+        evidence.evidence?.reconciliation !== 'passed') throw Error('Attribution did not read the verified publication');
   }
   console.log(JSON.stringify({ authenticatedApi: true, anonymousStatus: 401, companyCount: companies.length, pages: true, newsCount: feed.items.length, newsSources: [...sources], checkedValuation }));
 })().catch(() => { console.error('RELEASE_HEALTH_FAILED'); process.exitCode = 1; });
