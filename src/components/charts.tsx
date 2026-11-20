@@ -1,15 +1,19 @@
 "use client";
 
+import { useTheme } from "@/app/providers";
+import { terminalPalette } from "@/lib/terminal-palette";
 import ReactECharts from "@/components/terminal-chart";
 import type { MonteCarloResult, ValueComposition } from "@/types/dcf";
 
 /** 价值构成环形图（终值 / 显性期 / 留存现金 / 净现金） */
 export function ValueDonut({ comp }: { comp: ValueComposition }) {
+  const { mode } = useTheme();
+  const palette = terminalPalette[mode];
   const items = [
-    { name: "终值（20年后永续派现）", value: comp.terminal, color: "#3b82f6" },
-    { name: "显性期（前20年派现折现）", value: comp.explicit, color: "#4F46E5" },
-    { name: "留存现金累积（按2%复利）", value: comp.retainedCash, color: "#F59E0B" },
-    { name: "净现金 (+) / 净负债 (-)", value: comp.netCash, color: "#10B981" },
+    { name: "终值（20年后永续派现）", value: comp.terminal, color: palette.link },
+    { name: "显性期（前20年派现折现）", value: comp.explicit, color: palette.divider },
+    { name: "留存现金累积（按2%复利）", value: comp.retainedCash, color: palette.warning },
+    { name: "净现金 (+) / 净负债 (-)", value: comp.netCash, color: palette.positive },
   ];
   const total = comp.total || 1;
 
@@ -40,8 +44,8 @@ export function ValueDonut({ comp }: { comp: ValueComposition }) {
           position: "center",
           formatter: [`{a|${total.toFixed(0)}}`, "{b|亿 · 股权价值}"].join("\n"),
           rich: {
-            a: { fontSize: 22, fontWeight: "bold", color: "#9ca3af", lineHeight: 30 },
-            b: { fontSize: 11, color: "#94a3b8" },
+            a: { fontSize: 22, fontWeight: "bold", color: palette.ink, lineHeight: 30 },
+            b: { fontSize: 11, color: palette.muted },
           },
         },
         emphasis: { label: { show: true } },
@@ -60,6 +64,8 @@ export function ValueDonut({ comp }: { comp: ValueComposition }) {
 
 /** 20 年 FCF 推演 vs 折现现值 柱状图 */
 export function FcfBars({ rows }: { rows: { year: number; fcf: number; pvFcf: number }[] }) {
+  const { mode } = useTheme();
+  const palette = terminalPalette[mode];
   const option = {
     tooltip: { trigger: "axis" },
     legend: { data: ["自由现金流 FCF", "折现后现值 PV"], top: 0 },
@@ -75,13 +81,13 @@ export function FcfBars({ rows }: { rows: { year: number; fcf: number; pvFcf: nu
         name: "自由现金流 FCF",
         type: "bar",
         data: rows.map((r) => r.fcf.toFixed(1)),
-        itemStyle: { color: "#4F46E5" },
+        itemStyle: { color: palette.divider },
       },
       {
         name: "折现后现值 PV",
         type: "bar",
         data: rows.map((r) => r.pvFcf.toFixed(1)),
-        itemStyle: { color: "#A5B4FC" },
+        itemStyle: { color: palette.positive },
       },
     ],
   };
@@ -106,6 +112,8 @@ export function TrendChart({
   p5?: number;
   p95?: number;
 }) {
+  const { mode } = useTheme();
+  const palette = terminalPalette[mode];
   const dates = prices.map((p) => p.date);
   const closeData = prices.map((p) => p.close);
 
@@ -151,7 +159,7 @@ export function TrendChart({
         type: "line",
         data: closeData,
         showSymbol: false,
-        lineStyle: { width: 2, color: "#3b82f6" },
+        lineStyle: { width: 2, color: palette.link },
       },
       {
         name: "DCF 目标价",
@@ -159,7 +167,7 @@ export function TrendChart({
         yAxisIndex: 1,
         data: valData,
         symbol: "circle",
-        lineStyle: { width: 2, color: "#10B981", type: "dashed" },
+        lineStyle: { width: 2, color: palette.positive, type: "dashed" },
       },
       // 置信区间带（用两个面积图叠加实现）
       ...(p5 != null && p95 != null
@@ -172,7 +180,7 @@ export function TrendChart({
               symbol: "none",
               lineStyle: { opacity: 0 },
               stack: "band",
-              areaStyle: { color: "rgba(79,70,229,0.08)" },
+              areaStyle: { color: palette.chartUp },
               tooltip: { show: false },
               legendHoverLink: false,
             },
@@ -184,7 +192,7 @@ export function TrendChart({
               symbol: "none",
               lineStyle: { opacity: 0 },
               stack: "band",
-              areaStyle: { color: "rgba(79,70,229,0.15)" },
+              areaStyle: { color: palette.chartUp },
             },
           ]
         : []),
@@ -206,6 +214,8 @@ export function ConfidenceChart({
   mc: MonteCarloResult;
   currentPrice: number;
 }) {
+  const { mode } = useTheme();
+  const palette = terminalPalette[mode];
   // 用 value 轴 + bar 实现直方图，便于 markLine 按数值精确定位
   const barData = mc.histogram.map((h) => [h.bin, h.count]);
 
@@ -234,7 +244,7 @@ export function ConfidenceChart({
         barWidth: "90%",
         itemStyle: {
           color: (p: { value: [number, number] }) => {
-            return p.value[0] < currentPrice ? "#EF4444" : "#10B981";
+            return p.value[0] < currentPrice ? palette.negative : palette.positive;
           },
         },
         markLine: {
@@ -243,11 +253,11 @@ export function ConfidenceChart({
           data: [
             {
               xAxis: currentPrice,
-              lineStyle: { color: "#3b82f6", width: 2.5, type: "solid" },
+              lineStyle: { color: palette.link, width: 2.5, type: "solid" },
               label: {
                 formatter: `市价 ¥${currentPrice.toFixed(2)} · ${mc.pricePercentile.toFixed(0)}分位`,
                 position: "insideEndTop",
-                color: "#3b82f6",
+                color: palette.link,
                 fontSize: 11,
                 fontWeight: "bold",
               },

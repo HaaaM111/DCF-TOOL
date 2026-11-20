@@ -1,5 +1,4 @@
 import type { Config } from "tailwindcss";
-import colors from "tailwindcss/colors";
 
 const config: Config = {
   darkMode: "class",
@@ -14,17 +13,18 @@ const config: Config = {
         background: "var(--background)",
         foreground: "var(--foreground)",
         terminal: {
-          canvas: "var(--bg, #0b0e14)",
-          surface: "var(--card-bg, #151a23)",
-          hover: "var(--terminal-hover, #1e2533)",
-          line: "var(--border, #2a3441)",
-          ink: "var(--text-primary, #e2e8f0)",
-          muted: "var(--text-secondary, #8b9eb0)",
-          link: "var(--terminal-link, #60a5fa)",
-          accent: colors.blue[600],
-          "accent-hover": colors.blue[500],
-          positive: colors.emerald[400],
-          negative: colors.rose[400],
+          canvas: "var(--bg)",
+          surface: "var(--card-bg)",
+          hover: "var(--terminal-hover)",
+          line: "var(--border)",
+          ink: "var(--text-primary)",
+          muted: "var(--text-secondary)",
+          link: "var(--terminal-link)",
+          accent: "var(--terminal-accent)",
+          "accent-hover": "var(--terminal-accent-hover)",
+          "on-accent": "var(--on-accent)",
+          positive: "var(--pos-green)",
+          negative: "var(--neg-red)",
         },
       },
       fontFamily: {

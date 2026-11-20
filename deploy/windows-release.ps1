@@ -145,7 +145,7 @@ const expected = JSON.parse(fs.readFileSync('deployment-state/database-counts.js
   const dashboard = await fetch('http://127.0.0.1:3000/dashboard', { redirect: 'manual' });
   const loginDestination = new URL(dashboard.headers.get('location') ?? '/', 'http://127.0.0.1:3000');
   if (dashboard.status !== 303 || loginDestination.pathname !== '/login' || loginDestination.searchParams.get('next') !== '/dashboard') throw Error('Login redirect failed');
-  const routes = ['/dashboard', '/agent', '/announcements', '/valuation/new'];
+  const routes = ['/dashboard', '/agent', '/announcements', '/valuation/new', '/valuation/board'];
   const company = companies[0];
   if (company) {
     const report = '/company/' + encodeURIComponent(company.ticker);
@@ -156,7 +156,13 @@ const expected = JSON.parse(fs.readFileSync('deployment-state/database-counts.js
     if (!page.ok) throw Error('Page check failed');
     await page.arrayBuffer();
   }
-  console.log(JSON.stringify({ authenticatedApi: true, anonymousStatus: 401, companyCount: companies.length, pages: true }));
+  const news = await fetch('http://127.0.0.1:3000/api/market-news', { headers, signal: AbortSignal.timeout(10000) });
+  if (!news.ok) throw Error('Market news feed failed');
+  const feed = await news.json();
+  if (feed.stale || !Array.isArray(feed.items) || feed.items.length < 6 ||
+      feed.items.some(item => !item.title || !item.url?.startsWith('https://finance.eastmoney.com/a/')))
+    throw Error('Market news feed is incomplete');
+  console.log(JSON.stringify({ authenticatedApi: true, anonymousStatus: 401, companyCount: companies.length, pages: true, newsCount: feed.items.length }));
 })().catch(() => { console.error('RELEASE_HEALTH_FAILED'); process.exitCode = 1; });
 '@
 [IO.File]::WriteAllText((Join-Path $state 'snapshot.cjs'), $snapshot, [Text.UTF8Encoding]::new($false))

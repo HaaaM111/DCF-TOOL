@@ -3,12 +3,11 @@
 import { useEffect, useRef, type ComponentProps } from "react";
 import ReactECharts from "echarts-for-react";
 import { useTheme } from "@/app/providers";
+import { terminalPalette } from "@/lib/terminal-palette";
 
 function chartTheme(dark: boolean) {
-  const ink = dark ? "#e2e8f0" : "#0f172a";
-  const muted = dark ? "#8b9eb0" : "#475569";
-  const line = dark ? "#2a3441" : "#dbe4ed";
-  const grid = dark ? "#1e2533" : "#e2e8f0";
+  const palette = terminalPalette[dark ? "dark" : "light"];
+  const { ink, muted, line, hover: grid } = palette;
   const axis = {
     axisLine: { lineStyle: { color: line } },
     axisTick: { lineStyle: { color: line } },
@@ -19,7 +18,8 @@ function chartTheme(dark: boolean) {
   return {
     darkMode: dark,
     textStyle: { color: ink, fontFamily: 'Inter, "Segoe UI", sans-serif' },
-    color: dark ? ["#60a5fa", "#34d399", "#fbbf24", "#fb7185", "#a78bfa"] : ["#2563eb", "#047857", "#b45309", "#be123c", "#6d28d9"],
+    color: dark ? [palette.link, palette.positive, palette.warning, palette.negative, "#b3a6c0"]
+      : [palette.link, "#6f897a", palette.warning, palette.negative, "#756682"],
     categoryAxis: axis,
     valueAxis: axis,
     timeAxis: axis,

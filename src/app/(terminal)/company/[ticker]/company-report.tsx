@@ -329,7 +329,7 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
       <div>
         <div className="p-10 text-center">
           <Empty description="暂时无法读取标的，请重试" />
-          <Button className="mt-4" onClick={() => router.push("/dashboard")}>
+          <Button className="mt-4" onClick={() => router.push("/valuation/board")}>
             返回看板
           </Button>
         </div>

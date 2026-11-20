@@ -46,7 +46,7 @@ export default function LoginForm({ destination, configured }: { destination: st
       </div>
       {(error || !configured) && <p role="alert" className="break-words text-sm text-[var(--neg-red)]">{error || "登录服务尚未配置"}</p>}
       <button type="submit" disabled={busy || !configured}
-        className="h-9 w-full rounded-md bg-terminal-accent text-sm font-semibold text-white enabled:hover:bg-terminal-accent-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terminal-accent-hover disabled:cursor-not-allowed disabled:opacity-60">
+        className="h-9 w-full rounded-md bg-terminal-accent text-sm font-semibold text-terminal-on-accent enabled:hover:bg-terminal-accent-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terminal-accent-hover disabled:cursor-not-allowed disabled:opacity-60">
         {busy ? "登录中…" : "登录"}
       </button>
     </form>

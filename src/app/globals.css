@@ -6,39 +6,42 @@
    配色规范（专业金融终端）
    ============================================================ */
 :root {
-  /* 主色 */
-  --brand-deep: #1E3A5F;      /* 深蓝，专业稳重 */
-  --brand-indigo: #4F46E5;    /* 靛蓝，强调色 */
-  /* 涨跌色（绿涨红跌） */
-  --pos-green: #10B981;       /* 翠绿，正向/低估 */
-  --neg-red: #EF4444;         /* 玫红，负向/高估 */
-  --warn-amber: #F59E0B;      /* 琥珀，警示/中性 */
-  /* 背景与卡片 */
-  --bg: #F8FAFC;              /* 浅灰背景 */
-  --card-bg: #FFFFFF;         /* 卡片白底 */
-  --border: #E2E8F0;          /* 边框 */
-  --text-primary: #0F172A;    /* 主文字 */
-  --text-secondary: #64748B;  /* 次要文字 */
-  --text-muted: #94A3B8;      /* 弱化文字 */
-  --terminal-accent: #2563eb;
-  --terminal-link: #2563eb;
-  --terminal-hover: #edf2f8;
-  --terminal-stripe: #ffffff;
+  --bg: #f4f1eb;
+  --card-bg: #fdfbf7;
+  --border: #ded8cd;
+  --text-primary: #252621;
+  --text-secondary: #655f56;
+  --text-muted: #655f56;
+  --terminal-accent: #292a25;
+  --terminal-accent-hover: #46483e;
+  --on-accent: #ffffff;
+  --terminal-link: #36624d;
+  --terminal-hover: #ebe7de;
+  --terminal-stripe: #f6f2eb;
+  --pos-green: #38694f;
+  --neg-red: #a34b3a;
+  --warn-amber: #8a5b29;
+  --brand-deep: var(--terminal-accent);
+  --brand-indigo: var(--terminal-link);
+  color-scheme: light;
 }
 
-/* 深色模式 */
 .dark {
-  --bg: #0b0e14;
-  --card-bg: #151a23;
-  --terminal-hover: #1e2533;
-  --terminal-stripe: #10141c;
-  --border: #2a3441;
-  --text-primary: #e2e8f0;
-  --text-secondary: #8b9eb0;
-  --text-muted: #8b9eb0;
-  --terminal-link: #60a5fa;
-  --pos-green: #34d399;
-  --neg-red: #fb7185;
+  --bg: #171914;
+  --card-bg: #21241e;
+  --terminal-hover: #2f3329;
+  --terminal-stripe: #252821;
+  --border: #3c4135;
+  --text-primary: #eeeee5;
+  --text-secondary: #b4baa9;
+  --text-muted: #b4baa9;
+  --terminal-accent: #b7cab4;
+  --terminal-accent-hover: #d0ddcb;
+  --on-accent: #172019;
+  --terminal-link: #aac6ad;
+  --pos-green: #9cbea5;
+  --neg-red: #e69985;
+  --warn-amber: #dfbc83;
   color-scheme: dark;
 }
 
@@ -106,17 +109,6 @@ body {
 .ant-table-cell.ant-table-cell-fix-end-first { border-inline-start: 1px solid var(--border); }
 .terminal-watchlist .ant-card-body { padding: 0; }
 .terminal-watchlist .ant-table-pagination.ant-pagination { margin: 8px 12px; }
-
-.dark .valuation-dashboard {
-  --bg: #101622;
-  --card-bg: #192230;
-  --terminal-stripe: #141c29;
-  --terminal-hover: #22344a;
-  --border: #303d50;
-  --text-primary: #e6edf7;
-  --text-secondary: #a1b2c8;
-  --terminal-link: #79b5ff;
-}
 
 .valuation-dashboard .ant-card,
 .valuation-dashboard .ant-table,
@@ -361,7 +353,6 @@ body {
 }
 
 /* Incremental terminal theme and responsive presentation. */
-:root {--brand-indigo:#3b82f6;--brand-deep:#2563eb;}
 html,body{max-width:100%;overflow-x:clip;}
 .font-mono-num,.ant-statistic-content,.ant-table-cell[style*="text-align: right"],.ant-input-number-input{font-family:var(--font-terminal-mono),Consolas,monospace!important;font-variant-numeric:tabular-nums;}
 .terminal-kpis>.ant-col{flex:1 1 180px!important;max-width:none!important;}
@@ -369,7 +360,7 @@ html,body{max-width:100%;overflow-x:clip;}
 .terminal-kpis .ant-statistic-title{color:var(--text-secondary);font-size:12px;}
 .terminal-kpis .ant-statistic-content{font-size:clamp(20px,2.2vw,30px);color:var(--text-primary);}
 .agent-tool-status{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-secondary);padding:8px 0;}
-.agent-tool-status i{width:6px;height:6px;border-radius:50%;background:#3b82f6;animation:terminal-pulse 1.3s ease-in-out infinite;}
+.agent-tool-status i{width:6px;height:6px;border-radius:50%;background:var(--terminal-link);animation:terminal-pulse 1.3s ease-in-out infinite;}
 .metrics-form,.simulation-controls{display:flex;flex-wrap:wrap;align-items:end;gap:12px;margin:12px 0;}
 .metrics-form label{display:grid;gap:4px;flex:1 1 160px;}
 .simulation-controls label{display:flex;align-items:center;gap:6px;}
@@ -390,9 +381,9 @@ html,body{max-width:100%;overflow-x:clip;}
 .scenario-knob { background: var(--card-bg); }
 .scenario-knob-payout { border-top: 2px solid #f59e0b; }
 .scenario-knob-exit { border-top: 2px solid #ef4444; }
-.scenario-knob-growth { border-top: 2px solid #3b82f6; }
+.scenario-knob-growth { border-top: 2px solid var(--terminal-link); }
 .dark .brand-header { background: var(--card-bg); border-bottom: 1px solid var(--border); }
-.dark .fin-table .ant-btn-link:not(.ant-btn-dangerous) { color: #60a5fa !important; }
+.dark .fin-table .ant-btn-link:not(.ant-btn-dangerous) { color: var(--terminal-link) !important; }
 .brand-header .ant-btn:not(.ant-btn-primary) { background-color: transparent !important; color: #fff !important; }
 @media (max-width: 600px) {
   .ant-card-head { padding-inline: 12px !important; }

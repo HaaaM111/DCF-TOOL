@@ -16,7 +16,7 @@ import { AppShellContext } from "./app-shell";
 const { Title } = Typography;
 
 const NAV_ITEMS = [
-  { key: "/dashboard", label: "估值看板", icon: <DashboardOutlined /> },
+  { key: "/valuation/board", label: "估值看板", icon: <DashboardOutlined /> },
   { key: "/announcements", label: "公告中心", icon: <FileSearchOutlined /> },
   { key: "/agent", label: "智能体对话", icon: <RobotOutlined /> },
 ];

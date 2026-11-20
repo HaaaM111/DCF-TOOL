@@ -15,7 +15,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="zh-CN" className={`dark ${mono.variable}`} suppressHydrationWarning>
+    <html lang="zh-CN" className={mono.variable} suppressHydrationWarning>
       <body>
         <Providers>{children}</Providers>
       </body>

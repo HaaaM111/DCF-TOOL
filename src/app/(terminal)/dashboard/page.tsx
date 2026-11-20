@@ -1,651 +1,187 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
+import { ArrowRightOutlined, ExportOutlined, ReloadOutlined } from "@ant-design/icons";
 import Link from "next/link";
-import {
-  Card,
-  Statistic,
-  Tag,
-  Table,
-  Button,
-  Space,
-  Input,
-  Modal,
-  Upload,
-  App,
-  Tooltip,
-} from "antd";
-import {
-  PlusOutlined,
-  ImportOutlined,
-  ExportOutlined,
-  ReloadOutlined,
-  SearchOutlined,
-} from "@ant-design/icons";
-import AppHeader from "@/components/app-header";
-import type { ColumnsType, ColumnType } from "antd/es/table";
 import type { PrimaryValuation } from "@/lib/primary-valuation";
+import { MARKET_NEWS_POLL_MS, MARKET_NEWS_SOURCE_URL, type MarketNewsFeed, type MarketNewsItem } from "@/lib/market-news";
+import QuadrantChart from "./quadrant-chart";
+import styles from "./home.module.css";
 
-/** 标的类型（与 API 返回一致） */
 interface Company {
   id: string;
   name: string;
   ticker: string;
   currentPrice: number;
-  shares: number;
-  marketCap: number;
-  netCash: number;
-  e0: number;
-  quadrant: string;
-  diagnosis: string;
-  targetPrice: number | null;
-  upside: number | null;
+  impliedCagr?: number;
+  impliedLE3?: number;
+  lastEvalDate?: string | null;
   primaryValuation: PrimaryValuation;
-  originalUpside: number;
-  impliedKe: number;
-  forwardKe: number;
-  wacc: number;
-  terminalProfitY20: number;
-  terminalFcfE3: number;
-  impliedL: number;
-  impliedLE3: number;
-  impliedCagr: number;
-  terminalProfitEst: number;
-  transitionG: number;
-  lastEvalDate: string | null;
 }
 
-/** 基准库档案行类型（只读对照） */
-interface BaselineCompany {
-  id: string;
-  name: string;
-  ticker: string;
-  currentPrice: number;
-  shares: number;
-  marketCap: number;
-  cash: number;
-  debt: number;
-  netCash: number;
-  e0: number;
-  revenue: number;
-  bookValue: number;
-  cfo: number;
-  capex: number;
-  da: number;
-  industry: string;
-  quoteUpdatedAt: string | null;
-  financialUpdatedAt: string | null;
-}
-
-/** 四象限标签与配色 */
-const QUADRANTS = [
-  { key: "绿灯双低·容错增厚", color: "green" },
-  { key: "绿灯·预期已装满", color: "green" },
-  { key: "红灯·退出倍数高", color: "red" },
-  { key: "红灯·预期落空", color: "red" },
+type LoadState = "loading" | "ready" | "error";
+const shortcuts = [
+  { href: "/valuation/board", label: "估值看板" },
+  { href: "/announcements", label: "公告中心" },
+  { href: "/agent", label: "智能体对话" },
 ];
+const formatDate = (value: string, time = false) => {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "—";
+  return new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai", month: "2-digit", day: "2-digit",
+    ...(time ? { hour: "2-digit", minute: "2-digit", hour12: false } : {}),
+  }).format(date);
+};
+const signed = (value: number) => `${value > 0 ? "+" : ""}${value.toFixed(1)}%`;
+const currencyOf = (ticker: string) => /\.HK$/i.test(ticker) ? "HKD" : /\.(SH|SZ|BJ)$/i.test(ticker) ? "CNY" : "";
+const price = (value: number | null, currency: string) => value !== null && Number.isFinite(value)
+  ? new Intl.NumberFormat("zh-CN", currency ? { style: "currency", currency, currencyDisplay: "narrowSymbol" }
+    : { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)
+  : "—";
 
-const fmt = (n: number, d = 1) =>
-  Number.isFinite(n) ? n.toFixed(d) : "-";
-const fmtPct = (n: number, d = 1) =>
-  Number.isFinite(n) ? `${n >= 0 ? "+" : ""}${n.toFixed(d)}%` : "-";
+function NewsCard({ item, rank, lead }: { item: MarketNewsItem; rank: number; lead?: boolean }) {
+  return <a className={`${styles.article} ${lead ? styles.lead : ""}`} href={item.url}
+    target="_blank" rel="noopener noreferrer">
+    <div className={styles.articleTop}>
+      <span className={styles.rank} aria-hidden="true">{rank}</span>
+      <div><strong>东方财富快讯</strong><span className={styles.byline}>{formatDate(item.publishAt, true)}</span></div>
+      <ExportOutlined aria-hidden="true" />
+    </div>
+    <p>{item.title}</p>
+    <span className={styles.srOnly}>（在新标签页打开原文）</span>
+  </a>;
+}
+
+async function readList<T>(url: string, key: string, signal: AbortSignal): Promise<T[]> {
+  const response = await fetch(url, { cache: "no-store", signal });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const data = await response.json();
+  if (!Array.isArray(data?.[key])) throw new Error("Invalid list response");
+  return data[key];
+}
 
 export default function DashboardPage() {
-  const router = useRouter();
   const [companies, setCompanies] = useState<Company[]>([]);
-  const [baselineCompanies, setBaselineCompanies] = useState<BaselineCompany[]>([]);
-  const [baselineLoading, setBaselineLoading] = useState(true);
-  const [loading, setLoading] = useState(true);
-  const [quadrantFilter, setQuadrantFilter] = useState<string>("");
-  const [keyword, setKeyword] = useState("");
+  const [feed, setFeed] = useState<MarketNewsFeed>();
+  const news = feed?.items ?? [];
+  const [companyState, setCompanyState] = useState<LoadState>("loading");
+  const [newsState, setNewsState] = useState<LoadState>("loading");
   const [selectedId, setSelectedId] = useState<string>();
-  const [importModalOpen, setImportModalOpen] = useState(false);
-  const { message } = App.useApp();
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
+  const loadNews = useCallback(async (signal?: AbortSignal, manual = false) => {
+    if (manual) setNewsState("loading");
     try {
-      const res = await fetch("/api/companies", { cache: "no-store" });
-      const json = await res.json();
-      setCompanies(json.companies ?? []);
-    } catch {
-      message.error("加载标的列表失败");
-    } finally {
-      setLoading(false);
-    }
-  }, [message]);
-
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
-
-  // 加载基准库档案（只读对照）
-  useEffect(() => {
-    (async () => {
-      setBaselineLoading(true);
-      try {
-        const res = await fetch("/api/baseline", { cache: "no-store" });
-        const json = await res.json();
-        setBaselineCompanies(json.companies ?? []);
-      } catch {
-        setBaselineCompanies([]);
-      } finally {
-        setBaselineLoading(false);
+      const timeout = AbortSignal.timeout(10_000);
+      const response = await fetch("/api/market-news", { cache: "no-store",
+        signal: signal ? AbortSignal.any([signal, timeout]) : timeout });
+      if (!response.ok) throw new Error("News unavailable");
+      const data: MarketNewsFeed = await response.json();
+      if (!signal?.aborted) {
+        setFeed(data);
+        setNewsState(data.stale ? "error" : "ready");
       }
-    })();
+    } catch {
+      if (!signal?.aborted) setNewsState("error");
+    }
   }, []);
 
-  const filtered = companies.filter((c) => {
-    if (quadrantFilter && c.quadrant !== quadrantFilter) return false;
-    if (keyword) {
-      const kw = keyword.toLowerCase();
-      if (
-        !c.name.toLowerCase().includes(kw) &&
-        !c.ticker.toLowerCase().includes(kw)
-      )
-        return false;
-    }
-    return true;
+  useEffect(() => {
+    const controller = new AbortController();
+    const refreshVisible = () => {
+      if (document.visibilityState === "visible") void loadNews(controller.signal);
+    };
+    void loadNews(controller.signal);
+    const timer = window.setInterval(refreshVisible, MARKET_NEWS_POLL_MS);
+    document.addEventListener("visibilitychange", refreshVisible);
+    return () => {
+      controller.abort();
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", refreshVisible);
+    };
+  }, [loadNews]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void readList<Company>("/api/companies", "companies", AbortSignal.any([controller.signal, AbortSignal.timeout(12000)]))
+      .then((data) => { if (!controller.signal.aborted) { setCompanies(data); setCompanyState("ready"); } })
+      .catch(() => { if (!controller.signal.aborted) setCompanyState("error"); });
+    return () => controller.abort();
+  }, []);
+
+  const selected = companies.find((company) => company.id === selectedId) ?? companies[0];
+  const latestDate = companies.flatMap((company) => company.primaryValuation.kind === "operating"
+    ? [company.primaryValuation.publication.valuationDate] : company.lastEvalDate ? [company.lastEvalDate] : []).sort().at(-1);
+  const primary = selected?.primaryValuation;
+  const upside = primary?.upside ?? null;
+  const points = companies.flatMap((company) => {
+    const x = company.impliedCagr;
+    const y = company.primaryValuation.upside;
+    // The reverse model returns 0 as a placeholder when its growth calculation is unavailable.
+    return x !== undefined && Number.isFinite(x) && (company.impliedLE3 ?? 0) > 0 && y !== null && Number.isFinite(y)
+      ? [{ id: company.id, name: company.name, x, y }] : [];
   });
+  const featured = news.slice(0, 6);
 
-  // 顶部指标
-  const total = companies.length;
-  const operatingCount = companies.filter((c) => c.primaryValuation.kind === "operating").length;
-  const missingCount = companies.filter((c) => c.primaryValuation.kind === "unavailable").length;
-
-  const quadrantCounts = QUADRANTS.map((q) => ({
-    ...q,
-    count: companies.filter((c) => c.quadrant === q.key).length,
-  }));
-  const selected = filtered.find((company) => company.id === selectedId) ?? filtered[0];
-
-  const handleDelete = async (id: string, name: string) => {
-    Modal.confirm({
-      title: "移除标的",
-      content: `确定要移除「${name}」吗？此操作不可撤销。`,
-      okText: "移除",
-      okType: "danger",
-      onOk: async () => {
-        const res = await fetch(`/api/companies/${id}`, { method: "DELETE" });
-        if (res.ok) {
-          message.success(`已移除「${name}」`);
-          loadData();
-        } else {
-          message.error("移除失败");
-        }
-      },
-    });
-  };
-
-  const handleImport = async (file: File) => {
-    const formData = new FormData();
-    formData.append("file", file);
-    const res = await fetch("/api/import", {
-      method: "POST",
-      body: file,
-      headers: { "Content-Type": "application/json" },
-    });
-    if (res.ok) {
-      const json = await res.json();
-      message.success(`导入完成：新增 ${json.created} 条，跳过 ${json.skipped} 条`);
-      setImportModalOpen(false);
-      loadData();
-    } else {
-      const err = await res.json().catch(() => ({}));
-      message.error(err.error ?? "导入失败");
-    }
-    return false;
-  };
-
-  const handleExport = async () => {
-    try {
-      const res = await fetch("/api/export");
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `dcf-export-${new Date().toISOString().slice(0, 10)}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      message.success("导出成功");
-    } catch {
-      message.error("导出失败");
-    }
-  };
-
-  // 表格列定义（表头与公司名列冻结，支持横向滚动）
-  const columns: ColumnType<Company>[] = [
-    {
-      title: "标的",
-      dataIndex: "name",
-      fixed: "left",
-      width: 120,
-      render: (_, r) => (
-        <div>
-          <button type="button" onClick={() => setSelectedId(r.id)} aria-pressed={selected?.id === r.id}
-            className="block w-full truncate text-left font-medium text-terminal-ink hover:text-terminal-link focus-visible:outline focus-visible:outline-terminal-accent" title={r.name}>
-            {r.name}
-          </button>
-          <div className="font-mono text-[11px] text-terminal-muted">{r.ticker}</div>
-        </div>
-      ),
-    },
-    {
-      title: "最新市价",
-      dataIndex: "currentPrice",
-      width: 82,
-      className: "font-mono-num",
-      align: "right",
-      render: (v: number) => (
-        <span>¥{fmt(v, 2)}</span>
-      ),
-    },
-    {
-      title: "主估值",
-      dataIndex: "upside",
-      align: "right",
-      width: 124,
-      render: (_: number | null, r) => {
-        const primary = r.primaryValuation;
-        if (primary.kind === "unavailable") return <Tooltip title={primary.reason}><Tag color="orange">待核验</Tag></Tooltip>;
-        if (primary.kind === "legacy") return <Tooltip title={primary.reason}>
-          <span className="whitespace-nowrap"><span className="font-mono">¥{fmt(primary.price, 2)}</span> <span className="text-[10px] text-terminal-muted">简化参考</span></span>
-        </Tooltip>;
-        return <div>
-          <div className="font-mono">{fmt(primary.price, 2)} {primary.publication.currency}/股</div>
-          <div className="text-xs text-terminal-muted">{primary.publication.retrospective ? "事后复算" : "经营估值"} · {primary.publication.valuationDate}</div>
-          {primary.upside !== null && <div className={primary.upside >= 0 ? "font-mono txt-pos" : "font-mono txt-neg"}>{fmtPct(primary.upside)} 同日</div>}
-        </div>;
-      },
-    },
-    {
-      title: "前次评估",
-      dataIndex: "originalUpside",
-      width: 110,
-      render: (v: number, r) => (
-        <Tooltip title={`原版空间 ${fmtPct(v)}`}>
-          <div className={v >= 0 ? "txt-pos" : "txt-neg"}>{fmtPct(v)}</div>
-          {r.lastEvalDate && (
-            <div className="text-xs text-terminal-muted">
-              {new Date(r.lastEvalDate).toLocaleDateString()}
-            </div>
-          )}
-        </Tooltip>
-      ),
-    },
-    {
-      title: "DCF正向终局利润(Y20)",
-      dataIndex: "terminalProfitY20",
-      width: 130,
-      className: "font-mono-num",
-      align: "right",
-      render: (v: number) => <span>{fmt(v, 1)} 亿</span>,
-    },
-    {
-      title: "终局FCF/E3",
-      dataIndex: "terminalFcfE3",
-      width: 100,
-      className: "font-mono-num",
-      align: "right",
-      render: (v: number) => <span>{fmt(v, 2)}x</span>,
-    },
-    {
-      title: "隐含终局利润 L",
-      dataIndex: "impliedL",
-      width: 124,
-      className: "font-mono-num",
-      align: "right",
-      render: (v: number) => <span className="txt-mid">{fmt(v, 1)} 亿</span>,
-    },
-    {
-      title: "L/E3(反算)",
-      dataIndex: "impliedLE3",
-      width: 110,
-      className: "font-mono-num",
-      align: "right",
-      render: (v: number) => (
-        <span className={v >= 0 ? "txt-neg" : "txt-pos"}>{fmt(v, 2)}x</span>
-      ),
-    },
-    {
-      title: "隐含终局CAGR(20y)",
-      dataIndex: "impliedCagr",
-      width: 130,
-      className: "font-mono-num",
-      align: "right",
-      render: (v: number) => <span>{fmt(v, 1)}%</span>,
-    },
-    {
-      title: "终局利润估计",
-      dataIndex: "terminalProfitEst",
-      width: 120,
-      className: "font-mono-num",
-      align: "right",
-      render: (v: number) => <span>{fmt(v, 1)} 亿</span>,
-    },
-    {
-      title: "过渡期年化g",
-      dataIndex: "transitionG",
-      width: 110,
-      className: "font-mono-num",
-      align: "right",
-      render: (v: number) => <span>{fmt(v * 100, 2)}%</span>,
-    },
-    {
-      title: "WACC",
-      dataIndex: "wacc",
-      width: 80,
-      className: "font-mono-num",
-      align: "right",
-      render: (v: number) => <span>{fmt(v * 100, 2)}%</span>,
-    },
-    {
-      title: "叙事分级诊断",
-      dataIndex: "diagnosis",
-      width: 132,
-      render: (v: string) => (
-        <Tag color={v.includes("现金") ? "green" : v.includes("高") ? "red" : "blue"}>
-          {v || "-"}
-        </Tag>
-      ),
-    },
-    {
-      title: "当前市值(亿)",
-      dataIndex: "marketCap",
-      width: 110,
-      className: "font-mono-num",
-      align: "right",
-      render: (v: number) => <span>{fmt(v, 1)}</span>,
-    },
-    {
-      title: "操作",
-      key: "action",
-      fixed: "right",
-      width: 150,
-      render: (_, r) => (
-        <Space size={2} wrap={false} style={{ whiteSpace: "nowrap" }}>
-          <Button
-            size="small"
-            type="link"
-            onClick={() => router.push("/company/" + encodeURIComponent(r.ticker))}
-          >
-            详情
-          </Button>
-          <Button
-            size="small"
-            type="link"
-            onClick={() => router.push("/model/edit?id=" + encodeURIComponent(r.id))}
-          >
-            改假设
-          </Button>
-          <Button
-            size="small"
-            type="link"
-            danger
-            onClick={() => handleDelete(r.id, r.name)}
-          >
-            移除
-          </Button>
-        </Space>
-      ),
-    },
-  ];
-
-  // 基准库档案对照表列（只读参考）
-  const baselineColumns: ColumnType<BaselineCompany>[] = [
-    {
-      title: "标的",
-      dataIndex: "name",
-      fixed: "left",
-      width: 150,
-      render: (_, r) => (
-        <div>
-          <div className="font-medium text-terminal-ink">{r.name}</div>
-          <div className="font-mono text-[11px] text-terminal-muted">{r.ticker}</div>
-        </div>
-      ),
-    },
-    {
-      title: "最新市价",
-      dataIndex: "currentPrice",
-      width: 90,
-      className: "font-mono-num",
-      align: "right",
-      render: (v: number) => <span>¥{fmt(v, 2)}</span>,
-    },
-    {
-      title: "总股本(亿股)",
-      dataIndex: "shares",
-      width: 100,
-      className: "font-mono-num",
-      align: "right",
-      render: (v: number) => <span>{fmt(v, 2)}</span>,
-    },
-    {
-      title: "市值(亿)",
-      dataIndex: "marketCap",
-      width: 100,
-      className: "font-mono-num",
-      align: "right",
-      render: (v: number) => <span>{fmt(v, 1)}</span>,
-    },
-    {
-      title: "货币资金(亿)",
-      dataIndex: "cash",
-      width: 100,
-      className: "font-mono-num",
-      align: "right",
-      render: (v: number) => <span>{fmt(v, 1)}</span>,
-    },
-    {
-      title: "有息负债(亿)",
-      dataIndex: "debt",
-      width: 100,
-      className: "font-mono-num",
-      align: "right",
-      render: (v: number) => <span>{fmt(v, 1)}</span>,
-    },
-    {
-      title: "净现金(亿)",
-      dataIndex: "netCash",
-      width: 100,
-      className: "font-mono-num",
-      align: "right",
-      render: (v: number) => (
-        <span className={v >= 0 ? "txt-pos" : "txt-neg"}>{fmt(v, 1)}</span>
-      ),
-    },
-    {
-      title: "E0净利(亿)",
-      dataIndex: "e0",
-      width: 90,
-      className: "font-mono-num",
-      align: "right",
-      render: (v: number) => <span>{fmt(v, 1)}</span>,
-    },
-    {
-      title: "营收S0(亿)",
-      dataIndex: "revenue",
-      width: 100,
-      className: "font-mono-num",
-      align: "right",
-      render: (v: number) => <span>{fmt(v, 1)}</span>,
-    },
-    {
-      title: "净资产B0(亿)",
-      dataIndex: "bookValue",
-      width: 100,
-      className: "font-mono-num",
-      align: "right",
-      render: (v: number) => <span>{fmt(v, 1)}</span>,
-    },
-    {
-      title: "CFO(亿)",
-      dataIndex: "cfo",
-      width: 90,
-      className: "font-mono-num",
-      align: "right",
-      render: (v: number) => <span>{fmt(v, 1)}</span>,
-    },
-    {
-      title: "Capex(亿)",
-      dataIndex: "capex",
-      width: 90,
-      className: "font-mono-num",
-      align: "right",
-      render: (v: number) => <span>{fmt(v, 1)}</span>,
-    },
-    {
-      title: "D&A(亿)",
-      dataIndex: "da",
-      width: 90,
-      className: "font-mono-num",
-      align: "right",
-      render: (v: number) => <span>{fmt(v, 1)}</span>,
-    },
-    {
-      title: "行业",
-      dataIndex: "industry",
-      width: 110,
-      render: (v: string) => v || "-",
-    },
-  ];
-
-  return (
-    <div className="valuation-dashboard min-h-screen bg-terminal-canvas text-terminal-ink">
-      {/* 看板操作 */}
-      <AppHeader
-        title="DCF 估值穿透与弹性空间测算终端"
-        subtitle="正向 20 年 DCF 内在价值 + 逆向终局利润 L 反算 · 安全：服务端二次校验"
-        actions={
-          <Space wrap size={6}>
-            <Button icon={<ReloadOutlined />} onClick={loadData}>
-              刷新
-            </Button>
-            <Button icon={<ImportOutlined />} onClick={() => setImportModalOpen(true)}>
-              导入 JSON
-            </Button>
-            <Button icon={<ExportOutlined />} onClick={handleExport}>
-              导出 JSON
-            </Button>
-            <Button
-              type="primary"
-              icon={<PlusOutlined />}
-              onClick={() => router.push("/valuation/new")}
-            >
-              新增估值标的
-            </Button>
-          </Space>
-        }
-      />
-
-      <div className="terminal-page grid gap-2">
-        <section aria-label="估值概况" className="market-strip grid grid-cols-3 overflow-hidden rounded-md border border-terminal-line bg-terminal-surface">
-          <Statistic title="监控标的" value={total} />
-          <Statistic title="已发布经营估值" value={operatingCount} suffix={"/ " + total} />
-          <Statistic title="待核验" value={missingCount} />
-        </section>
-
-        <div className="grid min-w-0 items-start gap-2 xl:grid-cols-[minmax(0,1fr)_264px]">
-        <div className="grid min-w-0 gap-2">
-        <Card size="small" className="terminal-watchlist min-w-0" title="估值监控列表"
-          extra={
-            <Input
-              prefix={<SearchOutlined />}
-              aria-label="搜索代码或标的简称"
-              placeholder="搜索代码或标的简称"
-              size="small"
-              value={keyword}
-              onChange={(e) => setKeyword(e.target.value)}
-              className="w-full max-w-[13rem]"
-              allowClear
-            />
-          }
-        >
-          <Table
-            rowKey="id"
-            columns={columns.filter(col=> !col.dataIndex || ["name","currentPrice","upside","impliedL","diagnosis"].includes(String(col.dataIndex)))}
-            expandable={{expandedRowRender:r=><div className="detail-grid">{columns.filter(col=>col.dataIndex).map(col=><div key={String(col.dataIndex)}><span>{String(col.title)}</span><strong>{String(r[col.dataIndex as keyof Company]??"—")}</strong></div>)}</div>}}
-            dataSource={filtered}
-            rowClassName={(company) => company.id === selected?.id ? "watchlist-selected" : ""}
-            loading={loading}
-            scroll={{ x: 680, y: 420 }}
-            size="small"
-            className="fin-table dashboard-primary-table"
-            pagination={{ pageSize: 20, showSizeChanger: true }}
-          />
-        </Card>
-
-        <Card size="small" title="基准库档案" extra={<span className="text-xs text-terminal-muted">只读参考</span>}>
-          <Table
-            rowKey="id"
-            columns={baselineColumns.filter(col=>!col.dataIndex || ["name","ticker","currentPrice","e0","revenue"].includes(String(col.dataIndex)))}
-            dataSource={baselineCompanies}
-            loading={baselineLoading}
-            scroll={{ x: 460, y: 320 }}
-            size="small"
-            className="fin-table"
-            pagination={false}
-          />
-        </Card>
-        </div>
-        <aside aria-label="标的监控面板" className="grid min-w-0 gap-2 sm:grid-cols-2 xl:grid-cols-1">
-        <Card size="small" title="标的快照" className="min-w-0">
-          {selected ? <>
-            <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-              <Link href={`/company/${encodeURIComponent(selected.ticker)}`} className="font-semibold text-terminal-link hover:underline">{selected.name}</Link>
-              <span className="font-mono text-xs text-terminal-muted">{selected.ticker}</span>
-            </div>
-            <dl className="snapshot-grid">
-              <dt>最新市价</dt><dd>¥{fmt(selected.currentPrice, 2)}</dd>
-              <dt>主估值</dt><dd>{selected.primaryValuation.kind === "unavailable" ? "待核验" : `${fmt(selected.primaryValuation.price, 2)} ${selected.primaryValuation.kind === "operating" ? selected.primaryValuation.publication.currency : "元"}/股`}</dd>
-              <dt>同日潜在空间</dt><dd className={selected.upside === null || selected.upside === 0 ? undefined : selected.upside > 0 ? "txt-pos" : "txt-neg"}>{selected.upside === null ? "—" : fmtPct(selected.upside)}</dd>
-              <dt>市值</dt><dd>{fmt(selected.marketCap)} 亿</dd>
-              <dt>净现金</dt><dd>{fmt(selected.netCash)} 亿</dd>
-              <dt>估值日期</dt><dd>{selected.primaryValuation.kind === "operating" ? selected.primaryValuation.publication.valuationDate : "—"}</dd>
-            </dl>
-          </> : <span className="text-xs text-terminal-muted">没有符合条件的标的</span>}
-        </Card>
-        <Card size="small" title="估值诊断" className="min-w-0">
-          <div aria-label="估值诊断筛选" className="grid grid-cols-2 gap-1.5 sm:grid-cols-4 xl:grid-cols-1">
-            {quadrantCounts.map((quadrant) => (
-              <button key={quadrant.key} type="button"
-                aria-pressed={quadrantFilter === quadrant.key}
-                onClick={() => setQuadrantFilter(quadrantFilter === quadrant.key ? "" : quadrant.key)}
-                className="flex min-w-0 items-center gap-2 rounded-md border border-terminal-line px-2.5 py-2 text-left text-xs text-terminal-muted hover:bg-terminal-hover hover:text-terminal-ink focus-visible:outline focus-visible:outline-terminal-accent-hover aria-pressed:border-terminal-accent-hover aria-pressed:bg-terminal-hover aria-pressed:text-terminal-ink">
-                <span aria-hidden="true" className={quadrant.color === "green" ? "size-1.5 shrink-0 rounded-full bg-terminal-positive" : "size-1.5 shrink-0 rounded-full bg-terminal-negative"} />
-                <span className="flex-1">{quadrant.key}</span>
-                <span className="font-mono text-terminal-ink">{quadrant.count}</span>
-              </button>
-            ))}
-          </div>
-        </Card>
-        </aside>
-        </div>
-
+  return <div className={styles.page}>
+    <section className={styles.news} aria-labelledby="news-title" aria-busy={newsState === "loading"}>
+      <div className={styles.meta}><span>{companyState === "ready" ? `${companies.length} 个标的` : "自选标的"}</span><span>最近估值 {latestDate ? formatDate(latestDate) : "—"}</span></div>
+      <div className={styles.newsHead}>
+        <div><h1 id="news-title">实时资讯</h1><p>东方财富 7×24 财经快讯 · 每分钟自动刷新{feed && <> · 最近同步 {formatDate(feed.updatedAt, true)}</>}</p></div>
+        <button type="button" aria-label="刷新资讯" title="刷新财经快讯" disabled={newsState === "loading"} onClick={() => void loadNews(undefined, true)}>
+          <ReloadOutlined aria-hidden="true" spin={newsState === "loading"} />
+        </button>
       </div>
+      {featured.length > 0 ? <div className={styles.newsGrid}>
+        {featured.map((item, index) => <NewsCard key={item.id} item={item} rank={index + 1} lead={index === 0} />)}
+      </div> : <div className={styles.newsEmpty} role="status">
+        <strong>{newsState === "loading" ? "正在读取财经快讯…" : newsState === "error" ? "暂时无法读取资讯" : "暂无财经快讯"}</strong>
+        {newsState !== "loading" && <p>{newsState === "error" ? "可点击右上角刷新重试。" : "稍后将自动刷新。"}</p>}
+        {newsState !== "loading" && <a href={MARKET_NEWS_SOURCE_URL} target="_blank" rel="noopener noreferrer">打开东方财富快讯 <ExportOutlined /></a>}
+      </div>}
+      {!!featured.length && newsState === "error" && <p className={styles.stale} role="status">刷新失败，仍显示上次加载的资讯。</p>}
+    </section>
 
-      {/* 导入弹窗 */}
-      <Modal
-        title="导入 JSON"
-        open={importModalOpen}
-        onCancel={() => setImportModalOpen(false)}
-        footer={null}
-      >
-        <Upload
-          accept=".json,application/json"
-          showUploadList={false}
-          beforeUpload={handleImport}
-        >
-          <Button icon={<ImportOutlined />}>选择 JSON 文件</Button>
-        </Upload>
-        <p className="text-xs text-terminal-muted mt-3">
-          文件需符合系统 Schema，最大 5MB。重复 ticker 将被跳过。
-        </p>
-      </Modal>
+    <div className={styles.workspace}>
+      <section className={styles.market} aria-labelledby="quadrant-title">
+        <div className={styles.snapshot}>
+          <div className={styles.ticker}>
+            <div><strong>{selected?.name ?? "标的快照"}</strong>
+              {selected && <Link href={`/company/${encodeURIComponent(selected.ticker)}`}>报告 <ArrowRightOutlined /></Link>}
+            </div>
+            <span>{selected?.ticker ?? (companyState === "loading" ? "正在载入" : companyState === "error" ? "标的读取失败" : "暂无自选标的")}</span>
+          </div>
+          <dl className={styles.metrics}>
+            <div><dt>档案行情</dt><dd>{selected ? price(selected.currentPrice, currencyOf(selected.ticker)) : "—"}</dd></div>
+            <div><dt>DCF 主估值</dt><dd>{selected && primary ? price(primary.price, primary.kind === "operating" ? primary.publication.currency : currencyOf(selected.ticker)) : "—"}</dd></div>
+            <div><dt>同日潜在空间</dt><dd className={upside === null || upside === 0 ? "" : upside > 0 ? "txt-pos" : "txt-neg"}>{upside === null ? "—" : signed(upside)}</dd></div>
+          </dl>
+        </div>
+        <div className={styles.chartHead}>
+          <div><h2 id="quadrant-title">自选标的四象限</h2><span>预期 × 空间</span></div>
+          <label className={styles.select}><span className={styles.srOnly}>选择标的</span>
+            <select value={selected?.id ?? ""} onChange={(event) => setSelectedId(event.target.value)} disabled={!companies.length}>
+              {!companies.length && <option value="">暂无可选标的</option>}
+              {companies.map((company) => <option key={company.id} value={company.id}>{company.name} {company.ticker}</option>)}
+            </select>
+          </label>
+        </div>
+        <QuadrantChart points={points} selectedId={selected?.id} onSelect={setSelectedId} />
+        <p className={styles.chartNote}>{points.length} / {companies.length} 个标的满足绘图条件 · 横轴采用市场隐含 CAGR 的样本中位数分界，纵轴以 0% 分界。缺少反推数据或同日可比行情的标的不绘制。</p>
+        <nav aria-label="工作区快捷入口" className={styles.shortcuts}>
+          {shortcuts.map(({ href, label }) => <Link key={href} href={href}>{label}<ArrowRightOutlined aria-hidden="true" /></Link>)}
+        </nav>
+      </section>
+      <aside className={styles.more} aria-labelledby="more-title">
+        <a href={MARKET_NEWS_SOURCE_URL} target="_blank" rel="noopener noreferrer" className={styles.moreTitle}><h2 id="more-title">更多资讯</h2><ExportOutlined aria-hidden="true" /></a>
+        {news.length > 6 ? <ol start={7} className={styles.moreList}>
+          {news.slice(6).map((item, index) => {
+            return <li key={item.id}><a href={item.url} target="_blank" rel="noopener noreferrer">
+              <span aria-hidden="true">{String(index + 7).padStart(2, "0")}</span><div><strong>{item.title}</strong><small>东方财富 · {formatDate(item.publishAt, true)}</small></div>
+            </a></li>;
+          })}
+        </ol> : <div className={styles.moreEmpty}>{newsState === "loading" ? "正在读取财经快讯…" : "暂无更多资讯"}</div>}
+      </aside>
     </div>
-  );
+  </div>;
 }

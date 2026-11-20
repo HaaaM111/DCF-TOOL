@@ -485,7 +485,7 @@ function ModelEditContent() {
     setSaving(false);
     if (res.ok) {
       message.success(editId ? "已更新估值模型" : "已新增估值标的");
-      router.push("/dashboard");
+      router.push("/valuation/board");
     } else {
       const err = await res.json().catch(() => ({}));
       message.error(err.error ?? "保存失败");

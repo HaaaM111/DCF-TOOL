@@ -5,17 +5,19 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { App, Drawer, Dropdown } from "antd";
 import {
-  BulbFilled, BulbOutlined, DashboardOutlined, FileAddOutlined, FileSearchOutlined, LogoutOutlined, MenuFoldOutlined, MenuOutlined,
+  BulbFilled, BulbOutlined, DashboardOutlined, FileAddOutlined, FileSearchOutlined, HomeOutlined, LogoutOutlined, MenuFoldOutlined, MenuOutlined,
   MenuUnfoldOutlined, RobotOutlined, SettingOutlined, UserOutlined,
 } from "@ant-design/icons";
 import { useTheme } from "@/app/providers";
 import { companySections } from "@/app/(terminal)/company/[ticker]/sections";
 import { TerminalBrand } from "./terminal-brand";
+import home from "@/app/(terminal)/dashboard/home.module.css";
 
 export const AppShellContext = createContext(false);
 
 const navigation = [
-  { href: "/dashboard", label: "总览", icon: DashboardOutlined },
+  { href: "/dashboard", label: "首页", icon: HomeOutlined },
+  { href: "/valuation/board", label: "估值看板", icon: DashboardOutlined },
   { href: "/valuation/new", label: "新增估值", icon: FileAddOutlined },
   { href: "/announcements", label: "公告中心", icon: FileSearchOutlined },
   { href: "/agent", label: "智能体对话", icon: RobotOutlined },
@@ -63,6 +65,35 @@ export default function AppShell({ children }: { children: ReactNode }) {
     }
   }
 
+  const account = (showLabel = false) => <Dropdown trigger={["click"]} placement="bottomRight" classNames={{ root: "terminal-account-menu" }}
+    menu={{ items: [
+      { key: "settings", label: <Link href="/settings">设置</Link>, icon: <SettingOutlined /> },
+      { key: "logout", label: "退出登录", icon: <LogoutOutlined /> },
+    ], onClick: ({ key }) => { if (key === "logout") void logout(); } }}>
+    <button type="button" aria-label="账户菜单" className={showLabel ? undefined : control}>
+      <UserOutlined aria-hidden="true" />{showLabel && <span>账户</span>}
+    </button>
+  </Dropdown>;
+  const themeControl = (homeStyle = false) => <button type="button" aria-label={themeLabel} title={themeLabel}
+    className={homeStyle ? undefined : control} onClick={toggle}>
+    {mode === "dark" ? <BulbFilled aria-hidden="true" /> : <BulbOutlined aria-hidden="true" />}
+  </button>;
+
+  if (pathname === "/dashboard") return <AppShellContext.Provider value={true}>
+    <div className={home.shell}>
+      <a href="#terminal-content" className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:bg-terminal-surface focus:p-3">跳至内容</a>
+      <header className={home.masthead}><div className={home.mastInner}>
+        <Link href="/dashboard" className={home.brand}><span className={home.brandMark} aria-hidden="true">V</span>ValueInsight</Link>
+        <nav aria-label="主导航" className={home.mainNav}>
+          {navigation.filter(({ href }) => href !== "/valuation/new" && href !== "/settings").map(({ href, label }) =>
+            <Link key={href} href={href} aria-current={href === pathname ? "page" : undefined}>{label}</Link>)}
+        </nav>
+        <div className={home.controls}>{account(true)}{themeControl(true)}</div>
+      </div></header>
+      <main id="terminal-content" tabIndex={-1}>{children}</main>
+    </div>
+  </AppShellContext.Provider>;
+
   return (
     <AppShellContext.Provider value={true}>
       <a href="#terminal-content" className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:bg-terminal-surface focus:p-3">跳至内容</a>
@@ -92,16 +123,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
               <h1 className="truncate text-sm font-semibold">{title}</h1>
             </div>
             <div className="flex shrink-0 items-center gap-2">
-            <button type="button" aria-label={themeLabel} title={themeLabel} className={control} onClick={toggle}>
-              {mode === "dark" ? <BulbFilled aria-hidden="true" /> : <BulbOutlined aria-hidden="true" />}
-            </button>
-            <Dropdown trigger={["click"]} placement="bottomRight" classNames={{ root: "terminal-account-menu" }}
-              menu={{ items: [{ key: "logout", label: "退出登录", icon: <LogoutOutlined /> }],
-                onClick: () => { void logout(); } }}>
-              <button type="button" aria-label="账户菜单" title="admin" className={control}>
-                <UserOutlined aria-hidden="true" />
-              </button>
-            </Dropdown>
+              {themeControl()}{account()}
             </div>
           </header>
           <main id="terminal-content" tabIndex={-1} className="min-w-0">{children}</main>
