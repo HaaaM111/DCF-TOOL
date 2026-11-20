@@ -24,6 +24,7 @@ import {
   SearchOutlined,
 } from "@ant-design/icons";
 import AppHeader from "@/components/app-header";
+import { useWorkspace } from "@/app/providers";
 import type { ColumnsType, ColumnType } from "antd/es/table";
 import type { PrimaryValuation } from "@/lib/primary-valuation";
 
@@ -92,6 +93,7 @@ const fmtPct = (n: number, d = 1) =>
   Number.isFinite(n) ? `${n >= 0 ? "+" : ""}${n.toFixed(d)}%` : "-";
 
 export default function DashboardPage() {
+  const { preferences, savePreferences } = useWorkspace();
   const router = useRouter();
   const [companies, setCompanies] = useState<Company[]>([]);
   const [baselineCompanies, setBaselineCompanies] = useState<BaselineCompany[]>([]);
@@ -256,7 +258,7 @@ export default function DashboardPage() {
         </Tooltip>;
         return <div>
           <div className="font-mono">{fmt(primary.price, 2)} {primary.publication.currency}/股</div>
-          <div className="text-xs text-terminal-muted">{primary.publication.retrospective ? "事后复算" : "经营估值"} · {primary.publication.valuationDate}</div>
+          <div className="text-xs text-terminal-muted">估值基准日 {primary.publication.valuationDate}</div>
           {primary.upside !== null && <div className={primary.upside >= 0 ? "font-mono txt-pos" : "font-mono txt-neg"}>{fmtPct(primary.upside)} 同日</div>}
         </div>;
       },
@@ -574,8 +576,12 @@ export default function DashboardPage() {
             loading={loading}
             scroll={{ x: 680, y: 420 }}
             size="small"
-            className="fin-table dashboard-primary-table"
-            pagination={{ pageSize: 20, showSizeChanger: true }}
+            className={preferences.boardDensity === "compact" ? "fin-table dashboard-primary-table" : "fin-table"}
+            pagination={{ pageSize: preferences.boardPageSize, showSizeChanger: true,
+              pageSizeOptions: [10, 20, 50], onChange: (_, size) => {
+                if ((size === 10 || size === 20 || size === 50) && size !== preferences.boardPageSize)
+                  savePreferences({ ...preferences, boardPageSize: size });
+              } }}
           />
         </Card>
 
@@ -608,7 +614,7 @@ export default function DashboardPage() {
               <dt>估值日期</dt><dd>{selected.primaryValuation.kind === "operating" ? selected.primaryValuation.publication.valuationDate : "—"}</dd>
               {selected.primaryValuation.kind === "operating" && <>
                 <dt>资料截止</dt><dd>{selected.primaryValuation.publication.informationCutoff}</dd>
-                <dt>数据状态</dt><dd>{selected.primaryValuation.publication.retrospective ? "事后复算"
+                <dt>数据状态</dt><dd>{selected.primaryValuation.publication.retrospective ? "无同日可比估值"
                   : selected.primaryValuation.publication.comparableQuote === null ? "同日行情待核验" : "同日可比"}</dd>
               </>}
             </dl>

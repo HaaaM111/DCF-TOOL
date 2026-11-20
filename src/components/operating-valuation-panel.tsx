@@ -58,7 +58,6 @@ function ValuationResult({ result }: { result: OperatingModelAnalysis }) {
             ]} />}
         </Space>,
       }]} />}
-      {result.retrospective && <Alert type="warning" showIcon title="使用了估值锚点之后可得的资料" description="结果适用于事后复算。历史时点评估需要冻结在估值锚点当日已可得的资料。" />}
       {input.quote && !result.marketComparable && <Alert type="warning" showIcon
         title="市价比较与隐含增长率已停用"
         description={`报价日 ${input.quote.date}。市价校验需要同日价格，并使用估值锚点当日已可得的资料。`}
@@ -80,6 +79,11 @@ function ValuationResult({ result }: { result: OperatingModelAnalysis }) {
         {" "}{result.impliedGrowth === null ? "无有效解" : pct.format(result.impliedGrowth)}。
       </Text>}
       <Collapse items={[{
+        key: "valuation-date",
+        label: "估值日期与资料截止",
+        children: <Text>基准日 {result.valuationDate} · 资料截止 {input.informationCutoff}
+          {result.retrospective && "。部分资料在基准日后才公布，本版本不计算同日上行空间。"}</Text>,
+      }, {
         key: "cash-flow",
         label: `年度经营预测和终值（${input.currency} ${amountUnit}）`,
         children: <>

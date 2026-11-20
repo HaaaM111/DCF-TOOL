@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
   Card,
   Input,
@@ -21,7 +21,6 @@ import {
 import type { DefaultOptionType } from "antd/es/select";
 import {
   ThunderboltOutlined,
-  WarningFilled,
   ReloadOutlined,
 } from "@ant-design/icons";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -29,6 +28,9 @@ import SupplementalFinancials from "@/components/supplemental-financials";
 import AppHeader from "@/components/app-header";
 import { ValueDonut } from "@/components/charts";
 import type { DcfOutput } from "@/types/dcf";
+import { cashFlowFromReport, type AnnualCashFlow } from "@/lib/annual-cash-flow";
+import type { CompanyData } from "@/lib/data-source";
+import { financialFieldLabels, requiredAutofillFields } from "@/lib/financial-data-quality";
 
 const { Text } = Typography;
 
@@ -114,8 +116,8 @@ function ModelEditContent() {
   const [activeSection, setActiveSection] = useState("basics");
   const [form, setForm] = useState<FormState>(defaults);
   const [loading, setLoading] = useState(false);
-  const [calc, setCalc] = useState<DcfOutput | null>(null);
-  const [calcLoading, setCalcLoading] = useState(false);
+  const [calculation, setCalculation] = useState<{ input: FormState; output: DcfOutput } | null>(null);
+  const [calculatingInput, setCalculatingInput] = useState<FormState | null>(null);
   const [saving, setSaving] = useState(false);
   const [searchOptions, setSearchOptions] = useState<DefaultOptionType[]>([]);
   const [searchResults, setSearchResults] = useState<{ ticker: string; name: string }[]>([]);
@@ -123,7 +125,16 @@ function ModelEditContent() {
   const [fetchingBasics, setFetchingBasics] = useState(false);
   const [cashNeedsReview, setCashNeedsReview] = useState(false);
   const [adoptedScheme, setAdoptedScheme] = useState<string | null>(null);
+  const baseFcfEdited = useRef(false);
+  const [baseFcfReady, setBaseFcfReady] = useState(false);
+  const [cashFlowFields, setCashFlowFields] = useState({ cfo: false, capex: false });
+  const [evidence, setEvidence] = useState<CompanyData["evidence"] | null>(null);
+  const [annual, setAnnual] = useState<{ ticker: string; median: number | null; source: string | null; reports: AnnualCashFlow[] } | null>(null);
+  const [annualLoading, setAnnualLoading] = useState(false);
+  const latestRequest = useRef(0);
   const { message } = App.useApp();
+  const calc = baseFcfReady && calculation?.input === form ? calculation.output : null;
+  const calcLoading = baseFcfReady && calculatingInput === form;
 
   // 股票搜索防抖
   const searchStocks = useMemo(() => {
@@ -175,6 +186,8 @@ function ModelEditContent() {
       const json = await res.json();
       const c = json.company;
       if (c) {
+        setCashFlowFields({ cfo: true, capex: true });
+        setBaseFcfReady(c.assumption != null);
         setForm({
           ...defaults,
           name: c.name,
@@ -242,13 +255,24 @@ function ModelEditContent() {
       message.warning("请先选择或输入股票代码");
       return;
     }
+    const request = ++latestRequest.current;
     setFetchingBasics(true);
     try {
       const res = await fetch(`/api/ifind/company?ticker=${encodeURIComponent(ticker)}`);
       const json = await res.json();
+      if (request !== latestRequest.current) return;
       if (!res.ok || !json.data) throw new Error(json.error ?? "抓取失败");
       if (json.mock) throw new Error("真实行情或财报不可用，请核对数据源后重试");
-      const d = json.data;
+      const d: CompanyData = json.data;
+      const missing = new Set(d.missingFields ?? []);
+      const blocked = requiredAutofillFields.filter((field) => missing.has(field));
+      if (blocked.length) throw new Error(`年报缺少${blocked.map((field) => financialFieldLabels[field]).join("、")}，未自动填入，请按同一期财报核对。`);
+      const reported = d.reportedCashFlow;
+      const reportedFcf = reported ? cashFlowFromReport(reported) : null;
+      const useReportedFcf = !editId && !baseFcfEdited.current && reportedFcf !== null;
+      if (!editId && !baseFcfEdited.current) setBaseFcfReady(useReportedFcf);
+      setEvidence(d.evidence);
+      setCashFlowFields({ cfo: reported?.cfo != null, capex: reported?.capex != null && reported.capex >= 0 });
       const hasCash = typeof d.cash === "number" && Number.isFinite(d.cash);
       setCashNeedsReview(!hasCash);
       const e1 = +(d.e0 * 1.05).toFixed(2);
@@ -258,93 +282,77 @@ function ModelEditContent() {
         ...f,
         currentPrice: d.currentPrice,
         shares: d.shares,
-        cash: hasCash ? d.cash : f.cash,
+        cash: hasCash ? d.cash ?? f.cash : f.cash,
         debt: d.debt,
         e0: d.e0,
         revenue: d.revenue ?? 0,
-        bookValue: d.bookValue ?? 0,
-        cfo: d.cfo,
-        capex: d.capex,
-        da: d.da,
+        bookValue: missing.has("bookValue") ? f.bookValue : d.bookValue,
+        cfo: missing.has("cfo") ? f.cfo : d.cfo,
+        capex: missing.has("capex") ? f.capex : d.capex,
+        da: missing.has("da") ? f.da : d.da,
         industry: d.industry ?? f.industry ?? "",
         e1: editId ? f.e1 : e1,
         e2: editId ? f.e2 : e2,
         e3: editId ? f.e3 : e3,
-        baseFcf: editId ? f.baseFcf : d.cfo - d.capex,
+        baseFcf: useReportedFcf ? reportedFcf : f.baseFcf,
         name: f.name || d.name || f.ticker,
       }));
-      // 采用"当年实际值"方案
-      if (!editId) setAdoptedScheme("actual");
+      setAdoptedScheme(null);
       const sourceMsg =
         json.source === "eastmoney"
           ? "已从东方财富抓取基础数据（免费源）"
-          : json.mock
-            ? "已抓取基础数据（模拟模式）"
-            : "已从 iFinD 抓取基础数据";
+          : "已从 iFinD 抓取基础数据";
       message.success(sourceMsg);
       if (!hasCash) message.warning("货币资金缺失，请按同一期报表手动录入。");
       if (json.incomplete) {
-        message.warning("东财兜底数据部分字段缺失（Capex/有息负债等），请手动核对后使用");
+        message.warning(`请核对年报缺失字段：${[...missing].map((field) => financialFieldLabels[field]).join("、") || "现金流量表"}`);
       }
     } catch (err) {
-      message.error(err instanceof Error ? err.message : "抓取失败，请检查股票代码或网络");
+      if (request === latestRequest.current) message.error(err instanceof Error ? err.message : "抓取失败，请检查股票代码或网络");
     } finally {
-      setFetchingBasics(false);
+      if (request === latestRequest.current) setFetchingBasics(false);
     }
   };
 
   // 选中股票后自动触发抓取
   const handleStockSelect = (ticker: string) => {
     const matched = searchResults.find((s) => s.ticker === ticker);
-    setForm((f) => ({ ...f, ticker, name: matched?.name || f.name }));
+    setForm((f) => editId ? { ...f, ticker, name: matched?.name || f.name }
+      : { ...defaults, ticker, name: matched?.name || ticker });
+    setEvidence(null);
+    setCashFlowFields({ cfo: false, capex: false });
+    setAdoptedScheme(null);
+    baseFcfEdited.current = false;
+    if (!editId) setBaseFcfReady(false);
     // 直接传入 ticker 避免依赖异步状态更新
     fetchBasics(ticker);
   };
 
-  // 推荐起点方案
-  const schemes = useMemo(() => {
-    const actual = form.cfo - form.capex;
-    const noCapex = form.e0 + form.da - form.capex;
-    const median = (actual + noCapex) / 2;
-    const finStripped = actual * 0.73; // 模拟剔除金融类后
-    const wcStripped = actual * 0.69; // 模拟剔除营运资本释放后
-    return [
-      {
-        id: "actual",
-        label: "当年实际值 (CFO−Capex)",
-        value: actual,
-        desc: "按季微调，含当年全部波动",
-      },
-      {
-        id: "nocapex",
-        label: "无派现口径 (净利+D&A−Capex)",
-        value: noCapex,
-        desc: "剔除非经常损益/偶发",
-      },
-      {
-        id: "median",
-        label: "近3年 FCF 中位数",
-        value: median,
-        desc: "平滑异常波动",
-      },
-      {
-        id: "fin",
-        label: "剔除金融类后",
-        value: finStripped,
-        desc: "去除财务公司/金融业务扰动，更贴近主业造血",
-        recommended: true,
-      },
-      {
-        id: "wc",
-        label: "剔除营运资本释放后",
-        value: wcStripped,
-        desc: "去除一次性营运资本释放",
-      },
-    ];
-  }, [form]);
+  const annualForTicker = annual?.ticker === form.ticker.toUpperCase() ? annual : null;
+  const actualFcf = cashFlowFields.cfo && cashFlowFields.capex ? derived.baseFcfCalc : null;
+  const schemes = [
+    { id: "actual", label: "本表 CFO − Capex", value: actualFcf, desc: "使用上方填列的经营现金流净额与资本开支。" },
+    { id: "median", label: "连续三年年报 FCF 中位数", value: annualForTicker?.median ?? null,
+      desc: "使用同一供应商的三个完整年度数据，口径为 CNY 亿元。" },
+  ];
+
+  async function loadAnnualCashFlow() {
+    setAnnualLoading(true);
+    try {
+      const res = await fetch(`/api/ifind/annual-cash-flow?ticker=${encodeURIComponent(form.ticker)}`, { signal: AbortSignal.timeout(20000) });
+      if (!res.ok) throw new Error();
+      setAnnual(await res.json());
+    } catch {
+      message.warning("年报现金流暂不可用");
+    } finally {
+      setAnnualLoading(false);
+    }
+  }
 
   // 采用某方案：高亮卡片 + 联动填入 baseFcf
   const handleAdoptScheme = (id: string, value: number) => {
+    baseFcfEdited.current = true;
+    setBaseFcfReady(true);
     setAdoptedScheme(id);
     set("baseFcf", value);
     message.success(`已采用方案，baseFcf = ${value.toFixed(2)} 亿`);
@@ -352,13 +360,15 @@ function ModelEditContent() {
 
   // 实时计算（防抖）
   useEffect(() => {
-    if (!form.ticker || !form.currentPrice || !form.shares) return;
+    if (!form.ticker || !form.currentPrice || !form.shares || !baseFcfReady) return;
+    const controller = new AbortController();
     const timer = setTimeout(async () => {
-      setCalcLoading(true);
+      setCalculatingInput(form);
       try {
         const res = await fetch("/api/dcf/calculate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]),
           body: JSON.stringify({
             company: {
               name: form.name || form.ticker,
@@ -403,15 +413,18 @@ function ModelEditContent() {
           }),
         });
         const json = await res.json();
-        if (res.ok) setCalc(json);
+        if (res.ok && !controller.signal.aborted) setCalculation({ input: form, output: json });
       } catch {
         /* 忽略计算错误 */
       } finally {
-        setCalcLoading(false);
+        if (!controller.signal.aborted) setCalculatingInput(null);
       }
     }, 400);
-    return () => clearTimeout(timer);
-  }, [form, derived.netCash, derived.marketCap]);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [form, derived.netCash, derived.marketCap, baseFcfReady]);
 
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
@@ -431,6 +444,11 @@ function ModelEditContent() {
     if (!form.name || !form.ticker) {
       selectSection("basics");
       message.error("标的简称与股票代码为必填");
+      return;
+    }
+    if (!baseFcfReady) {
+      selectSection("forecast");
+      message.error("请录入或选用已核验的起始现金流");
       return;
     }
     setSaving(true);
@@ -524,7 +542,18 @@ function ModelEditContent() {
             <div className="model-tab-toolbar">
               <TabBar {...props} />
               <div className="model-tab-actions flex shrink-0 items-center gap-2">
-                <Button size="small" icon={<ReloadOutlined />} onClick={() => setForm(defaults)}>重置</Button>
+                <Button size="small" icon={<ReloadOutlined />} onClick={() => {
+                  latestRequest.current++;
+                  setFetchingBasics(false);
+                  setCashNeedsReview(false);
+                  setCashFlowFields({ cfo: false, capex: false });
+                  setEvidence(null);
+                  setAnnual(null);
+                  setAdoptedScheme(null);
+                  baseFcfEdited.current = false;
+                  setBaseFcfReady(false);
+                  setForm(defaults);
+                }}>重置</Button>
                 <Button size="small" type="primary" loading={saving} onClick={handleSave}>保存模型</Button>
               </div>
             </div>
@@ -666,16 +695,25 @@ function ModelEditContent() {
                         <Text type="secondary">经营现金流净额 CFO (亿元)</Text>
                         <InputNumber
                           style={{ width: "100%" }}
-                          value={form.cfo}
-                          onChange={(v) => set("cfo", v ?? 0)}
+                          value={cashFlowFields.cfo ? form.cfo : null}
+                          onChange={(v) => {
+                            setCashFlowFields((fields) => ({ ...fields, cfo: v !== null }));
+                            setAdoptedScheme(null);
+                            set("cfo", v ?? 0);
+                          }}
                         />
                       </Col>
                       <Col xs={12} md={6}>
                         <Text type="secondary">资本开支 Capex (亿元)</Text>
                         <InputNumber
                           style={{ width: "100%" }}
-                          value={form.capex}
-                          onChange={(v) => set("capex", v ?? 0)}
+                          value={cashFlowFields.capex ? form.capex : null}
+                          min={0}
+                          onChange={(v) => {
+                            setCashFlowFields((fields) => ({ ...fields, capex: v !== null }));
+                            setAdoptedScheme(null);
+                            set("capex", v ?? 0);
+                          }}
                         />
                       </Col>
                       <Col xs={12} md={6}>
@@ -693,8 +731,10 @@ function ModelEditContent() {
                         </Text>
                         <InputNumber
                           style={{ width: "100%" }}
-                          value={form.baseFcf}
+                          value={baseFcfReady ? form.baseFcf : null}
                           onChange={(v) => {
+                            baseFcfEdited.current = true;
+                            setBaseFcfReady(v !== null);
                             set("baseFcf", v ?? 0);
                             setAdoptedScheme(null);
                           }}
@@ -710,36 +750,23 @@ function ModelEditContent() {
                           <Text strong>
                             采用的 baseFcf ={" "}
                             <span className="font-mono-num text-terminal-link">
-                              {form.baseFcf.toFixed(2)} 亿
+                              {baseFcfReady ? `${form.baseFcf.toFixed(2)} 亿` : "待核验"}
                             </span>
                           </Text>
                           <span className="ml-3 text-terminal-muted">
-                            （当年实际 CFO−Capex = {derived.baseFcfCalc.toFixed(2)} 亿）
+                            （本表 CFO−Capex {actualFcf === null ? "待核验" : `${actualFcf.toFixed(2)} 亿`}）
                           </span>
-                          <span className="ml-3">Capex/D&amp;A = {derived.capexDa.toFixed(2)}</span>
+                          <span className="ml-3">Capex/D&amp;A = {cashFlowFields.capex && form.da > 0 ? derived.capexDa.toFixed(2) : "—"}</span>
                         </>
                       }
                     />
-                    {/* 金融类现金流预警 */}
-                    <Alert
-                      className="mt-2"
-                      type="warning"
-                      showIcon
-                      icon={<WarningFilled />}
-                      title="金融类现金流警报：占 CFO 约 27%"
-                      description="金融类现金流（财务子公司）会扭曲真实经营 FCF，建议剔除后作为起点。"
-                    />
-                    <Alert
-                      className="mt-2"
-                      type="warning"
-                      showIcon
-                      icon={<WarningFilled />}
-                      title="CFO 质量警报：营运资本释放造成了约 25% 的 CFO 增量"
-                      description="营运资本释放不可持续，剔除后更能反映常态盈利能力。"
-                    />
-                    <Divider>推荐起点方案（点选即用，无需手算）</Divider>
+                    {evidence && <p className="mt-2 text-xs text-terminal-muted">
+                      抓取财报 {evidence.financial.periodEnd} · {evidence.financial.source} ｜ 抓取行情 {evidence.quote.date} · {evidence.quote.source}
+                    </p>}
+                    <Divider>起始现金流口径</Divider>
                     <Row gutter={[12, 12]}>
                       {schemes.map((s) => {
+                        const value = s.value;
                         const isAdopted = adoptedScheme === s.id;
                         return (
                           <Col xs={24} xl={8} key={s.id}>
@@ -747,26 +774,12 @@ function ModelEditContent() {
                               className={`scheme-card flex flex-wrap items-center justify-between gap-2 rounded-md border bg-terminal-canvas p-3 ${
                                 isAdopted
                                   ? "border-terminal-accent-hover bg-terminal-hover"
-                                  : s.recommended
-                                    ? "border-terminal-line"
-                                    : "bg-terminal-canvas border-terminal-line"
+                                  : "border-terminal-line"
                               }`}
-                              onClick={() => handleAdoptScheme(s.id, s.value)}
-                              role="button"
-                              tabIndex={0}
                             >
                               <div className="flex-1">
                                 <div className="font-medium flex items-center flex-wrap">
                                   {s.label}
-                                  {s.recommended && (
-                                    <Tag
-                                      color="gold"
-                                      className="ml-2"
-                                      style={{ fontWeight: 600 }}
-                                    >
-                                      推荐
-                                    </Tag>
-                                  )}
                                   {isAdopted && (
                                     <Tag color="green" className="ml-1">
                                       已采用
@@ -777,16 +790,14 @@ function ModelEditContent() {
                               </div>
                               <div className="text-right ml-3">
                                 <div className="text-lg font-bold font-mono-num text-terminal-link">
-                                  {s.value.toFixed(2)} 亿
+                                  {value === null ? "待核验" : `${value.toFixed(2)} 亿`}
                                 </div>
                                 <Button
                                   size="small"
                                   type={isAdopted ? "primary" : "default"}
                                   ghost={!isAdopted}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleAdoptScheme(s.id, s.value);
-                                  }}
+                                  disabled={value === null}
+                                  onClick={() => { if (value !== null) handleAdoptScheme(s.id, value); }}
                                 >
                                   {isAdopted ? "已采用" : "采用"}
                                 </Button>
@@ -796,6 +807,16 @@ function ModelEditContent() {
                         );
                       })}
                     </Row>
+                    <div className="mt-3 flex flex-wrap items-center gap-3">
+                      <Button size="small" loading={annualLoading} disabled={!/^\d{6}\.(SH|SZ)$/i.test(form.ticker)}
+                        onClick={loadAnnualCashFlow}>查询沪深年报现金流</Button>
+                      {annualForTicker && <span className="text-xs text-terminal-muted">
+                        {annualForTicker.source ?? "来源不可用"} {annualForTicker.reports.map((row) => {
+                          const fcf = cashFlowFromReport(row);
+                          return `｜${row.periodEnd}：${fcf === null ? "缺字段" : fcf.toFixed(2)}`;
+                        })}
+                      </span>}
+                    </div>
                   </Card>
                   <Card size="small" title="20 年自由现金流预测">
                     <Row gutter={[12, 12]}>

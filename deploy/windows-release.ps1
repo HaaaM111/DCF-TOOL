@@ -145,7 +145,7 @@ const expected = JSON.parse(fs.readFileSync('deployment-state/database-counts.js
   const dashboard = await fetch('http://127.0.0.1:3000/dashboard', { redirect: 'manual' });
   const loginDestination = new URL(dashboard.headers.get('location') ?? '/', 'http://127.0.0.1:3000');
   if (dashboard.status !== 303 || loginDestination.pathname !== '/login' || loginDestination.searchParams.get('next') !== '/dashboard') throw Error('Login redirect failed');
-  const routes = ['/dashboard', '/agent', '/announcements', '/valuation/new', '/valuation/board'];
+  const routes = ['/dashboard', '/agent', '/announcements', '/valuation/new', '/valuation/board', '/settings'];
   const company = companies[0];
   if (company) {
     const report = '/company/' + encodeURIComponent(company.ticker);
@@ -164,7 +164,20 @@ const expected = JSON.parse(fs.readFileSync('deployment-state/database-counts.js
       !sources.has('eastmoney') || !sources.has('sina') ||
       feed.items.some(item => !item.title || !item.url?.startsWith('https://')))
     throw Error('Market news feed is incomplete');
-  console.log(JSON.stringify({ authenticatedApi: true, anonymousStatus: 401, companyCount: companies.length, pages: true, newsCount: feed.items.length, newsSources: [...sources] }));
+  const invalidCheck = await fetch('http://127.0.0.1:3000/api/settings/data-check?ticker=%40%21', { headers, signal: AbortSignal.timeout(5000) });
+  if (invalidCheck.status !== 422) throw Error('Settings input validation failed');
+  const checkTicker = companies.some(company => company.ticker === '603786.SH') ? '603786.SH' : null;
+  let checkedValuation = false;
+  if (checkTicker) {
+    const checked = await fetch('http://127.0.0.1:3000/api/settings/data-check?ticker=' + checkTicker, { headers, signal: AbortSignal.timeout(55000) });
+    if (!checked.ok) throw Error('Valuation diagnostics failed');
+    const value = await checked.json();
+    if (!value.quote?.date || !value.finance?.cashFlowVerified ||
+        !value.valuation?.result?.priceMatches || !value.valuation?.result?.reconciliation?.passed)
+      throw Error('Published DCF or data verification failed');
+    checkedValuation = true;
+  }
+  console.log(JSON.stringify({ authenticatedApi: true, anonymousStatus: 401, companyCount: companies.length, pages: true, newsCount: feed.items.length, newsSources: [...sources], checkedValuation }));
 })().catch(() => { console.error('RELEASE_HEALTH_FAILED'); process.exitCode = 1; });
 '@
 [IO.File]::WriteAllText((Join-Path $state 'snapshot.cjs'), $snapshot, [Text.UTF8Encoding]::new($false))

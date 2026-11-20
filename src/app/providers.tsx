@@ -14,6 +14,7 @@ import {
   ReactNode,
 } from "react";
 import { terminalPalette } from "@/lib/terminal-palette";
+import { preferencesSchema, workspaceDefaults, workspaceStorageKey, type WorkspacePreferences } from "@/lib/workspace-preferences";
 import TerminalInteractions from "@/components/terminal-interactions";
 import dayjs from "dayjs";
 import "dayjs/locale/zh-cn";
@@ -25,9 +26,15 @@ type ThemeMode = "light" | "dark";
 interface ThemeCtx {
   mode: ThemeMode;
   toggle: () => void;
+  setTheme: (value: ThemeMode) => void;
 }
-const ThemeContext = createContext<ThemeCtx>({ mode: "light", toggle: () => {} });
+const ThemeContext = createContext<ThemeCtx>({ mode: "light", toggle: () => {}, setTheme: () => {} });
 export const useTheme = () => useContext(ThemeContext);
+const WorkspaceContext = createContext({
+  preferences: workspaceDefaults,
+  savePreferences: (_value: WorkspacePreferences) => {},
+});
+export const useWorkspace = () => useContext(WorkspaceContext);
 
 function buildTheme(mode: ThemeMode) {
   const isDark = mode === "dark";
@@ -112,11 +119,16 @@ function buildTheme(mode: ThemeMode) {
 
 export default function Providers({ children }: { children: ReactNode }) {
   const [mode, setMode] = useState<ThemeMode>("light");
+  const [preferences, setPreferences] = useState(workspaceDefaults);
 
   // 从 localStorage 读取偏好
   useEffect(() => {
     const saved = localStorage.getItem("dcf-theme");
     if (saved === "light" || saved === "dark") setMode(saved);
+    try {
+      const parsed = preferencesSchema.safeParse(JSON.parse(localStorage.getItem(workspaceStorageKey) ?? "null"));
+      if (parsed.success) setPreferences(parsed.data);
+    } catch { /* Ignore an invalid local preference record. */ }
   }, []);
 
   // 同步到 <html> class
@@ -126,17 +138,23 @@ export default function Providers({ children }: { children: ReactNode }) {
     else root.classList.remove("dark");
   }, [mode]);
 
-  const toggle = () => {
-    const next = mode === "light" ? "dark" : "light";
-    localStorage.setItem("dcf-theme", next);
-    setMode(next);
+  const setTheme = (value: ThemeMode) => {
+    localStorage.setItem("dcf-theme", value);
+    setMode(value);
+  };
+  const savePreferences = (value: WorkspacePreferences) => {
+    const next = preferencesSchema.parse(value);
+    localStorage.setItem(workspaceStorageKey, JSON.stringify(next));
+    setPreferences(next);
   };
 
   return (
-    <ThemeContext.Provider value={{ mode, toggle }}>
+    <ThemeContext.Provider value={{ mode, toggle: () => setTheme(mode === "light" ? "dark" : "light"), setTheme }}>
+      <WorkspaceContext.Provider value={{ preferences, savePreferences }}>
       <ConfigProvider locale={zhCN} theme={buildTheme(mode)}><TerminalInteractions/>
         <AntdApp>{children}</AntdApp>
       </ConfigProvider>
+      </WorkspaceContext.Provider>
     </ThemeContext.Provider>
   );
 }

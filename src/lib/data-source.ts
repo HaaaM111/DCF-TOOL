@@ -17,18 +17,23 @@ import {
   fetchEastQuote,
   fetchEastPriceHistory,
   fetchEastFinancials,
+  fetchEastAnnualCashFlow,
   fetchEastReportedCash,
   isEastMoneyEnabled,
 } from "./eastmoney-client";
 import {
   fetchQuote,
   fetchFinancials,
+  fetchIfindAnnualCashFlow,
   fetchPriceHistory,
   getMockCompanyData,
   hasIfindCredentials,
 } from "./ifind-client";
+import { cashFlowFromReport, latestAnnualPeriod, threeYearCashFlowMedian, type AnnualCashFlow } from "./annual-cash-flow";
 
 export type DataSource = "ifind" | "eastmoney" | "mock";
+
+import { chinaMarketDate, requiredAutofillFields, type FinancialField } from "./financial-data-quality";
 
 export interface Resolved<T> {
   data: T;
@@ -51,8 +56,10 @@ export interface FinancialsResult {
   bookValue: number;
   totalAssets: number;
   reportDate: string;
+  reportedCashFlow?: AnnualCashFlow;
   comparable?: { shares: number; parentEarnings?: number; parentBook?: number; netCash?: number };
   incomplete?: boolean;
+  missingFields?: FinancialField[];
 }
 
 // ============================================================
@@ -110,10 +117,11 @@ interface QuoteData {
   close: number;
   volume: number;
   date: string;
+  kind?: "snapshot" | "daily-close";
 }
 
-export async function resolveQuote(ticker: string): Promise<Resolved<QuoteData>> {
-  const cacheKey = `quote:${ticker}`;
+export async function resolveQuote(ticker: string, options: { dailyCloseOnly?: boolean } = {}): Promise<Resolved<QuoteData>> {
+  const cacheKey = `quote:${ticker}:${options.dailyCloseOnly ? "close" : "latest"}`;
   const cached = getCached(quoteCache, cacheKey);
   if (cached) return cached.data;
 
@@ -121,10 +129,19 @@ export async function resolveQuote(ticker: string): Promise<Resolved<QuoteData>>
     // 1) 东财（分流主通道，免费）
     if (eastQuoteAvailable(ticker)) {
       try {
-        const q = await fetchEastQuote(ticker);
+        const snapshot = !options.dailyCloseOnly ? await fetchEastQuote(ticker).catch(() => null) : null;
+        const q = snapshot ? { ...snapshot, kind: "snapshot" as const } : await (async () => {
+          const end = chinaMarketDate(new Date());
+          const start = chinaMarketDate(new Date(Date.now() - 14 * 86_400_000));
+          const rows = await fetchEastPriceHistory(ticker, start, end);
+          const row = rows.filter(({ date, close }) => date >= start && date <= end && close > 0)
+            .sort((a, b) => b.date.localeCompare(a.date))[0];
+          if (!row) throw new Error("东财未返回可验证交易日期的行情");
+          return { ...row, kind: "daily-close" as const };
+        })();
         const resolved: Resolved<QuoteData> = {
           source: "eastmoney",
-          data: { ticker, close: q.close, volume: q.volume, date: q.date },
+          data: { ticker, close: q.close, volume: q.volume, date: q.date, kind: q.kind },
         };
         quoteCache.set(cacheKey, {
           data: resolved,
@@ -143,7 +160,7 @@ export async function resolveQuote(ticker: string): Promise<Resolved<QuoteData>>
         const q = await fetchQuote(ticker);
         const resolved: Resolved<QuoteData> = {
           source: "ifind",
-          data: { ticker, close: q.close, volume: q.volume, date: q.date },
+          data: { ticker, close: q.close, volume: q.volume, date: q.date, kind: "daily-close" },
         };
         quoteCache.set(cacheKey, {
           data: resolved,
@@ -186,13 +203,18 @@ export async function resolveFinancials(
   ticker: string,
   options: { includeReportedCash?: boolean } = {},
 ): Promise<Resolved<FinancialsResult>> {
+  let partial: Resolved<FinancialsResult> | undefined;
   // 1) iFinD（权威口径，主通道）
   if (hasIfindCredentials()) {
     try {
       const f = await fetchFinancials(ticker);
       const cash = options.includeReportedCash !== false && isEastMoneyEnabled()
         ? await fetchEastReportedCash(ticker, f.reportDate).catch(() => null) : null;
-      return { source: "ifind", data: { ...f, cash, ...(cash === null ? {} : { cashSource: "eastmoney" as const }) } };
+      const missingFields = f.missingFields.filter((field) => field !== "cash" || cash === null);
+      const resolved = { source: "ifind" as const, data: { ...f, cash, missingFields,
+        incomplete: missingFields.length > 0, ...(cash === null ? {} : { cashSource: "eastmoney" as const }) } };
+      if (!missingFields.some((field) => requiredAutofillFields.includes(field))) return resolved;
+      partial = resolved;
     } catch {
       // iFinD 失败，落到东财兜底
     }
@@ -202,11 +224,13 @@ export async function resolveFinancials(
   if (isEastMoneyEnabled()) {
     try {
       const f = await fetchEastFinancials(ticker);
-      return { source: "eastmoney", data: f };
+      const resolved = { source: "eastmoney" as const, data: { ...f, incomplete: f.missingFields.length > 0 } };
+      if (!partial || !f.missingFields.some((field) => requiredAutofillFields.includes(field))) return resolved;
     } catch {
       // 东财失败或港股不支持，落到 mock
     }
   }
+  if (partial) return partial;
 
   // 3) mock（开发模式最终兜底）
   const mock = getMockCompanyData(ticker);
@@ -239,6 +263,10 @@ export interface CompanyData extends FinancialsResult {
   volume: number;
   marketCap: number;
   industry?: string;
+  evidence: {
+    quote: { source: DataSource; date: string };
+    financial: { source: DataSource; periodEnd: string };
+  };
 }
 
 export async function resolveCompanyData(
@@ -258,10 +286,38 @@ export async function resolveCompanyData(
     volume: quote.data.volume,
     marketCap,
     industry: "",
+    evidence: {
+      quote: { source: quote.source, date: quote.data.date },
+      financial: { source: fin.source, periodEnd: fin.data.reportDate },
+    },
   };
 
-  // source 以财务来源为准（财务是本场景的数据核心），行情来源不单独暴露
   return { source: quote.source === "mock" || fin.source === "mock" ? "mock" : fin.source, data };
+}
+
+export async function resolveAnnualCashFlow(ticker: string) {
+  const latest = latestAnnualPeriod();
+  const year = Number(latest.slice(0, 4));
+  const periods = [latest, `${year - 1}-12-31`, `${year - 2}-12-31`];
+  const provider = async (read: typeof fetchIfindAnnualCashFlow) =>
+    Promise.all(periods.map((periodEnd) => read(ticker, periodEnd).catch(() => ({ periodEnd, cfo: null, capex: null }))));
+  return withInflight(`annual-fcf:${ticker}:${latest}`, async () => {
+    const options = [];
+    if (hasIfindCredentials()) {
+      const reports = await provider(fetchIfindAnnualCashFlow);
+      const median = threeYearCashFlowMedian(reports, latest);
+      const result = { reports, median, source: "ifind" as const };
+      if (median !== null) return result;
+      options.push(result);
+    }
+    if (isEastMoneyEnabled()) {
+      const reports = await provider(fetchEastAnnualCashFlow);
+      options.push({ reports, median: threeYearCashFlowMedian(reports, latest), source: "eastmoney" as const });
+    }
+    const count = (reports: AnnualCashFlow[]) => reports.filter((row) => cashFlowFromReport(row) !== null).length;
+    return options.sort((a, b) => count(b.reports) - count(a.reports))[0]
+      ?? { reports: [], median: null, source: null };
+  });
 }
 
 // ============================================================

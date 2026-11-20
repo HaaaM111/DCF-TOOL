@@ -272,6 +272,8 @@ async function ifindPost<T>(
 // iFinD 数据接口
 // ============================================================
 
+import { chinaMarketDate, missingFinancialFields, normalizeQuoteDay } from "./financial-data-quality";
+
 interface IFindTable {
   thscode: string;
   table: Record<string, (string | number | null)[]>;
@@ -296,8 +298,8 @@ function extractValue(
   if (!arr || arr.length === 0) return null;
   const v = arr[0];
   if (v === null || v === undefined || v === "") return null;
-  const num = typeof v === "number" ? v : parseFloat(String(v));
-  return isNaN(num) ? null : num;
+  const num = typeof v === "number" ? v : String(v).trim() ? Number(v) : NaN;
+  return Number.isFinite(num) ? num : null;
 }
 
 /**
@@ -317,23 +319,12 @@ function buildIndipara(
  * 使用 basic_data_service + ths_close_price_stock
  */
 export async function fetchQuote(ticker: string) {
-  const today = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-  const body = {
-    codes: ticker,
-    indipara: buildIndipara(["ths_close_price_stock"], today),
-  };
-  const resp = await ifindPost<IFindResponse>("/api/v1/basic_data_service", body);
-
-  if (resp.errorcode !== 0) {
-    throw new Error(`iFinD 行情获取失败: ${resp.errmsg || "未知错误"}`);
-  }
-
-  const close = extractValue(resp, "ths_close_price_stock");
-  if (close === null) {
-    throw new Error(`无法获取 ${ticker} 的收盘价`);
-  }
-
-  return { ticker, close, volume: 0, date: today };
+  const today = chinaMarketDate(new Date());
+  const start = chinaMarketDate(new Date(Date.now() - 14 * 86_400_000));
+  const rows = await fetchPriceHistory(ticker, start, today);
+  const last = rows.sort((a, b) => b.date.localeCompare(a.date))[0];
+  if (!last) throw new Error(`无法获取 ${ticker} 的最近交易日收盘价`);
+  return { ticker, ...last };
 }
 
 /**
@@ -341,6 +332,21 @@ export async function fetchQuote(ticker: string) {
  * 拉取：净利润(E0)、CFO、Capex、D&A、总股本、有息负债、总资产
  * 报告期取最近一个年报（12-31）
  */
+const cfoIndicator = "ths_ncf_from_oa_stock";
+const capexIndicator = "ths_cash_paid_for_assets_stock";
+
+export async function fetchIfindAnnualCashFlow(ticker: string, periodEnd: string) {
+  const resp = await ifindPost<IFindResponse>("/api/v1/basic_data_service", {
+    codes: ticker,
+    indipara: buildIndipara([cfoIndicator, capexIndicator], periodEnd.replaceAll("-", "")),
+  });
+  if (resp.errorcode !== 0) throw new Error("iFinD 年报现金流不可用");
+  if (resp.tables?.[0]?.thscode?.toUpperCase() !== ticker.toUpperCase()) throw new Error("iFinD 证券代码不匹配");
+  const cfo = extractValue(resp, cfoIndicator);
+  const capex = extractValue(resp, capexIndicator);
+  return { periodEnd, cfo: cfo == null ? null : cfo / 1e8, capex: capex == null ? null : capex / 1e8 };
+}
+
 export async function fetchFinancials(ticker: string) {
   // 取最近一个完整年报：当前年份-1 的 12-31
   const now = new Date();
@@ -351,10 +357,9 @@ export async function fetchFinancials(ticker: string) {
   // 普通指标（参数 [报告期,100,报告期]）
   const indicators = [
     "ths_stock_short_name_stock", // 名称
-    "ths_np_stock", // 净利润（含少数股东，PIT 归母缺失时兜底）
     "ths_revenue_stock", // 营业收入
-    "ths_ncf_from_oa_stock", // CFO
-    "ths_cash_paid_for_assets_stock", // Capex
+    cfoIndicator,
+    capexIndicator,
     "ths_depreciation_etc_stock", // D&A
     "ths_total_shares_stock", // 总股本
     "ths_interest_bearing_debt_stock", // 有息负债
@@ -386,17 +391,17 @@ export async function fetchFinancials(ticker: string) {
     throw new Error(`iFinD 财务数据获取失败: ${resp.errmsg || "未知错误"}`);
   }
 
+  if (resp.tables?.[0]?.thscode?.toUpperCase() !== ticker.toUpperCase()) throw new Error("iFinD 证券代码不匹配");
   const tbl = resp.tables?.[0]?.table;
   const name = tbl?.["ths_stock_short_name_stock"]?.[0] as string | undefined;
-  const np = extractValue(resp, "ths_np_stock") ?? 0;
   const npParent = extractValue(resp, "ths_np_atoopc_pit_stock"); // PIT 归母净利润，优先
-  const revenue = extractValue(resp, "ths_revenue_stock") ?? 0;
-  const cfo = extractValue(resp, "ths_ncf_from_oa_stock") ?? 0;
-  const capex = extractValue(resp, "ths_cash_paid_for_assets_stock") ?? 0;
-  const da = extractValue(resp, "ths_depreciation_etc_stock") ?? 0;
-  const shares = extractValue(resp, "ths_total_shares_stock") ?? 0;
-  const debt = extractValue(resp, "ths_interest_bearing_debt_stock") ?? 0;
-  const totalAssets = extractValue(resp, "ths_total_assets_stock") ?? 0;
+  const revenue = extractValue(resp, "ths_revenue_stock");
+  const cfo = extractValue(resp, cfoIndicator);
+  const capex = extractValue(resp, capexIndicator);
+  const da = extractValue(resp, "ths_depreciation_etc_stock");
+  const shares = extractValue(resp, "ths_total_shares_stock");
+  const debt = extractValue(resp, "ths_interest_bearing_debt_stock");
+  const totalAssets = extractValue(resp, "ths_total_assets_stock");
   const totalParentEquity = extractValue(resp, "ths_total_equity_atoopc_pit_stock"); // PIT 归母净资产
 
   // 单位转换：元 → 亿元
@@ -405,20 +410,22 @@ export async function fetchFinancials(ticker: string) {
     ticker,
     name: name || ticker,
     cash: null,
-    debt: Number((debt / YI).toFixed(2)),
-    shares: Number((shares / 1e8).toFixed(2)), // 股 → 亿股
-    cfo: Number((cfo / YI).toFixed(2)),
-    capex: Number((capex / YI).toFixed(2)),
-    da: Number((da / YI).toFixed(2)),
-    e0: Number(((npParent ?? np) / YI).toFixed(2)), // 优先 PIT 归母净利润，兜底净利润
-    revenue: Number((revenue / YI).toFixed(2)),
+    debt: (debt ?? 0) / YI,
+    shares: (shares ?? 0) / YI, // 股 → 亿股
+    cfo: Number(((cfo ?? 0) / YI).toFixed(2)),
+    capex: Number(((capex ?? 0) / YI).toFixed(2)),
+    reportedCashFlow: { periodEnd: `${year}-12-31`, cfo: cfo == null ? null : cfo / YI, capex: capex == null ? null : capex / YI },
+    missingFields: missingFinancialFields({ cash: null, debt, shares, e0: npParent, revenue, bookValue: totalParentEquity, cfo, capex, da, totalAssets }),
+    da: (da ?? 0) / YI,
+    e0: (npParent ?? 0) / YI,
+    revenue: (revenue ?? 0) / YI,
     bookValue: Number(((totalParentEquity ?? 0) / YI).toFixed(2)),
     comparable: {
-      shares: shares / YI,
+      shares: (shares ?? 0) / YI,
       parentEarnings: npParent == null ? undefined : npParent / YI,
       parentBook: totalParentEquity == null ? undefined : totalParentEquity / YI,
     },
-    totalAssets: Number((totalAssets / YI).toFixed(2)),
+    totalAssets: (totalAssets ?? 0) / YI,
     reportDate: `${year}-12-31`,
   };
 }
@@ -437,7 +444,7 @@ export async function fetchPriceHistory(
     indicators: "open,high,low,close,volume",
     startdate: startDate,
     enddate: endDate,
-    functionpara: { Currency: "RMB", Fill: "Omit" },
+    functionpara: { Currency: "YSHB", Fill: "Omit", CPS: "no" },
   };
 
   const resp = await ifindPost<{
@@ -455,16 +462,17 @@ export async function fetchPriceHistory(
   }
 
   const tbl = resp.tables?.[0];
-  if (!tbl || !tbl.time) return [];
+  if (!tbl || tbl.thscode?.toUpperCase() !== ticker.toUpperCase() || !Array.isArray(tbl.time)) return [];
 
   const closes = tbl.table?.["close"] ?? [];
   const volumes = tbl.table?.["volume"] ?? [];
 
-  return tbl.time.map((date, i) => ({
-    date: date.slice(0, 10),
-    close: closes[i] ?? 0,
-    volume: volumes[i] ?? 0,
-  }));
+  return tbl.time.flatMap((value, i) => {
+    const date = typeof value === "string" ? normalizeQuoteDay(value) : null;
+    const close = closes[i];
+    return date && date >= startDate && date <= endDate && Number.isFinite(close) && close > 0
+      ? [{ date, close, volume: Number.isFinite(volumes[i]) ? volumes[i] : 0 }] : [];
+  });
 }
 
 /**

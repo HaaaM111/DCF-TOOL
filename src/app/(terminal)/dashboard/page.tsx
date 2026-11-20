@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ArrowRightOutlined, ExportOutlined, ReloadOutlined } from "@ant-design/icons";
 import Link from "next/link";
 import type { PrimaryValuation } from "@/lib/primary-valuation";
+import { useWorkspace } from "@/app/providers";
 import { MARKET_NEWS_POLL_MS, MARKET_NEWS_SOURCES, marketNewsBatch, type MarketNewsFeed, type MarketNewsItem } from "@/lib/market-news";
 import QuadrantChart from "./quadrant-chart";
 import styles from "./home.module.css";
@@ -69,6 +70,7 @@ export default function DashboardPage() {
   const [companyState, setCompanyState] = useState<LoadState>("loading");
   const [newsState, setNewsState] = useState<LoadState>("loading");
   const [selectedId, setSelectedId] = useState<string>();
+  const { preferences: { autoRefreshNews } } = useWorkspace();
 
   const loadNews = useCallback(async (signal?: AbortSignal, manual = false) => {
     if (manual) setNewsState("loading");
@@ -98,6 +100,7 @@ export default function DashboardPage() {
       if (document.visibilityState === "visible") void loadNews(controller.signal);
     };
     void loadNews(controller.signal);
+    if (!autoRefreshNews) return () => controller.abort();
     const timer = window.setInterval(refreshVisible, MARKET_NEWS_POLL_MS);
     document.addEventListener("visibilitychange", refreshVisible);
     return () => {
@@ -105,7 +108,7 @@ export default function DashboardPage() {
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", refreshVisible);
     };
-  }, [loadNews]);
+  }, [loadNews, autoRefreshNews]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -133,7 +136,7 @@ export default function DashboardPage() {
     <section className={styles.news} aria-labelledby="news-title" aria-busy={newsState === "loading"}>
       <div className={styles.meta}><span>{companyState === "ready" ? `${companies.length} 个标的` : "自选标的"}</span><span>最近估值 {latestDate ? formatDate(latestDate) : "—"}</span></div>
       <div className={styles.newsHead}>
-        <div><h1 id="news-title">实时资讯</h1><p>7×24 财经快讯 · 每分钟同步{feed && <> · {formatDate(feed.updatedAt, true)}</>}</p></div>
+        <div><h1 id="news-title">实时资讯</h1><p>7×24 财经快讯 · {autoRefreshNews ? "每分钟同步" : "手动刷新"}{feed && <> · {formatDate(feed.updatedAt, true)}</>}</p></div>
         <button type="button" title="换一批快讯并检查更新" disabled={newsState === "loading"} onClick={rotateNews}>
           <ReloadOutlined aria-hidden="true" spin={newsState === "loading"} /> 换一批
         </button>

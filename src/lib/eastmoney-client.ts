@@ -23,6 +23,7 @@
  */
 
 import { z } from "zod";
+import { matchesReportPeriod, missingFinancialFields, normalizeQuoteDay, quoteDateFromUnix } from "./financial-data-quality";
 
 // ============================================================
 // 配置与常量
@@ -189,6 +190,7 @@ const quoteSchema = z.object({
       f60: z.number().nullable(), // 昨收
       f116: z.number().nullable(), // 总市值（元）
       f117: z.number().nullable(), // 流通市值（元）
+      f124: z.number().nullable().optional(), // 行情更新时间（Unix 秒）
     })
     .nullable(),
 });
@@ -198,7 +200,7 @@ export async function fetchEastQuote(ticker: string) {
   const secid = toSecid(ticker);
   const url =
     `/api/qt/stock/get?secid=${secid}` +
-    "&fields=f43,f47,f57,f58,f60,f116,f117";
+    "&fields=f43,f47,f57,f58,f60,f116,f117,f124";
   const raw = await eastGetWithFailover<unknown>(
     PUSH2_HOSTS,
     url,
@@ -210,19 +212,20 @@ export async function fetchEastQuote(ticker: string) {
     throw new Error(`东财行情响应异常 [${ticker}]（接口可能已变更）`);
   }
   const d = parsed.data.data;
-  if (d.f43 === null || d.f43 === undefined) {
+  if (d.f43 == null || d.f43 <= 0 || d.f57 !== ticker.split(".")[0]) {
     throw new Error(`东财无法获取 ${ticker} 的最新价`);
   }
 
   const scale = priceScale(ticker);
   const close = d.f43 / scale;
-  const today = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const date = quoteDateFromUnix(d.f124);
+  if (!date) throw new Error(`东财 ${ticker} 行情时间缺失或已过旧`);
 
   return {
     ticker,
-    close: Number(close.toFixed(2)),
+    close,
     volume: d.f47 ?? 0,
-    date: today,
+    date,
     name: d.f58 ?? "",
     // 总市值（元）/ 最新价（元） = 总股本（股）；单位统一为 亿股
     shares: d.f116
@@ -272,13 +275,12 @@ export async function fetchEastPriceHistory(
     throw new Error(`东财历史行情响应异常 [${ticker}]（接口可能已变更）`);
   }
 
-  return parsed.data.data.klines.map((line) => {
-    const [date, , close, , , volume] = line.split(",");
-    return {
-      date: date.slice(0, 10),
-      close: Number(close),
-      volume: Number(volume) || 0,
-    };
+  return parsed.data.data.klines.flatMap((line) => {
+    const [rawDate, , rawClose, , , volume] = line.split(",");
+    const date = normalizeQuoteDay(rawDate);
+    const close = Number(rawClose);
+    return date && date >= startDate && date <= endDate && Number.isFinite(close) && close > 0
+      ? [{ date, close, volume: Number.isFinite(Number(volume)) ? Number(volume) : 0 }] : [];
   });
 }
 
@@ -383,6 +385,7 @@ export async function searchEastSuggest(
 
 /** 主表（RPT_F10_FINANCE_MAINFINADATA）：净利润/营收/总股本/总资产/经营现金流 */
 const mainFinRowSchema = z.object({
+  SECURITY_CODE: z.string().nullish(),
   REPORT_DATE: z.string().nullable().optional(),
   SECURITY_NAME_ABBR: z.string().nullable().optional(),
   PARENTNETPROFIT: z.number().nullable().optional(), // 归母净利润（元）
@@ -454,13 +457,28 @@ async function readEastBalance(ticker: string, reportDate: string) {
   const balanceUrl = `${EMWEB_BASE}/PC_HSF10/NewFinanceAnalysis/ZcfzbAjaxNew`
     + `?companyType=4&reportDateType=0&reportType=1&dates=${reportDate}&code=${toEmCode(ticker)}`;
   const response = emwebSchema.safeParse(await eastGet<unknown>(balanceUrl, `balance ${ticker}`));
-  const row = response.success ? response.data.data?.[0] : undefined;
-  return row?.REPORT_DATE && row.REPORT_DATE.slice(0, 10) !== reportDate ? undefined : row;
+  return response.success ? response.data.data?.find((row) => matchesReportPeriod(row.REPORT_DATE, reportDate)) : undefined;
 }
 
 export async function fetchEastReportedCash(ticker: string, reportDate: string) {
   const row = await readEastBalance(ticker, reportDate);
   return row?.MONETARYFUNDS == null ? null : row.MONETARYFUNDS / 1e8;
+}
+
+async function readEastCashFlow(ticker: string, periodEnd: string) {
+  const url = `${EMWEB_BASE}/PC_HSF10/NewFinanceAnalysis/XjllbAjaxNew`
+    + `?companyType=4&reportDateType=0&reportType=1&dates=${periodEnd}&code=${toEmCode(ticker)}`;
+  const parsed = cashflowSchema.safeParse(await eastGet<unknown>(url, `cashflow ${ticker}`));
+  return parsed.success ? parsed.data.data?.find((row) => row.REPORT_DATE?.slice(0, 10) === periodEnd) : undefined;
+}
+
+export async function fetchEastAnnualCashFlow(ticker: string, periodEnd: string) {
+  const row = await readEastCashFlow(ticker, periodEnd);
+  return {
+    periodEnd,
+    cfo: row?.NETCASH_OPERATE == null ? null : row.NETCASH_OPERATE / 1e8,
+    capex: row?.CONSTRUCT_LONG_ASSET == null ? null : row.CONSTRUCT_LONG_ASSET / 1e8,
+  };
 }
 
 /**
@@ -477,7 +495,6 @@ export async function fetchEastFinancials(ticker: string) {
 
   const reportDate = lastAnnualReportDate();
   const code = ticker.trim().toUpperCase().replace(/\.(SH|SZ)$/, "");
-  const emCode = toEmCode(ticker);
 
   // 1) 主表：归母净利润 / 营收 / 总股本 / 总资产 / 经营现金流
   const mainUrl =
@@ -486,27 +503,21 @@ export async function fetchEastFinancials(ticker: string) {
     `&filter=(SECURITY_CODE%3D%22${code}%22)(REPORT_DATE%3D%27${reportDate}%27)`;
   const mainRaw = await eastGet<unknown>(mainUrl, `financials ${ticker}`);
   const mainParsed = mainFinSchema.safeParse(mainRaw);
-  const mainRow = mainParsed.success
-    ? mainParsed.data.result?.data?.[0]
+  const mainRow = mainParsed.success && mainParsed.data.success
+    ? mainParsed.data.result?.data?.find((row) => row.SECURITY_CODE === code && matchesReportPeriod(row.REPORT_DATE, reportDate))
     : undefined;
   if (!mainRow) {
     throw new Error(`东财财务主表无 ${ticker} 的 ${reportDate} 年报数据`);
   }
 
   // 2) 资产负债表（emweb）：归母净资产 / 有息负债
-  const balRow = await readEastBalance(ticker, reportDate);
-
-  // 3) 现金流量表（emweb）：CFO / Capex / D&A
-  const cfUrl =
-    `${EMWEB_BASE}/PC_HSF10/NewFinanceAnalysis/XjllbAjaxNew` +
-    `?companyType=4&reportDateType=0&reportType=1&dates=${reportDate}&code=${emCode}`;
-  const cfRaw = await eastGet<unknown>(cfUrl, `cashflow ${ticker}`);
-  const cfParsed = cashflowSchema.safeParse(cfRaw);
-  const cfRow = cfParsed.success ? cfParsed.data.data?.[0] : undefined;
+  const [balRow, cfRow] = await Promise.all([
+    readEastBalance(ticker, reportDate).catch(() => undefined),
+    readEastCashFlow(ticker, reportDate).catch(() => undefined),
+  ]);
 
   // 归母净资产：优先资产负债表 TOTAL_PARENT_EQUITY；兜底主表 TOTAL_EQUITY_PK（可能含少数股东权益）
-  const bookValue =
-    balRow?.TOTAL_PARENT_EQUITY ?? mainRow.TOTAL_EQUITY_PK ?? 0;
+  const bookValue = balRow?.TOTAL_PARENT_EQUITY;
   // 有息负债：15 项科目求和，口径对齐 iFinD ths_interest_bearing_debt_stock（不含应付利息）
   const DEBT_KEYS = [
     "SHORT_LOAN",
@@ -525,21 +536,18 @@ export async function fetchEastFinancials(ticker: string) {
     "HOLDSALE_LIAB",
     "PREDICT_CURRENT_LIAB",
   ] as const;
-  const debt = DEBT_KEYS.reduce(
+  const debt = balRow && DEBT_KEYS.some((key) => balRow[key] != null) ? DEBT_KEYS.reduce(
     (sum, k) => sum + (balRow?.[k] ?? 0),
     0,
-  );
+  ) : null;
   // 折旧摊销 = 固定资产折旧/油气折耗/生物折旧（对齐 iFinD ths_depreciation_etc_stock，
   // 不含无形资产摊销、长期待摊摊销）；OILGAS_BIOLOGY_DEPR 为 0 时（如美的）用 FA_IR_DEPR 兜底
-  const da = cfRow?.OILGAS_BIOLOGY_DEPR || cfRow?.FA_IR_DEPR || 0;
+  const da = cfRow?.OILGAS_BIOLOGY_DEPR || (cfRow?.FA_IR_DEPR ?? cfRow?.OILGAS_BIOLOGY_DEPR);
 
   // 资产负债表/现金流量表缺失时降级：净资产用主表；CFO 用主表 NETCASH_OPERATE_PK；Capex/D&A 缺失置 0 并标记
-  const missingCapex = cfRow?.CONSTRUCT_LONG_ASSET == null;
-  const incomplete =
-    !balRow || !cfRow || !cfRow.NETCASH_OPERATE || missingCapex;
-
-  const cfo = cfRow?.NETCASH_OPERATE ?? mainRow.NETCASH_OPERATE_PK ?? 0;
-  const capex = cfRow?.CONSTRUCT_LONG_ASSET ?? 0;
+  const cfo = cfRow?.NETCASH_OPERATE ?? mainRow.NETCASH_OPERATE_PK;
+  const capex = cfRow?.CONSTRUCT_LONG_ASSET;
+  const totalAssets = mainRow.TOTAL_ASSETS_PK ?? balRow?.TOTAL_ASSETS;
 
   const YI = 1e8;
   return {
@@ -547,24 +555,28 @@ export async function fetchEastFinancials(ticker: string) {
     name: mainRow.SECURITY_NAME_ABBR || ticker,
     cash: balRow?.MONETARYFUNDS == null ? null : balRow.MONETARYFUNDS / YI,
     cashSource: balRow?.MONETARYFUNDS == null ? undefined : "eastmoney" as const,
-    debt: Number((debt / YI).toFixed(2)),
-    shares: Number(((mainRow.TOTAL_SHARE ?? 0) / 1e8).toFixed(2)),
-    cfo: Number((cfo / YI).toFixed(2)),
-    capex: Number((capex / YI).toFixed(2)),
-    da: Number((da / YI).toFixed(2)),
+    debt: (debt ?? 0) / YI,
+    shares: (mainRow.TOTAL_SHARE ?? 0) / YI,
+    cfo: (cfo ?? 0) / YI,
+    capex: (capex ?? 0) / YI,
+    reportedCashFlow: {
+      periodEnd: reportDate,
+      cfo: cfRow?.NETCASH_OPERATE == null ? null : cfRow.NETCASH_OPERATE / YI,
+      capex: cfRow?.CONSTRUCT_LONG_ASSET == null ? null : cfRow.CONSTRUCT_LONG_ASSET / YI,
+    },
+    da: (da ?? 0) / YI,
     e0: Number(((mainRow.PARENTNETPROFIT ?? 0) / YI).toFixed(2)),
     revenue: Number(((mainRow.TOTALOPERATEREVE ?? 0) / YI).toFixed(2)),
-    bookValue: Number((bookValue / YI).toFixed(2)),
+    bookValue: (bookValue ?? 0) / YI,
     comparable: {
       shares: (mainRow.TOTAL_SHARE ?? 0) / YI,
       parentEarnings: mainRow.PARENTNETPROFIT == null ? undefined : mainRow.PARENTNETPROFIT / YI,
       parentBook: balRow?.TOTAL_PARENT_EQUITY == null ? undefined : balRow.TOTAL_PARENT_EQUITY / YI,
-      netCash: balRow?.MONETARYFUNDS == null ? undefined : (balRow.MONETARYFUNDS - debt) / YI,
+      netCash: balRow?.MONETARYFUNDS == null || debt === null ? undefined : (balRow.MONETARYFUNDS - debt) / YI,
     },
-    totalAssets: Number(
-      ((mainRow.TOTAL_ASSETS_PK ?? balRow?.TOTAL_ASSETS ?? 0) / YI).toFixed(2),
-    ),
+    totalAssets: (totalAssets ?? 0) / YI,
     reportDate,
-    incomplete,
+    missingFields: missingFinancialFields({ cash: balRow?.MONETARYFUNDS, debt, shares: mainRow.TOTAL_SHARE,
+      e0: mainRow.PARENTNETPROFIT, revenue: mainRow.TOTALOPERATEREVE, bookValue, cfo, capex, da, totalAssets }),
   };
 }

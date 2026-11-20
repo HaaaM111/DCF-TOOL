@@ -416,7 +416,7 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
               suffix={c.targetPrice === null ? undefined : `${publication?.currency ?? "CNY"}/股`}
             />
             {publication && <div className="text-xs text-terminal-muted">
-              {publication.retrospective ? "事后复算" : "经营估值"} · {publication.valuationDate}
+              估值基准日 {publication.valuationDate}
             </div>}
           </div>
 
