@@ -6,7 +6,8 @@ param(
     [ValidatePattern('^https://[A-Za-z0-9.-]+(?::[0-9]{1,5})?$')][string]$PublicOrigin,
     [string]$ProductionRoot = 'C:\valueinsight',
     [string]$ReleaseRoot = 'C:\valueinsight-releases',
-    [string]$ServiceName = 'ValueInsight'
+    [string]$ServiceName = 'ValueInsight',
+    [switch]$RecoverStoppedService
 )
 
 $ErrorActionPreference = 'Stop'
@@ -18,7 +19,10 @@ $old = Get-ItemProperty -LiteralPath $registry
 $service = Get-Service -Name $ServiceName
 $nssm = (Get-CimInstance Win32_Service -Filter "Name='$ServiceName'").PathName.Trim('"')
 if (!(Test-Path -LiteralPath $nssm -PathType Leaf)) { throw 'NSSM executable is unavailable' }
-if ($service.Status -ne 'Running') { throw 'The current service must be running before deployment' }
+$wasRunning = $service.Status -eq 'Running'
+if (!$wasRunning -and !($RecoverStoppedService -and $service.Status -eq 'Stopped')) {
+    throw 'The current service must be running before deployment'
+}
 if ((Get-FileHash -LiteralPath $Archive).Hash -ne $ExpectedSha256) { throw 'Artifact checksum mismatch' }
 if (Test-Path -LiteralPath $release) { throw 'This release directory already exists' }
 foreach ($name in @('user.db', 'baseline.db')) {
@@ -189,7 +193,7 @@ const expected = JSON.parse(fs.readFileSync('deployment-state/database-counts.js
 [IO.File]::WriteAllText((Join-Path $state 'snapshot.cjs'), $snapshot, [Text.UTF8Encoding]::new($false))
 [IO.File]::WriteAllText((Join-Path $release 'release-health.cjs'), $health, [Text.UTF8Encoding]::new($false))
 
-Stop-Service -Name $ServiceName
+if ($wasRunning) { Stop-Service -Name $ServiceName }
 (Get-Service -Name $ServiceName).WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30))
 try {
     & $node (Join-Path $state 'snapshot.cjs') $ProductionRoot $state
@@ -224,7 +228,9 @@ try {
     (Get-Service -Name $ServiceName).WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30))
     & reg.exe import $registryBackup | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Automatic service rollback failed; restore the saved registry parameters' }
-    Start-Service -Name $ServiceName
-    (Get-Service -Name $ServiceName).WaitForStatus('Running', [TimeSpan]::FromSeconds(30))
+    if ($wasRunning) {
+        Start-Service -Name $ServiceName
+        (Get-Service -Name $ServiceName).WaitForStatus('Running', [TimeSpan]::FromSeconds(30))
+    }
     throw $failure
 }
