@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ArrowRightOutlined, ExportOutlined, ReloadOutlined } from "@ant-design/icons";
 import Link from "next/link";
 import type { PrimaryValuation } from "@/lib/primary-valuation";
-import { MARKET_NEWS_POLL_MS, MARKET_NEWS_SOURCE_URL, type MarketNewsFeed, type MarketNewsItem } from "@/lib/market-news";
+import { MARKET_NEWS_POLL_MS, MARKET_NEWS_SOURCES, marketNewsBatch, type MarketNewsFeed, type MarketNewsItem } from "@/lib/market-news";
 import QuadrantChart from "./quadrant-chart";
 import styles from "./home.module.css";
 
@@ -45,11 +45,11 @@ function NewsCard({ item, rank, lead }: { item: MarketNewsItem; rank: number; le
     target="_blank" rel="noopener noreferrer">
     <div className={styles.articleTop}>
       <span className={styles.rank} aria-hidden="true">{rank}</span>
-      <div><strong>东方财富快讯</strong><span className={styles.byline}>{formatDate(item.publishAt, true)}</span></div>
+      <time className={styles.byline} dateTime={item.publishAt}>{formatDate(item.publishAt, true)}</time>
       <ExportOutlined aria-hidden="true" />
     </div>
     <p>{item.title}</p>
-    <span className={styles.srOnly}>（在新标签页打开原文）</span>
+    <span className={styles.srOnly}>（在新标签页打开{MARKET_NEWS_SOURCES[item.source].label}原文）</span>
   </a>;
 }
 
@@ -64,7 +64,8 @@ async function readList<T>(url: string, key: string, signal: AbortSignal): Promi
 export default function DashboardPage() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [feed, setFeed] = useState<MarketNewsFeed>();
-  const news = feed?.items ?? [];
+  const [batch, setBatch] = useState(0);
+  const news = feed ? marketNewsBatch(feed.items, batch) : [];
   const [companyState, setCompanyState] = useState<LoadState>("loading");
   const [newsState, setNewsState] = useState<LoadState>("loading");
   const [selectedId, setSelectedId] = useState<string>();
@@ -85,6 +86,11 @@ export default function DashboardPage() {
       if (!signal?.aborted) setNewsState("error");
     }
   }, []);
+
+  function rotateNews() {
+    setBatch((previous) => previous + 1);
+    void loadNews(undefined, true);
+  }
 
   useEffect(() => {
     const controller = new AbortController();
@@ -127,9 +133,9 @@ export default function DashboardPage() {
     <section className={styles.news} aria-labelledby="news-title" aria-busy={newsState === "loading"}>
       <div className={styles.meta}><span>{companyState === "ready" ? `${companies.length} 个标的` : "自选标的"}</span><span>最近估值 {latestDate ? formatDate(latestDate) : "—"}</span></div>
       <div className={styles.newsHead}>
-        <div><h1 id="news-title">实时资讯</h1><p>东方财富 7×24 财经快讯 · 每分钟自动刷新{feed && <> · 最近同步 {formatDate(feed.updatedAt, true)}</>}</p></div>
-        <button type="button" aria-label="刷新资讯" title="刷新财经快讯" disabled={newsState === "loading"} onClick={() => void loadNews(undefined, true)}>
-          <ReloadOutlined aria-hidden="true" spin={newsState === "loading"} />
+        <div><h1 id="news-title">实时资讯</h1><p>7×24 财经快讯 · 每分钟同步{feed && <> · {formatDate(feed.updatedAt, true)}</>}</p></div>
+        <button type="button" title="换一批快讯并检查更新" disabled={newsState === "loading"} onClick={rotateNews}>
+          <ReloadOutlined aria-hidden="true" spin={newsState === "loading"} /> 换一批
         </button>
       </div>
       {featured.length > 0 ? <div className={styles.newsGrid}>
@@ -137,9 +143,8 @@ export default function DashboardPage() {
       </div> : <div className={styles.newsEmpty} role="status">
         <strong>{newsState === "loading" ? "正在读取财经快讯…" : newsState === "error" ? "暂时无法读取资讯" : "暂无财经快讯"}</strong>
         {newsState !== "loading" && <p>{newsState === "error" ? "可点击右上角刷新重试。" : "稍后将自动刷新。"}</p>}
-        {newsState !== "loading" && <a href={MARKET_NEWS_SOURCE_URL} target="_blank" rel="noopener noreferrer">打开东方财富快讯 <ExportOutlined /></a>}
       </div>}
-      {!!featured.length && newsState === "error" && <p className={styles.stale} role="status">刷新失败，仍显示上次加载的资讯。</p>}
+      {!!featured.length && newsState === "error" && <p className={styles.stale} role="status">暂时无法同步，仍可浏览已加载的快讯。</p>}
     </section>
 
     <div className={styles.workspace}>
@@ -173,14 +178,18 @@ export default function DashboardPage() {
         </nav>
       </section>
       <aside className={styles.more} aria-labelledby="more-title">
-        <a href={MARKET_NEWS_SOURCE_URL} target="_blank" rel="noopener noreferrer" className={styles.moreTitle}><h2 id="more-title">更多资讯</h2><ExportOutlined aria-hidden="true" /></a>
+        <div className={styles.moreTitle}><h2 id="more-title">更多资讯</h2></div>
         {news.length > 6 ? <ol start={7} className={styles.moreList}>
           {news.slice(6).map((item, index) => {
             return <li key={item.id}><a href={item.url} target="_blank" rel="noopener noreferrer">
-              <span aria-hidden="true">{String(index + 7).padStart(2, "0")}</span><div><strong>{item.title}</strong><small>东方财富 · {formatDate(item.publishAt, true)}</small></div>
+              <span aria-hidden="true">{String(index + 7).padStart(2, "0")}</span><div><strong>{item.title}</strong><small><time dateTime={item.publishAt}>{formatDate(item.publishAt, true)}</time></small></div>
             </a></li>;
           })}
         </ol> : <div className={styles.moreEmpty}>{newsState === "loading" ? "正在读取财经快讯…" : "暂无更多资讯"}</div>}
+        <div className={styles.newsSources} aria-label="快讯来源">
+          {Object.values(MARKET_NEWS_SOURCES).map(({ url, label }) =>
+            <a key={url} href={url} target="_blank" rel="noopener noreferrer">{label} <ExportOutlined aria-hidden="true" /></a>)}
+        </div>
       </aside>
     </div>
   </div>;

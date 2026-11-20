@@ -28,19 +28,18 @@
 .news { margin-bottom: 28px; }
 .meta { display: flex; gap: 13px; font-size: .75rem; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
 .meta span + span { border-left: 1px solid var(--border); padding-left: 13px; }
-.newsHead { position: relative; text-align: center; padding: 0 42px; margin: 2px 0 clamp(24px, 3.5vw, 48px); }
+.newsHead { position: relative; text-align: center; padding: 0 96px; margin: 2px 0 clamp(24px, 3.5vw, 48px); }
 .newsHead h1 { margin: 0; font-size: clamp(2rem, 4vw, 3.5rem); font-weight: 800; line-height: 1.27; letter-spacing: -.045em; }
 .newsHead p { margin: 5px 0 0; color: var(--text-secondary); font-size: .77rem; }
-.newsHead button { position: absolute; right: 0; top: 50%; transform: translateY(-50%); border-color: transparent; }
+.newsHead button { position: absolute; right: 0; top: 50%; transform: translateY(-50%); background: var(--home-card); white-space: nowrap; }
 .newsHead button:disabled { opacity: .65; }
 .newsGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; align-items: start; }
 .article, .moreList li, .newsEmpty, .moreEmpty { background: var(--home-card); border: 1px solid color-mix(in srgb, var(--border), transparent 36%); border-radius: 8px; box-shadow: var(--home-shadow); }
 .article { display: block; min-width: 0; padding: clamp(15px, 1.65vw, 25px); }
 .article:hover, .moreList a:hover { background: var(--terminal-stripe); }
-.article p { margin: 14px 0 0; color: var(--text-primary); font-size: clamp(.9rem, 1.2vw, 1.03rem); line-height: 1.7; overflow-wrap: anywhere; }
-.lead p:first-of-type { font-weight: 630; }
+.article p { margin: 14px 0 0; color: var(--text-primary); font-size: clamp(.94rem, 1.3vw, 1.11rem); font-weight: 550; line-height: 1.7; overflow-wrap: anywhere; }
+.lead p:first-of-type { font-weight: 720; font-size: clamp(1.05rem, 1.5vw, 1.35rem); }
 .articleTop { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 11px; }
-.articleTop strong { display: block; line-height: 1.35; font-size: .97rem; }
 .rank { inline-size: 36px; block-size: 36px; font-size: .98rem; }
 .byline, .articleTop > :last-child { color: var(--text-secondary); }
 .byline { display: block; margin-top: 2px; font-size: .72rem; font-variant-numeric: tabular-nums; }
@@ -81,6 +80,8 @@
 .moreList strong { font-weight: 600; font-size: .85rem; }
 .moreList small { display: block; margin-top: 4px; }
 .moreEmpty { color: var(--text-secondary); font-size: .82rem; padding: 16px; }
+.newsSources { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 12px; color: var(--text-secondary); font-size: .73rem; margin-top: 12px; }
+.newsSources a:hover { color: var(--terminal-link); text-decoration: underline; }
 .srOnly { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border-width: 0; }
 @media (min-width: 960px) {
   .newsGrid:has(.article:nth-child(6)) { grid-template-areas: "second lead fifth" "third lead sixth" ". fourth ."; }
@@ -98,6 +99,7 @@
   .mainNav a { font-size: .79rem; }
   .snapshot { grid-template-columns: minmax(0,1fr); }
   .metrics > div:first-child { padding-left: 0; border-left: 0; }
-  .newsHead { margin-top: 13px; }
+  .newsHead { margin-top: 13px; padding-inline: 0; }
+  .newsHead button { position: static; transform: none; margin-top: 12px; }
   .newsGrid { grid-template-columns: minmax(0,1fr); }
 }

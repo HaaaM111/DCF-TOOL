@@ -159,10 +159,12 @@ const expected = JSON.parse(fs.readFileSync('deployment-state/database-counts.js
   const news = await fetch('http://127.0.0.1:3000/api/market-news', { headers, signal: AbortSignal.timeout(10000) });
   if (!news.ok) throw Error('Market news feed failed');
   const feed = await news.json();
-  if (feed.stale || !Array.isArray(feed.items) || feed.items.length < 6 ||
-      feed.items.some(item => !item.title || !item.url?.startsWith('https://finance.eastmoney.com/a/')))
+  const sources = new Set(feed.items?.map(item => item.source));
+  if (feed.stale || !Array.isArray(feed.items) || feed.items.length <= 13 ||
+      !sources.has('eastmoney') || !sources.has('sina') ||
+      feed.items.some(item => !item.title || !item.url?.startsWith('https://')))
     throw Error('Market news feed is incomplete');
-  console.log(JSON.stringify({ authenticatedApi: true, anonymousStatus: 401, companyCount: companies.length, pages: true, newsCount: feed.items.length }));
+  console.log(JSON.stringify({ authenticatedApi: true, anonymousStatus: 401, companyCount: companies.length, pages: true, newsCount: feed.items.length, newsSources: [...sources] }));
 })().catch(() => { console.error('RELEASE_HEALTH_FAILED'); process.exitCode = 1; });
 '@
 [IO.File]::WriteAllText((Join-Path $state 'snapshot.cjs'), $snapshot, [Text.UTF8Encoding]::new($false))
