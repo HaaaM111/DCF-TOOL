@@ -32,7 +32,6 @@ import { useRouter } from "next/navigation";
 import OperatingValuationPanel from "@/components/operating-valuation-panel";
 import CompanySensitivityPanel from "@/components/company-sensitivity-panel";
 import CompanyOperatingSimulation from "@/components/company-operating-simulation";
-import ValuationAttributionPanel from "@/components/valuation-attribution-panel";
 import { ValueDonut, FcfBars, TrendChart, ConfidenceChart } from "@/components/charts";
 import {
   PeerCompareChart,
@@ -132,7 +131,6 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
   const overview = section === "overview";
   const sensitivity = section === "sensitivity";
   const comparables = section === "comparables";
-  const attribution = section === "attribution";
   const needsValidation = comparables;
 
   const [company, setCompany] = useState<CompanyData | null>(null);
@@ -879,7 +877,6 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
 
       </>}
 
-      {attribution && <ValuationAttributionPanel key={c.id} companyId={c.id} />}
       </div>
     </div>
   );

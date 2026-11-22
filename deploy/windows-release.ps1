@@ -208,9 +208,12 @@ const expected = JSON.parse(fs.readFileSync('deployment-state/database-counts.js
       throw Error('Sensitivity baseline failed reconciliation');
     const attribution = await fetch('http://127.0.0.1:3000/api/validation/attribution?companyId=' + encodeURIComponent(companyId), { headers, signal: AbortSignal.timeout(10000) });
     if (!attribution.ok) throw Error('Attribution evidence endpoint failed');
-    const evidence = await attribution.json();
-    if (evidence.evidence?.primary?.kind !== 'operating' || !evidence.evidence?.primary?.price ||
-        evidence.evidence?.reconciliation !== 'passed') throw Error('Attribution did not read the verified publication');
+    const { evidence } = await attribution.json();
+    if (evidence?.primary?.kind !== 'operating' || evidence.primary.price !== value.valuation.publication.price ||
+        evidence.reconciliation !== 'passed' || !evidence.model?.sensitivity?.length ||
+        !['aligned', 'reference', 'unavailable'].includes(evidence.comparison?.mode) ||
+        (evidence.comparison.mode !== 'aligned' && evidence.comparison.differencePct !== null))
+      throw Error('Attribution evidence did not match the verified publication');
   }
   console.log(JSON.stringify({ authenticatedApi: true, anonymousStatus: 401, companyCount: companies.length, pages: true, newsCount: feed.items.length, newsSources: [...sources], checkedValuation }));
 })().catch(() => { console.error('RELEASE_HEALTH_FAILED'); process.exitCode = 1; });
