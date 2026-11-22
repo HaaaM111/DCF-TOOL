@@ -454,13 +454,13 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
 
       {primary.kind !== "operating" && <Alert className="mb-4" type="warning" showIcon title={primary.reason} />}
 
-      <div className={g ? "grid items-start gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]" : undefined}>
+      <div className={g ? "grid min-w-0 grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]" : undefined}>
       {/* 股价 vs DCF 估值趋势图 */}
         <Card
           size="small"
           title={hasPublishedPrices ? "股价走势与主估值" : "股价走势"}
           extra={hasPublishedPrices && <span className="text-xs text-terminal-muted">目标价从发布日期起显示</span>}
-          className="mb-4"
+          className="mb-4 min-w-0"
         >
           {prices.length > 0 ? <TrendChart
             prices={prices}
@@ -473,7 +473,7 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
       {/* Gordon 自洽校验 */}
       {g && (
         <Card
-          className="mb-4"
+          className="mb-4 min-w-0"
           size="small"
           title="Gordon 镜像自洽校验"
           extra={
