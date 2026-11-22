@@ -257,7 +257,7 @@ export default function DashboardPage() {
       ),
     },
     {
-      title: "DCF正向终局利润(Y20)",
+      title: "正向终局现金流（第20年）",
       dataIndex: "terminalProfitY20",
       width: 130,
       className: "font-mono-num",
@@ -273,7 +273,7 @@ export default function DashboardPage() {
       render: (v: number) => <span>{fmt(v, 2)}x</span>,
     },
     {
-      title: "隐含终局利润 L",
+      title: "隐含终局现金流 L",
       dataIndex: "impliedL",
       width: 124,
       className: "font-mono-num",
@@ -281,7 +281,7 @@ export default function DashboardPage() {
       render: (v: number) => <span className="txt-mid">{fmt(v, 1)} 亿</span>,
     },
     {
-      title: "L/E3(反算)",
+      title: "隐含现金流 / E3",
       dataIndex: "impliedLE3",
       width: 110,
       className: "font-mono-num",
@@ -291,7 +291,7 @@ export default function DashboardPage() {
       ),
     },
     {
-      title: "隐含终局CAGR(20y)",
+      title: "17 年折算值",
       dataIndex: "impliedCagr",
       width: 130,
       className: "font-mono-num",
@@ -499,7 +499,7 @@ export default function DashboardPage() {
       {/* 看板操作 */}
       <AppHeader
         title="DCF 估值穿透与弹性空间测算终端"
-        subtitle="正向 20 年 DCF 内在价值 + 逆向终局利润 L 反算 · 安全：服务端二次校验"
+        subtitle="正向 20 年 DCF 内在价值 + 逆向终局现金流 L 反算 · 安全：服务端二次校验"
         actions={
           <Space wrap size={6}>
             <Button icon={<ReloadOutlined />} onClick={loadData}>

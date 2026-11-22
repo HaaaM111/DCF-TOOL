@@ -170,6 +170,9 @@ const expected = JSON.parse(fs.readFileSync('deployment-state/database-counts.js
     throw Error('Market news feed is incomplete');
   const invalidCheck = await fetch('http://127.0.0.1:3000/api/settings/data-check?ticker=%40%21', { headers, signal: AbortSignal.timeout(5000) });
   if (invalidCheck.status !== 422) throw Error('Settings input validation failed');
+  const industries = await fetch('http://127.0.0.1:3000/api/settings/industry-multiples', { headers, signal: AbortSignal.timeout(10000) });
+  if (!industries.ok || ((await industries.json()).groups?.length ?? 0) < 8)
+    throw Error('Industry directory unavailable');
   const checkTicker = companies.some(company => company.ticker === '603786.SH') ? '603786.SH' : null;
   let checkedValuation = false;
   if (checkTicker) {
@@ -182,22 +185,26 @@ const expected = JSON.parse(fs.readFileSync('deployment-state/database-counts.js
     checkedValuation = true;
     const companyId = companies.find(company => company.ticker === checkTicker).id;
     const companyApi = 'http://127.0.0.1:3000/api/companies/' + encodeURIComponent(companyId);
+    const prices = await fetch(companyApi + '/prices?range=24m', { headers, signal: AbortSignal.timeout(20000) });
+    if (!prices.ok || !(await prices.json()).prices?.some(bar =>
+      bar.open > 0 && bar.high >= Math.max(bar.open, bar.close) && bar.low > 0 && bar.low <= Math.min(bar.open, bar.close)))
+      throw Error('OHLC history unavailable');
     const simulated = await fetch(companyApi + '/simulation', { headers, signal: AbortSignal.timeout(10000) });
     if (!simulated.ok) throw Error('Simulation endpoint failed');
     const { revision, simulation } = await simulated.json();
     if (revision !== value.valuation.publication.revision ||
-        (simulation && ![simulation.coherent, simulation.workbook].every(stats => stats &&
-          stats.samples + simulation.rejected === simulation.config.samples &&
-          stats.p5 <= stats.median && stats.median <= stats.p95)))
+        (simulation && ('workbook' in simulation || !simulation.coherent ||
+          simulation.coherent.samples + simulation.rejected !== simulation.config.samples ||
+          simulation.coherent.p5 > simulation.coherent.median || simulation.coherent.median > simulation.coherent.p95)))
       throw Error('Published simulation failed validation');
     const heatmap = await fetch(companyApi + '/sensitivity', { headers, signal: AbortSignal.timeout(10000) });
     if (!heatmap.ok) throw Error('Sensitivity endpoint failed');
     const { sensitivity } = await heatmap.json();
-    if (sensitivity?.kind !== 'operating' || sensitivity.rateLabel !== 'WACC' ||
+    if (sensitivity?.kind !== 'operating' || 'workbookMatrix' in sensitivity || sensitivity.rateLabel !== 'WACC' ||
         sensitivity.base.price !== value.valuation.publication.price ||
-        ![sensitivity.matrix, sensitivity.workbookMatrix].every(matrix => matrix?.some(cell =>
+        !sensitivity.matrix?.some(cell =>
           cell.wacc === sensitivity.base.wacc && cell.g === sensitivity.base.g &&
-          cell.targetPrice !== null && Math.abs(cell.targetPrice - sensitivity.base.price) < 1e-8)))
+          cell.targetPrice !== null && Math.abs(cell.targetPrice - sensitivity.base.price) < 1e-8))
       throw Error('Sensitivity baseline failed reconciliation');
     const attribution = await fetch('http://127.0.0.1:3000/api/validation/attribution?companyId=' + encodeURIComponent(companyId), { headers, signal: AbortSignal.timeout(10000) });
     if (!attribution.ok) throw Error('Attribution evidence endpoint failed');

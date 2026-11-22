@@ -142,8 +142,37 @@ export function operatingInputAudit(input: OperatingModelInput) {
   };
 }
 
-export function analyzeOperatingModel(input: OperatingModelInput) {
-  return { ...analyzeOperatingValuation(input), input, inputAudit: operatingInputAudit(input) };
+export function analyzeOperatingModel(input: OperatingModelInput, includeReference = true) {
+  return { ...analyzeOperatingValuation(input, includeReference), input, inputAudit: operatingInputAudit(input) };
 }
 
 export type OperatingModelAnalysis = ReturnType<typeof analyzeOperatingModel>;
+
+/** Older inputs may contain reference-only fields. Public reports use operating inputs. */
+export function operatingReportInput(input: OperatingModelInput): OperatingModelInput {
+  const { benchmarkPrice, scenarios, ...report } = input;
+  void benchmarkPrice;
+  if (!scenarios) return report;
+  const { operatingPeers, ...operatingScenarios } = scenarios;
+  void operatingPeers;
+  return { ...report, scenarios: operatingScenarios };
+}
+
+export function operatingSimulationReport(simulation: OperatingModelAnalysis["simulation"]) {
+  if (!simulation) return null;
+  const { workbook, ...report } = simulation;
+  void workbook;
+  return report;
+}
+
+export function analyzeOperatingReport(input: OperatingModelInput) {
+  const { benchmarkDifference, crossValidationRange, peerValuation, simulation, heatmap, ...report }
+    = analyzeOperatingModel(operatingReportInput(input), false);
+  void benchmarkDifference;
+  void crossValidationRange;
+  void peerValuation;
+  return { ...report, simulation: operatingSimulationReport(simulation),
+    heatmap: heatmap.map(({ wacc, g, coherentPrice }) => ({ wacc, g, coherentPrice })) };
+}
+
+export type OperatingModelReport = ReturnType<typeof analyzeOperatingReport>;

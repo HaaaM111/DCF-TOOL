@@ -24,6 +24,7 @@
 
 import { z } from "zod";
 import { matchesReportPeriod, missingFinancialFields, normalizeQuoteDay, quoteDateFromUnix } from "./financial-data-quality";
+import { priceRange } from "./price-candles";
 
 // ============================================================
 // 配置与常量
@@ -276,11 +277,12 @@ export async function fetchEastPriceHistory(
   }
 
   return parsed.data.data.klines.flatMap((line) => {
-    const [rawDate, , rawClose, , , volume] = line.split(",");
+    const [rawDate, rawOpen, rawClose, rawHigh, rawLow, volume] = line.split(",");
     const date = normalizeQuoteDay(rawDate);
     const close = Number(rawClose);
     return date && date >= startDate && date <= endDate && Number.isFinite(close) && close > 0
-      ? [{ date, close, volume: Number.isFinite(Number(volume)) ? Number(volume) : 0 }] : [];
+      ? [{ date, close, ...priceRange(Number(rawOpen), Number(rawHigh), Number(rawLow), close),
+        volume: Number.isFinite(Number(volume)) ? Number(volume) : 0 }] : [];
   });
 }
 
@@ -452,12 +454,33 @@ function lastAnnualReportDate(): string {
   return `${year}-12-31`;
 }
 
-async function readEastBalance(ticker: string, reportDate: string) {
+async function readEastBalance(ticker: string, reportDate: string, companyType: 3 | 4 = 4) {
   if (!/^\d{6}\.(SH|SZ)$/i.test(ticker) || !/^\d{4}-12-31$/.test(reportDate)) return undefined;
   const balanceUrl = `${EMWEB_BASE}/PC_HSF10/NewFinanceAnalysis/ZcfzbAjaxNew`
-    + `?companyType=4&reportDateType=0&reportType=1&dates=${reportDate}&code=${toEmCode(ticker)}`;
+    + `?companyType=${companyType}&reportDateType=0&reportType=1&dates=${reportDate}&code=${toEmCode(ticker)}`;
   const response = emwebSchema.safeParse(await eastGet<unknown>(balanceUrl, `balance ${ticker}`));
   return response.success ? response.data.data?.find((row) => matchesReportPeriod(row.REPORT_DATE, reportDate)) : undefined;
+}
+
+export async function fetchEastBankParentBook(ticker: string, reportDate: string) {
+  const row = await readEastBalance(ticker, reportDate, 3);
+  return row?.TOTAL_PARENT_EQUITY == null ? null : row.TOTAL_PARENT_EQUITY / 1e8;
+}
+
+const incomeRow = z.object({
+  REPORT_DATE: z.string(),
+  TOTAL_PROFIT: z.number().nullable().optional(),
+  FE_INTEREST_EXPENSE: z.number().nullable().optional(),
+});
+const incomeStatement = z.object({ data: z.array(incomeRow).nullable().optional() });
+
+export async function fetchEastAnnualEbit(ticker: string, reportDate: string) {
+  if (!/^\d{4}-12-31$/.test(reportDate)) return null;
+  const url = `${EMWEB_BASE}/PC_HSF10/NewFinanceAnalysis/LrbAjaxNew`
+    + `?companyType=4&reportDateType=0&reportType=1&dates=${reportDate}&code=${toEmCode(ticker)}`;
+  const parsed = incomeStatement.safeParse(await eastGet<unknown>(url, `income ${ticker}`));
+  const row = parsed.success ? parsed.data.data?.find((item) => matchesReportPeriod(item.REPORT_DATE, reportDate)) : undefined;
+  return row?.TOTAL_PROFIT == null || row.FE_INTEREST_EXPENSE == null ? null : (row.TOTAL_PROFIT + row.FE_INTEREST_EXPENSE) / 1e8;
 }
 
 export async function fetchEastReportedCash(ticker: string, reportDate: string) {

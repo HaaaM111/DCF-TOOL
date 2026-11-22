@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
-import { analyzeOperatingModel, operatingModelInputSchema } from "@/lib/operating-model-input";
+import { analyzeOperatingReport, operatingModelInputSchema } from "@/lib/operating-model-input";
 
 export async function POST(req: NextRequest) {
   const guard = guardRequest(req);
@@ -14,5 +14,5 @@ export async function POST(req: NextRequest) {
     return jsonError(issues.join("；"), 422, "VALIDATION_ERROR");
   }
 
-  return jsonOk(analyzeOperatingModel(parsed.data));
+  return jsonOk(analyzeOperatingReport(parsed.data));
 }

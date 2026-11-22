@@ -2,15 +2,15 @@
 
 import { useEffect, useState } from "react";
 import { Alert, Button, Card, Empty, Spin, Table, Typography } from "antd";
-import type { OperatingModelAnalysis } from "@/lib/operating-model-input";
+import type { OperatingModelReport } from "@/lib/operating-model-input";
 
-type Simulation = NonNullable<OperatingModelAnalysis["simulation"]>;
+type Simulation = NonNullable<OperatingModelReport["simulation"]>;
 type Response = { revision: string; currency: string; simulation: Simulation | null };
 const money = new Intl.NumberFormat("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const percent = new Intl.NumberFormat("zh-CN", { style: "percent", maximumFractionDigits: 2 });
 
-function OperatingSimulationResults({ simulation, currency }: { simulation: Simulation; currency: string }) {
-  const { config, workbook, coherent, capped, rejected } = simulation;
+export function OperatingSimulationResults({ simulation, currency }: { simulation: Simulation; currency: string }) {
+  const { config, coherent, capped, rejected } = simulation;
   const { samples, seed, waccStd, growthStd, minimumSpread } = config;
 
   return <>
@@ -21,18 +21,17 @@ function OperatingSimulationResults({ simulation, currency }: { simulation: Simu
     </Typography.Paragraph>
     <Table size="small" rowKey="name" pagination={false} scroll={{ x: 450 }} dataSource={[
       { name: "经营口径", stats: coherent },
-      { name: "Excel 复算", stats: workbook },
     ]} columns={[
       { title: "口径", dataIndex: "name" },
       ...(["p5", "median", "p95", "mean"] as const).map((key) => ({
         title: { p5: "P5", median: "P50", p95: "P95", mean: "均值" }[key],
         key, align: "right" as const,
-        render: (_: unknown, { stats }: { stats: Simulation["workbook"] }) =>
+        render: (_: unknown, { stats }: { stats: Simulation["coherent"] }) =>
           stats ? `${money.format(stats[key])} ${currency}/股` : "—",
       })),
     ]} />
     <Typography.Paragraph type="secondary" className="mt-2 mb-0">
-      经营口径按情景重算资本费用，项目冲击如有配置会同时调整净经营资产。Excel 复算沿用底稿的资本费用。
+      每个样本重算资本费用及折现，项目冲击如有配置会同时调整税后经营利润和净经营资产。
     </Typography.Paragraph>
   </>;
 }

@@ -4,6 +4,7 @@
  * 优先读数据库 PriceSnapshot；覆盖不足时补充不复权日线。
  */
 import { NextRequest } from "next/server";
+import { z } from "zod";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
 import { prisma } from "@/lib/prisma";
 import { idSchema } from "@/lib/agent/schemas";
@@ -13,6 +14,7 @@ import { mainlandCloseWindow } from "@/lib/peer-selection";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+const rangeSchema = z.enum(["6m", "24m"]).default("6m");
 
 export async function GET(req: NextRequest) {
   const guard = guardRequest(req);
@@ -20,16 +22,21 @@ export async function GET(req: NextRequest) {
 
   const id = req.nextUrl.pathname.split("/")[3];
   if (!idSchema.safeParse(id).success) return jsonError("无效id", 422);
+  const range = rangeSchema.safeParse(req.nextUrl.searchParams.get("range") ?? undefined);
+  if (!range.success) return jsonError("行情区间须为 6m 或 24m", 422);
   const company = await prisma.company.findUnique({
     where: { id },
     select: { ticker: true },
   });
   if (!company) return jsonError("标的不存在", 404, "NOT_FOUND");
 
-  // 读取最近 180 天行情
+  // K 线视图从首个月月初取数，月 K 起点不截断。
   const closeOffset = /\.HK$/i.test(company.ticker) ? 3_600_000 : 0;
   const { end } = mainlandCloseWindow(new Date(Date.now() - closeOffset));
-  const since = new Date(Date.parse(end) - 180 * 86_400_000);
+  const asOf = new Date(end);
+  const since = range.data === "24m"
+    ? new Date(Date.UTC(asOf.getUTCFullYear(), asOf.getUTCMonth() - 23, 1))
+    : new Date(Date.parse(end) - 180 * 86_400_000);
   const start = since.toISOString().slice(0, 10);
 
   const [snapshots, history] = await Promise.all([
@@ -43,7 +50,7 @@ export async function GET(req: NextRequest) {
     volume: s.volume,
   })).filter((row) => row.date <= end && Number.isFinite(row.close) && row.close > 0);
   const latest = savedPrices.at(-1)?.date;
-  const needsHistory = savedPrices.length < 60 || !latest || Date.parse(end) - Date.parse(latest) > 7 * 86_400_000;
+  const needsHistory = range.data === "24m" || savedPrices.length < 60 || !latest || Date.parse(end) - Date.parse(latest) > 7 * 86_400_000;
   const fetched = needsHistory ? await resolvePriceHistory(company.ticker, start, end).catch(() => null) : null;
   const prices = [...new Map([...savedPrices, ...(fetched?.source !== "mock" ? fetched?.data ?? [] : [])]
     .map((row) => [row.date, row])).values()].sort((a, b) => a.date.localeCompare(b.date));

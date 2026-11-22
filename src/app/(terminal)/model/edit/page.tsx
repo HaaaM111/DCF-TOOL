@@ -529,7 +529,7 @@ function ModelEditContent() {
     <div className="min-h-screen">
       <AppHeader
         title={`${editId ? "编辑" : "新增"}上市公司估值模型`}
-        subtitle="正向 20 年 DCF 内在价值 + 逆向终局利润 L 反算 · 实时计算"
+        subtitle="正向 20 年 DCF 内在价值 + 逆向终局现金流 L 反算 · 实时计算"
       />
       <div className="terminal-page">
         <Tabs
@@ -932,13 +932,13 @@ function ModelEditContent() {
                         </Col>
                         <Col xs={12} lg={6}>
                           <Statistic
-                            title="反算 L (隐含终局利润)"
+                            title="隐含终局现金流 L"
                             value={r?.l}
                             precision={1}
                             suffix="亿"
                           />
                           <div className="text-xs text-terminal-muted">
-                            L/E3 = {r?.lE3.toFixed(2)}x ｜ 隐含 CAGR {r?.impliedCagr.toFixed(1)}%
+                            终局现金流 / E3 = {r?.lE3.toFixed(2)}x ｜ 17 年折算 {r?.impliedCagr.toFixed(1)}%
                           </div>
                         </Col>
                         <Col xs={12} lg={6}>

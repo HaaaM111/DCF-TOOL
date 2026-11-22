@@ -34,7 +34,7 @@ export default function QuadrantChart({ points, selectedId, onSelect }: {
       grid: { left: 52, right: 18, top: 18, bottom: 54 },
       xAxis: {
         type: "value", min: xMin, max: xMax, splitNumber: 4, axisLabel, axisLine: { onZero: false, show: true },
-        name: points.length ? `市场隐含 CAGR · 中位数 ${median.toFixed(1)}%` : "市场隐含 CAGR（%）",
+        name: points.length ? `逆向估值折算值 · 中位数 ${median.toFixed(1)}%` : "逆向估值折算值（%）",
         nameLocation: "middle", nameGap: 34,
       },
       yAxis: {
@@ -46,7 +46,7 @@ export default function QuadrantChart({ points, selectedId, onSelect }: {
         formatter: (info) => {
           if (Array.isArray(info) || !Array.isArray(info.value)) return "";
           const [x, y] = info.value as number[];
-          return `${info.name}\n市场隐含 CAGR：${x.toFixed(1)}%\n同日潜在空间：${y.toFixed(1)}%`;
+          return `${info.name}\n逆向估值折算值：${x.toFixed(1)}%\n同日潜在空间：${y.toFixed(1)}%`;
         },
       },
       series: [{

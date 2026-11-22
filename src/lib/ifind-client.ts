@@ -273,6 +273,7 @@ async function ifindPost<T>(
 // ============================================================
 
 import { chinaMarketDate, missingFinancialFields, normalizeQuoteDay } from "./financial-data-quality";
+import { priceRange } from "./price-candles";
 
 interface IFindTable {
   thscode: string;
@@ -466,12 +467,14 @@ export async function fetchPriceHistory(
 
   const closes = tbl.table?.["close"] ?? [];
   const volumes = tbl.table?.["volume"] ?? [];
+  const { open = [], high = [], low = [] } = tbl.table ?? {};
 
   return tbl.time.flatMap((value, i) => {
     const date = typeof value === "string" ? normalizeQuoteDay(value) : null;
     const close = closes[i];
     return date && date >= startDate && date <= endDate && Number.isFinite(close) && close > 0
-      ? [{ date, close, volume: Number.isFinite(volumes[i]) ? volumes[i] : 0 }] : [];
+      ? [{ date, close, ...priceRange(open[i], high[i], low[i], close),
+        volume: Number.isFinite(volumes[i]) ? volumes[i] : 0 }] : [];
   });
 }
 

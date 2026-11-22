@@ -15,5 +15,4 @@ export type CompanySensitivity = {
   valuationDate: string | null;
   base: SensitivityBase;
   matrix: SensitivityCellPrice[];
-  workbookMatrix?: SensitivityCellPrice[];
 };

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
 import { idSchema } from "@/lib/agent/schemas";
 import { getOperatingPublication, getOperatingRevision, publishOperatingModel } from "@/lib/operating-model-store";
-import { operatingModelInputSchema } from "@/lib/operating-model-input";
+import { operatingModelInputSchema, operatingReportInput } from "@/lib/operating-model-input";
 
 type Context = { params: Promise<{ id: string }> };
 const publishSchema = z.strictObject({
@@ -19,7 +19,7 @@ export async function GET(req: NextRequest, context: Context) {
   const publication = await getOperatingPublication(id.data);
   if (!publication) return jsonError("暂无已发布底稿", 404);
   const input = await getOperatingRevision(id.data, publication.revision);
-  return input ? jsonOk({ publication, input }) : jsonError("已发布底稿不可用", 409);
+  return input ? jsonOk({ publication, input: operatingReportInput(input) }) : jsonError("已发布底稿不可用", 409);
 }
 
 export async function POST(req: NextRequest, context: Context) {
@@ -31,7 +31,7 @@ export async function POST(req: NextRequest, context: Context) {
   if (!parsed.success) {
     return jsonError(parsed.error.issues.slice(0, 6).map(({ path, message }) => `${path.join(".")} ${message}`).join("；"), 422);
   }
-  const result = await publishOperatingModel(id.data, parsed.data.input, parsed.data.expectedRevision);
+  const result = await publishOperatingModel(id.data, operatingReportInput(parsed.data.input), parsed.data.expectedRevision);
   if ("error" in result) {
     if (result.error === "conflict") return jsonError("主估值已更新，请重新加载当前底稿", 409);
     return result.error === "not_found" ? jsonError("标的不存在", 404) : jsonError("请核对证券代码及三模型勾稽", 422);

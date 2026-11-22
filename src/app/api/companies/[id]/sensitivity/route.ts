@@ -32,11 +32,10 @@ export async function GET(request: NextRequest, context: Context) {
       const published = primary.publication;
       const input = await getOperatingRevision(companyId, published.revision);
       if (!input) return jsonOk({ sensitivity: null, reason: "已发布底稿不可用，暂不生成敏感性。" });
-      const cells = operatingSensitivity(input);
+      const cells = operatingSensitivity(input, false);
       sensitivity = { kind: "operating", rateLabel: "WACC", currency: published.currency, valuationDate: published.valuationDate,
         base: { wacc: input.wacc, g: input.terminalGrowth, price: primary.price },
         matrix: cells.map(({ wacc, g, coherentPrice }) => ({ wacc, g, targetPrice: coherentPrice })),
-        workbookMatrix: cells.map(({ wacc, g, workbookPrice }) => ({ wacc, g, targetPrice: workbookPrice })),
       };
     } else {
       const inputs = assumptionsSchema.safeParse(saved);

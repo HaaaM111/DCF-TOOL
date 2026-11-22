@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { App, Button, Card, Descriptions, Input, Segmented, Space, Switch, Tabs, Tag } from "antd";
 import { useTheme, useWorkspace } from "@/app/providers";
+import IndustryMultiplesPanel from "@/components/industry-multiples-panel";
 import { financialFieldLabels, type FinancialField } from "@/lib/financial-data-quality";
 import { workspaceDefaults } from "@/lib/workspace-preferences";
 import type { PrimaryValuation } from "@/lib/primary-valuation";
@@ -123,6 +124,7 @@ export default function SettingsPage() {
         {error && <p role="alert" className="mt-3 txt-neg">{error}</p>}
         {check && <CheckResults check={check} />}
       </Card> },
+      { key: "industries", label: "行业估值资料", children: <IndustryMultiplesPanel /> },
       { key: "valuation", label: "估值口径", children: <Card size="small" title="当前估值规则">
         <Setting title="经营估值" description="显性期以税后经营利润减经营再投资计算 FCFF，以 WACC 折现，再扣净金融负债和少数股东权益。"><Link className="text-terminal-link hover:underline" href="/valuation/new">新增估值</Link></Setting>
         <Setting title="终值与勾稽" description="终值按永续增长计算。发布前核对 FCFF、ReOI 与 AOIG，终值占比可在数据诊断查看。"><Link className="text-terminal-link hover:underline" href="/valuation/board">查看估值看板</Link></Setting>

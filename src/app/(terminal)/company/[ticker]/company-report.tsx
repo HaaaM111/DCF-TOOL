@@ -42,6 +42,7 @@ import { calcDcf } from "@/lib/dcf";
 import type { DcfOutput, MonteCarloResult } from "@/types/dcf";
 import type { calculatePeerValuation } from "@/lib/peer-valuation-service";
 import type { PrimaryValuation } from "@/lib/primary-valuation";
+import type { PriceBar } from "@/lib/price-candles";
 import type { CompanySection } from "./sections";
 
 const { Title, Paragraph, Text } = Typography;
@@ -141,7 +142,8 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
   const [knobG, setKnobG] = useState<number>();
   const [noteDate, setNoteDate] = useState<string>(new Date().toISOString().slice(0, 10));
   const [noteContent, setNoteContent] = useState("");
-  const [prices, setPrices] = useState<{ date: string; close: number }[]>([]);
+  const [prices, setPrices] = useState<PriceBar[]>([]);
+  const [priceLoading, setPriceLoading] = useState(false);
   const [publishedPrices, setPublishedPrices] = useState<{ date: string; targetPrice: number | null }[]>([]);
   const [priceCurrency, setPriceCurrency] = useState<string>();
   const [mcResult, setMcResult] = useState<MonteCarloResult | null>(null);
@@ -171,15 +173,24 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
   useEffect(() => {
     if (!overview) return;
     const controller = new AbortController();
-    fetch("/api/companies/" + encodeURIComponent(id) + "/prices", { signal: controller.signal })
-      .then((response) => response.json())
+    setPriceLoading(true);
+    setPrices([]);
+    setPublishedPrices([]);
+    fetch("/api/companies/" + encodeURIComponent(id) + "/prices?range=24m", {
+      signal: AbortSignal.any([controller.signal, AbortSignal.timeout(20000)]),
+    })
+      .then((response) => {
+        if (!response.ok) throw new Error("无法读取历史行情");
+        return response.json();
+      })
       .then((data) => {
         if (controller.signal.aborted) return;
         setPrices(data.prices ?? []);
         setPublishedPrices(data.valuation ?? []);
         setPriceCurrency(data.currency ?? undefined);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => { if (!controller.signal.aborted) setPriceLoading(false); });
     return () => controller.abort();
   }, [id, overview]);
 
@@ -293,14 +304,14 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
       c.netCash > c.marketCap
         ? "现金覆盖型：市值低于净现金，市场给生意的定价为负——本质是现金底 + 困境反转期权，跟踪重心是止血而非增长。"
         : r.lE3 < 0
-          ? "业务负定价：市场隐含终局利润为负，认为当前业务长期无法盈利。"
+          ? "在当前折现假设下，股价反推的终局自由现金流为负。"
           : r.lE3 > 40
-            ? "高增长透支型：市场给了极高的终局利润倍数，预期已相当饱满。"
-            : "稳态估值型：市场隐含终局利润处于合理区间。";
+            ? "市场隐含的终局现金流相对第 3 年净利润较高。"
+            : "市场隐含的终局现金流处于规则设定的参考区间。";
     const cashShare = f.adjustedEquityValue > 0 ? `，占模型股权价值 ${(c.netCash / f.adjustedEquityValue * 100).toFixed(0)}%` : "";
     const capexShare = c.da > 0 && c.capex > 0 ? (c.capex / c.da).toFixed(2) : "待核验";
     const body = `市值 ${c.marketCap.toFixed(0)} 亿，净现金 ${c.netCash.toFixed(0)} 亿${cashShare}。本期 Capex/D&A ${capexShare}，模型前五年现金流增速假设 ${((c.assumption?.g1 ?? 0) * 100).toFixed(1)}%。`;
-    const marketBet = `隐含终局利润 ${r.l.toFixed(0)} 亿，L/E3 = ${r.lE3.toFixed(1)}x（${c.diagnosis}），隐含 20 年 CAGR ${r.impliedCagr.toFixed(1)}%。`;
+    const marketBet = `隐含终局现金流 ${r.l.toFixed(0)} 亿，终局现金流 / E3 为 ${r.lE3.toFixed(1)}x，17 年折算值 ${r.impliedCagr.toFixed(1)}%。`;
     const modelSays = `股东回报口径 +${f.adjustedUpside.toFixed(1)}%（原版 +${f.originalUpside.toFixed(1)}%，裂口 ${(f.adjustedUpside - f.originalUpside).toFixed(0)}pct = 留存再投资回报 vs 无风险的分歧）；价值构成以「${f.composition.netCash > f.composition.explicit ? "净现金" : "显性期"}」为主。`;
     const check = g.isConsistent
       ? `自洽：隐含 Ke ${(g.impliedKe * 100).toFixed(1)}% ≈ 正向 Ke ${(g.forwardKe * 100).toFixed(1)}%。`
@@ -341,16 +352,16 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
   const perpetualG = knobG ?? c.assumption?.perpetualG ?? 0;
   const formatRate = (v: number) => `${Number((v * 100).toFixed(4))}%`;
 
-  const sensitivityColumns = (label: string) => [
+  const sensitivityColumns = (label: string, metric: "现金流" | "净利润") => [
     { title: label, dataIndex: "param", width: 100 },
     {
-      title: "隐含 L (亿)",
+      title: `隐含终局${metric}（亿）`,
       dataIndex: "l",
       width: 120,
       render: (v: number | null) => v === null ? "—" : <span className="txt-mid">{v.toFixed(2)}</span>,
     },
     {
-      title: "L/E3",
+      title: `${metric} / E3`,
       dataIndex: "lE3",
       width: 100,
       render: (v: number | null) => v === null ? "—" : `${v.toFixed(2)}x`,
@@ -447,15 +458,16 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
       {/* 股价 vs DCF 估值趋势图 */}
         <Card
           size="small"
-          title={hasPublishedPrices ? "收盘价与主估值" : "股价走势"}
-          extra={<span className="text-xs text-terminal-muted">{hasPublishedPrices ? "目标价从发布日期起显示" : "历史收盘价"}</span>}
+          title={hasPublishedPrices ? "股价走势与主估值" : "股价走势"}
+          extra={hasPublishedPrices && <span className="text-xs text-terminal-muted">目标价从发布日期起显示</span>}
           className="mb-4"
         >
           {prices.length > 0 ? <TrendChart
             prices={prices}
             valuation={publishedPrices}
             currency={priceCurrency}
-          /> : <Empty description="暂无历史行情" />}
+          /> : priceLoading ? <div className="py-6 text-center"><Spin description="正在读取历史行情…" /></div>
+            : <Empty description="暂无可用历史行情" />}
         </Card>
 
       {/* Gordon 自洽校验 */}
@@ -551,7 +563,7 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
         description={
           <ul className="mb-0">
             <li>正向 Y20（{f?.fcfY20.toFixed(1)} 亿）= 基于 baseFcf 按 20 年增长率推演出的第 20 年自由现金流（FCF 口径）。</li>
-            <li>终局利润估计（{(c.terminalProfitEst ?? 0).toFixed(0)} 亿）= 用户对第 20 年净利润的主观判断，用于逆向反算。</li>
+            <li>终局利润估计（{(c.terminalProfitEst ?? 0).toFixed(0)} 亿）= 用户对第 20 年净利润的假设值，用于 Exit PE 镜像自洽校验。</li>
             <li>股东回报口径 = 派现折现 + 留存现金（按 2% 复利累积至第 20 年再折现）+ 净现金。</li>
           </ul>
         }
@@ -607,8 +619,8 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
             columns={[
               { title: "折现率 r", dataIndex: "param", align: "right", render: formatRate },
               { title: "隐含终局现金流 L", dataIndex: "l", align: "right", render: (v: number | null) => v === null ? "—" : `${v.toFixed(2)} 亿` },
-              { title: "L/E3 倍数", dataIndex: "lE3", align: "right", render: (v: number | null) => v === null ? "—" : `${v.toFixed(2)}x` },
-              { title: "L/E0 倍数", dataIndex: "l", align: "right", responsive: ["md"], render: (v: number | null) => v !== null && c.e0 > 0 ? `${(v / c.e0).toFixed(2)}x` : "—" },
+              { title: "现金流 / E3", dataIndex: "lE3", align: "right", render: (v: number | null) => v === null ? "—" : `${v.toFixed(2)}x` },
+              { title: "现金流 / E0", dataIndex: "l", align: "right", responsive: ["md"], render: (v: number | null) => v !== null && c.e0 > 0 ? `${(v / c.e0).toFixed(2)}x` : "—" },
               {
                 title: "叙事分级诊断",
                 responsive: ["md"],
@@ -619,21 +631,21 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
           />
 
           <Divider>逆向情景切片</Divider>
-          <p className="mb-3 text-xs text-terminal-muted">Gordon 切片反推终局现金流；退出 PE 切片反推终局净利润。两种口径不可直接混用。</p>
+          <p className="mb-3 text-xs text-terminal-muted">Gordon 切片反推终局现金流，退出 PE 切片反推终局净利润。E3 是第 3 年预测净利润。</p>
           <Row gutter={[16, 16]}>
             <Col xs={24} md={8}>
               <Card size="small" title="① L_conservative 对折现率 r">
-                <Table size="small" pagination={false} columns={sensitivityColumns("折现率")} dataSource={sens.r.map((x) => ({ ...x, param: formatRate(x.param), key: x.param }))} />
+                <Table size="small" pagination={false} columns={sensitivityColumns("折现率", "现金流")} dataSource={sens.r.map((x) => ({ ...x, param: formatRate(x.param), key: x.param }))} />
               </Card>
             </Col>
             <Col xs={24} md={8}>
               <Card size="small" title="② L_multiple 对退出 PE">
-                <Table size="small" pagination={false} columns={sensitivityColumns("退出PE")} dataSource={sens.exitPe.map((x) => ({ ...x, param: `${x.param}x`, key: x.param }))} />
+                <Table size="small" pagination={false} columns={sensitivityColumns("退出PE", "净利润")} dataSource={sens.exitPe.map((x) => ({ ...x, param: `${x.param}x`, key: x.param }))} />
               </Card>
             </Col>
             <Col xs={24} md={8}>
               <Card size="small" title="③ L_gordon 对永续 g">
-                <Table size="small" pagination={false} columns={sensitivityColumns("永续g")} dataSource={sens.g.map((x) => ({ ...x, param: formatRate(x.param), key: x.param }))} />
+                <Table size="small" pagination={false} columns={sensitivityColumns("永续g", "现金流")} dataSource={sens.g.map((x) => ({ ...x, param: formatRate(x.param), key: x.param }))} />
               </Card>
             </Col>
           </Row>
@@ -711,7 +723,7 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
             {comparables && <>
             <Row gutter={[16, 16]}>
               <Col xs={24} lg={12}>
-                <Card size="small" title="PE/PB/PS 横向对比（均值辅助，中位数为主）">
+                <Card size="small" title="同行交易倍数（中位数为主）">
                   <PeerCompareChart methods={validation.validation.multiples.methods} />
                 </Card>
               </Col>
@@ -764,14 +776,23 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
               </Col>
             </Row>
 
-            {validation.validation.multiples && <Table size="small" pagination={false} rowKey="name" className="mt-4 fin-table" dataSource={validation.validation.multiples.methods} columns={[
-              {title:"倍数",dataIndex:"name"},{title:"有效同行",dataIndex:"count",align:"right"},{title:"均值",dataIndex:"mean",align:"right",render:(v:number|null)=>v?.toFixed(2)??"—"},{title:"中位数（主口径）",dataIndex:"median",align:"right",render:(v:number|null)=>v?.toFixed(2)??"—"},{title:"股权价值/亿元",dataIndex:"equityValue",align:"right",render:(v:number|null)=>v?.toFixed(1)??"数据不足"}
+            {validation.validation.multiples && <Table size="small" pagination={false} rowKey="name" className="mt-4 fin-table" scroll={{ x: 640 }} dataSource={validation.validation.multiples.methods} columns={[
+              { title: "倍数", dataIndex: "name" },
+              { title: "有效同行", dataIndex: "count", align: "right" },
+              { title: "均值", dataIndex: "mean", align: "right", render: (v: number | null) => v?.toFixed(2) ?? "—" },
+              { title: "中位数", dataIndex: "median", align: "right", render: (v: number | null) => v?.toFixed(2) ?? "—" },
+              { title: "股权价值/亿元", dataIndex: "equityValue", align: "right", render: (v: number | null) => v?.toFixed(1) ?? "数据不足" },
             ]}/>}
             <Paragraph type="secondary" className="mt-4">
               {validation.validation.peerSelection.industry || "待配置细分行业"} · 年报 {validation.validation.peerSelection.period ?? "待核验"}
               {" "}· 收盘日 {validation.validation.peerSelection.quoteDate ?? "待核验"} · CNY
               {validation.validation.peerSelection.sources && ` · 标的财报 ${validation.validation.peerSelection.sources.financial} / 行情 ${validation.validation.peerSelection.sources.quote}`}
+              {validation.validation.peerSelection.quoteDate && " · 行业资料库快照"}
+              {validation.validation.peerSelection.libraryMode === "fallback" && "（数据源未取得新资料）"}
             </Paragraph>
+            {validation.validation.peerSelection.unavailableReason && (
+              <Alert type="info" showIcon title={validation.validation.peerSelection.unavailableReason} className="mb-3" />
+            )}
             <Table size="small" pagination={false} rowKey="ticker" scroll={{ x: 730 }} dataSource={validation.validation.peerSelection.peerEvidence.map((peer) => ({
               ...peer, ratios: validation.peers.find(({ ticker }) => ticker === peer.ticker),
             }))} columns={[

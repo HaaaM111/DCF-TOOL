@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { analyzeOperatingModel, operatingModelInputSchema } from "../src/lib/operating-model-input";
+import { analyzeOperatingModel, analyzeOperatingReport, operatingModelInputSchema } from "../src/lib/operating-model-input";
 import { operatingAnalysisSchema } from "../src/lib/operating-scenarios";
 
 const draft = {
@@ -34,6 +34,20 @@ test("normalizes opening balances and segment drivers into a reproducible valuat
   assert.equal(result.inputAudit.forecast![0].segmentOperatingIncome, 100);
   assert.equal(result.bridge.minorityInterest, 15);
   assert.equal(result.reconciliation.passed, true);
+});
+
+test("formal reports retain deterministic values and exclude the reference-only results", () => {
+  const input = operatingModelInputSchema.parse({ ...draft, benchmarkPrice: 123,
+    scenarios: { simulation: { samples: 100, seed: 42, waccStd: .01, growthStd: .006 } },
+  });
+  const analysis = analyzeOperatingModel(input);
+  const report = analyzeOperatingReport(input);
+  assert.deepEqual(report.prices, analysis.prices);
+  assert.deepEqual(report.simulation?.coherent, analysis.simulation?.coherent);
+  assert.equal("workbook" in report.simulation!, false);
+  assert.equal("workbookPrice" in report.heatmap[0], false);
+  assert.equal("benchmarkPrice" in report.input, false);
+  assert.equal("peerValuation" in report, false);
 });
 
 test("rejects contradictory forecast totals, net debt, ownership bridge and report dates", () => {

@@ -24,7 +24,7 @@ export async function validateCompany(companyId:string){
   const aligned = published && !published.retrospective && published.comparableQuote !== null && published.valuationDate === peerSelection.quoteDate;
   const check=crossValidate(aligned ? absoluteValue ?? NaN : NaN,multiples.relativeValue??0);
   const input = published ? await getOperatingRevision(companyId, published.revision) : null;
-  const heatmap = input ? operatingSensitivity(input)
+  const heatmap = input ? operatingSensitivity(input, false)
     .map(({ wacc, g, coherentPrice }) => ({ wacc, g, targetPrice: coherentPrice }))
     : primary.kind === "legacy" && assumptions.success ? calcSensitivityHeatmap(assumptions.data, company) : [];
   const validation={companyId,absoluteValue,...legacy,...percentiles,relativeValue:multiples.relativeValue,...check,

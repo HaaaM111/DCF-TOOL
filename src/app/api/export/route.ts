@@ -6,6 +6,7 @@ import { NextRequest } from "next/server";
 import { guardRequest } from "@/lib/api";
 import { getAllCompaniesMerged } from "@/lib/dual-db";
 import { getOperatingRevision } from "@/lib/operating-model-store";
+import { operatingReportInput } from "@/lib/operating-model-input";
 import type { PrimaryValuation } from "@/lib/primary-valuation";
 
 export const runtime = "nodejs";
@@ -19,9 +20,10 @@ export async function GET(req: NextRequest) {
 
   const payload = await Promise.all(companies.map(async (c) => {
     const primary = c.primaryValuation as PrimaryValuation;
+    const input = primary.kind === "operating" ? await getOperatingRevision(String(c.id), primary.publication.revision) : null;
     const operatingModel = primary.kind === "operating" ? {
       publication: primary.publication,
-      input: await getOperatingRevision(String(c.id), primary.publication.revision),
+      input: input ? operatingReportInput(input) : null,
     } : undefined;
     return {
     company: {

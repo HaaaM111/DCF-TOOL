@@ -175,7 +175,7 @@ export default function DashboardPage() {
           </label>
         </div>
         <QuadrantChart points={points} selectedId={selected?.id} onSelect={setSelectedId} />
-        <p className={styles.chartNote}>{points.length} / {companies.length} 个标的满足绘图条件 · 横轴采用市场隐含 CAGR 的样本中位数分界，纵轴以 0% 分界。缺少反推数据或同日可比行情的标的不绘制。</p>
+        <p className={styles.chartNote}>{points.length} / {companies.length} 个标的满足绘图条件 · 横轴采用逆向估值折算值的样本中位数分界，纵轴以 0% 分界。缺少反推数据或同日可比行情的标的不绘制。</p>
         <nav aria-label="工作区快捷入口" className={styles.shortcuts}>
           {shortcuts.map(({ href, label }) => <Link key={href} href={href}>{label}<ArrowRightOutlined aria-hidden="true" /></Link>)}
         </nav>

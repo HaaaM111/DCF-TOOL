@@ -30,6 +30,7 @@ import {
   hasIfindCredentials,
 } from "./ifind-client";
 import { cashFlowFromReport, latestAnnualPeriod, threeYearCashFlowMedian, type AnnualCashFlow } from "./annual-cash-flow";
+import type { PriceBar } from "./price-candles";
 
 export type DataSource = "ifind" | "eastmoney" | "mock";
 
@@ -324,11 +325,7 @@ export async function resolveAnnualCashFlow(ticker: string) {
 // 历史行情：东财 → iFinD → 空
 // ============================================================
 
-export interface HistoryBar {
-  date: string;
-  close: number;
-  volume?: number;
-}
+export type HistoryBar = PriceBar;
 
 export async function resolvePriceHistory(
   ticker: string,

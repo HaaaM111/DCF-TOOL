@@ -87,7 +87,7 @@ function triangular(project: Project, u: number, branchDraw?: number) {
     : maximum - Math.sqrt(magnitude * width * (maximum - mode));
 }
 
-function simulate(input: OperatingAnalysisInput, config: Simulation) {
+function simulate(input: OperatingAnalysisInput, config: Simulation, includeReference: boolean) {
   const rates = seededRandom(config.seed);
   const revenue = seededRandom(config.seed ^ 0x9e3779b9);
   const workbook: number[] = [], coherent: number[] = [];
@@ -102,8 +102,10 @@ function simulate(input: OperatingAnalysisInput, config: Simulation) {
     const u = revenue();
     const branchDraw = revenue();
     const delta = project ? triangular(project, u) - project.baseline : 0;
-    const excelDelta = project ? triangular(project, u, branchDraw) - project.baseline : 0;
-    workbook.push(workbookScenarioPrice(input, wacc, g, project?.startYear, excelDelta * (project?.afterTaxMargin ?? 0)));
+    if (includeReference) {
+      const deltaForReference = project ? triangular(project, u, branchDraw) - project.baseline : 0;
+      workbook.push(workbookScenarioPrice(input, wacc, g, project?.startYear, deltaForReference * (project?.afterTaxMargin ?? 0)));
+    }
     const forecast = project ? input.forecast.map((row) => row.year < project.startYear ? row : ({
       ...row, afterTaxOperatingIncome: row.afterTaxOperatingIncome + delta * project.afterTaxMargin,
       closingNoa: row.closingNoa + delta / project.assetTurnover,
@@ -111,25 +113,25 @@ function simulate(input: OperatingAnalysisInput, config: Simulation) {
     coherent.push(calculateOperatingValuation({ ...input, wacc, terminalGrowth: g, forecast }).prices.reoi);
   }
   return { workbook: summarizePrices(workbook), coherent: summarizePrices(coherent), capped,
-    rejected: config.samples - workbook.length, config };
+    rejected: config.samples - coherent.length, config };
 }
 
-export function operatingSensitivity(input: OperatingAnalysisInput) {
+export function operatingSensitivity(input: OperatingAnalysisInput, includeReference = true) {
   const custom = input.scenarios?.sensitivity;
   const rates = centeredRateAxis(input.wacc, 0.01, custom?.wacc);
   const growth = centeredRateAxis(input.terminalGrowth, 0.005, custom?.g);
   return rates.flatMap((wacc) => growth.map((g) => {
     const valid = feasible(wacc, g);
-    return { wacc, g, workbookPrice: valid ? workbookScenarioPrice(input, wacc, g) : null,
+    return { wacc, g, workbookPrice: valid && includeReference ? workbookScenarioPrice(input, wacc, g) : null,
       coherentPrice: valid ? calculateOperatingValuation({ ...input, wacc, terminalGrowth: g }).prices.reoi : null };
   }));
 }
 
-export function analyzeOperatingValuation(input: OperatingAnalysisInput) {
+export function analyzeOperatingValuation(input: OperatingAnalysisInput, includeReference = true) {
   const base = calculateOperatingValuation(input);
   const config = input.scenarios;
-  const heatmap = operatingSensitivity(input);
-  const peers = config?.operatingPeers;
+  const heatmap = operatingSensitivity(input, includeReference);
+  const peers = includeReference ? config?.operatingPeers : undefined;
   const peerValuation = peers ? {
     source: peers.source, availableOn: peers.availableOn, quoteDate: peers.quoteDate,
     adjustment: peers.adjustment, retrospective: peers.availableOn > base.valuationDate,
@@ -152,7 +154,7 @@ export function analyzeOperatingValuation(input: OperatingAnalysisInput) {
   const peerPrices = peerValuation?.methods.flatMap(({ price }) => price === null ? [] : [price]) ?? [];
   const crossValidationRange = peerPrices.length
     ? { low: Math.min(base.prices.reoi, ...peerPrices), high: Math.max(base.prices.reoi, ...peerPrices) } : null;
-  return { ...base, heatmap, simulation: config?.simulation ? simulate(input, config.simulation) : null, peerValuation, crossValidationRange };
+  return { ...base, heatmap, simulation: config?.simulation ? simulate(input, config.simulation, includeReference) : null, peerValuation, crossValidationRange };
 }
 
 export type OperatingAnalysis = ReturnType<typeof analyzeOperatingValuation>;

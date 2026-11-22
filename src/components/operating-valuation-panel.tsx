@@ -1,9 +1,10 @@
 "use client";
 
 import { useId, useState } from "react";
-import { Alert, App, Button, Card, Collapse, Descriptions, Input, Popconfirm, Segmented, Space, Table, Typography } from "antd";
+import { Alert, App, Button, Card, Collapse, Descriptions, Input, Popconfirm, Space, Table, Typography } from "antd";
+import { OperatingSimulationResults } from "./company-operating-simulation";
 import { SensitivityHeatmap } from "./validation-charts";
-import type { OperatingModelAnalysis } from "@/lib/operating-model-input";
+import type { OperatingModelReport } from "@/lib/operating-model-input";
 import type { OperatingPublication } from "@/lib/primary-valuation";
 
 const { Paragraph, Text } = Typography;
@@ -12,14 +13,12 @@ const money = new Intl.NumberFormat("zh-CN", { minimumFractionDigits: 2, maximum
 const pct = new Intl.NumberFormat("zh-CN", { style: "percent", maximumFractionDigits: 2 });
 const units = { ones: ["元", "股"], millions: ["百万元", "百万股"], hundredMillions: ["亿元", "亿股"] };
 
-function ValuationResult({ result }: { result: OperatingModelAnalysis }) {
+function ValuationResult({ result }: { result: OperatingModelReport }) {
   const { input, prices, bridge, terminal, reconciliation } = result;
   const { opening: openingAudit, forecast: forecastAudit } = result.inputAudit;
-  const [method, setMethod] = useState<"coherentPrice" | "workbookPrice">("coherentPrice");
   const [amountUnit, shareUnit] = units[input.scale];
   const amount = (v: number) => money.format(v);
   const price = (v: number) => `${amount(v)} ${input.currency}/股`;
-  const benchmarkDifference = result.benchmarkDifference;
   return (
     <Space orientation="vertical" size="middle" className="w-full" aria-live="polite">
       <Descriptions size="small" bordered column={{ xs: 1, sm: 2, lg: 3 }} items={[
@@ -68,12 +67,6 @@ function ValuationResult({ result }: { result: OperatingModelAnalysis }) {
         {" "}− 少数股东权益 {amount(bridge.minorityInterest)} = 归母股权价值 {amount(bridge.equityValue)}
         {" "}{input.currency} {amountUnit}。总股数 {amount(input.shares)} {shareUnit}。
       </Paragraph>
-      {input.benchmarkPrice !== undefined && benchmarkDifference !== null && <Text>
-        导入的参考值 {price(input.benchmarkPrice)}，ReOI 差额 {price(benchmarkDifference)}。
-      </Text>}
-      {result.crossValidationRange && <Text>
-        ReOI 与模板经营倍数估值区间 {price(result.crossValidationRange.low)} 至 {price(result.crossValidationRange.high)}。
-      </Text>}
       {input.quote && result.marketComparable && <Text>
         同日市价 {price(input.quote.price)}（{input.quote.source}），完整显性期模型隐含 g
         {" "}{result.impliedGrowth === null ? "无有效解" : pct.format(result.impliedGrowth)}。
@@ -105,58 +98,16 @@ function ValuationResult({ result }: { result: OperatingModelAnalysis }) {
         key: "sensitivity",
         label: "WACC × 永续增长率热力图",
         children: <>
-          <Segmented value={method} onChange={setMethod} options={[
-            { label: "经营口径", value: "coherentPrice" },
-            { label: "Excel 复算", value: "workbookPrice" },
-          ]} />
-          <Paragraph type="secondary">
-            {method === "coherentPrice" ? "每格按情景 WACC 重算资本费用和现值。" : "沿用基准 ReOI，每格更换折现率与永续增长率。"}
-            {" "}空白表示参数组合超出模型范围。
-          </Paragraph>
+          <Paragraph type="secondary">每格按情景 WACC 重算资本费用和现值。空白表示参数超出模型范围。</Paragraph>
           <SensitivityHeatmap rateLabel="WACC" currency={input.currency}
             base={{ wacc: input.wacc, g: input.terminalGrowth, price: result.prices.reoi }} matrix={result.heatmap.map((cell) => ({
-            wacc: cell.wacc, g: cell.g, targetPrice: cell[method],
+            wacc: cell.wacc, g: cell.g, targetPrice: cell.coherentPrice,
           }))} />
         </>,
       }, ...(result.simulation ? [{
         key: "simulation",
         label: "经营估值蒙特卡洛",
-        children: <>
-          <Paragraph type="secondary">
-            请求 {result.simulation.config.samples} 次，种子 {result.simulation.config.seed}，
-            永续增长率触发上限 {result.simulation.capped} 次，剔除 {result.simulation.rejected} 次。
-            Excel 复算沿用基准资本费用。经营口径按情景重算资本费用，配置项目冲击时同时调整净经营资产。
-          </Paragraph>
-          <Table size="small" rowKey="name" pagination={false} scroll={{ x: 450 }} dataSource={[
-            { name: "Excel 复算", stats: result.simulation.workbook },
-            { name: "经营口径", stats: result.simulation.coherent },
-          ]} columns={[
-            { title: "口径", dataIndex: "name" },
-            ...(["p5", "median", "p95", "mean"] as const).map((key) => ({
-              title: { p5: "P5", median: "P50", p95: "P95", mean: "均值" }[key],
-              key, align: "right" as const,
-              render: (_: unknown, row: { stats: NonNullable<OperatingModelAnalysis["simulation"]>["workbook"] }) =>
-                row.stats ? price(row.stats[key]) : "有效样本不足",
-            })),
-          ]} />
-        </>,
-      }] : []), ...(result.peerValuation ? [{
-        key: "operating-peers",
-        label: "模板经营倍数交叉验证",
-        children: <>
-          <Paragraph type="secondary">
-            {result.peerValuation.source} · 市值日期 {result.peerValuation.quoteDate} ·
-            资料可得日 {result.peerValuation.availableOn} · 中位数折价 {pct.format(result.peerValuation.adjustment)}。
-            {result.peerValuation.retrospective && " 使用估值锚点后可得资料。"}
-          </Paragraph>
-          <Paragraph>{result.peerValuation.peers.map((p) => `${p.name}（${p.ticker}，${p.reason}）`).join("；")}</Paragraph>
-          <Table size="small" rowKey="name" pagination={false} scroll={{ x: 470 }} dataSource={result.peerValuation.methods} columns={[
-            { title: "经营倍数", dataIndex: "name" },
-            { title: "有效同行", dataIndex: "count", align: "right" },
-            { title: "中位数", dataIndex: "median", align: "right", render: (v: number | null) => v === null ? "—" : amount(v) },
-            { title: "每股价值", dataIndex: "price", align: "right", render: (v: number | null) => v === null ? "数据不足" : price(v) },
-          ]} />
-        </>,
+        children: <OperatingSimulationResults simulation={result.simulation} currency={input.currency} />,
       }] : [])]} />
     </Space>
   );
@@ -170,7 +121,7 @@ export default function OperatingValuationPanel({ ticker, companyId, publication
 }) {
   const fileId = useId();
   const [draft, setDraft] = useState("");
-  const [result, setResult] = useState<OperatingModelAnalysis | null>(null);
+  const [result, setResult] = useState<OperatingModelReport | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const { message } = App.useApp();

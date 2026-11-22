@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Alert, Button, Card, Segmented, Spin } from "antd";
+import { Alert, Button, Card, Spin } from "antd";
 import type { CompanySensitivity } from "@/lib/sensitivity-grid";
 import { SensitivityHeatmap } from "./validation-charts";
 
@@ -11,7 +11,6 @@ export default function CompanySensitivityPanel({ companyId }: { companyId: stri
   const [result, setResult] = useState<Result>();
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
-  const [method, setMethod] = useState<"coherent" | "workbook">("coherent");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -32,16 +31,13 @@ export default function CompanySensitivityPanel({ companyId }: { companyId: stri
       action={<Button size="small" onClick={() => { setFailed(false); setAttempt((value) => value + 1); }}>重试</Button>} />}
     {result && !data && <Alert type="info" showIcon title={result.reason ?? "暂无可复核的估值底稿"} />}
     {data && <>
-      {data.workbookMatrix && <Segmented<"coherent" | "workbook"> aria-label="敏感性口径" value={method} onChange={setMethod}
-        options={[{ label: "经营口径", value: "coherent" }, { label: "Excel 复算", value: "workbook" }]} />}
       <p className="mt-2 mb-3 text-sm text-terminal-muted">
         {data.kind === "legacy" ? "以已保存的简化股东回报模型为基准，保持经营假设不变，逐格更换 Ke 和永续增长率。"
-          : method === "workbook" ? "沿用基准剩余经营收益（ReOI），只更换折现率和永续增长率，用于核对工作簿。"
-            : "显性期经营预测保持不变；逐格更换 WACC 与永续增长率，并按情景 WACC 重算资本费用和折现。"}
+          : "显性期经营预测保持不变；逐格更换 WACC 与永续增长率，并按情景 WACC 重算资本费用和折现。"}
         {data.valuationDate && ` 估值基准日：${data.valuationDate}。`}
       </p>
       <SensitivityHeatmap rateLabel={data.rateLabel} currency={data.currency} base={data.base}
-        matrix={method === "workbook" ? data.workbookMatrix ?? data.matrix : data.matrix} />
+        matrix={data.matrix} />
     </>}
   </Card>;
 }

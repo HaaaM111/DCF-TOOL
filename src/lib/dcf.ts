@@ -3,7 +3,7 @@
  * ------------------------------------------------------------------
  * 包含四大模块：
  *   1. 正向 DCF（20 年 FCF 推演 + Gordon 永续 + 股东回报口径）
- *   2. 逆向 DCF（反算市场隐含终局利润 L）
+ *   2. 逆向 DCF（反算市场隐含终局自由现金流 L）
  *   3. Gordon 镜像自洽校验
  *   4. 三变量敏感性矩阵（L 对 r / ExitPE / g）
  *
@@ -150,9 +150,9 @@ export function calcForwardDcf(
 }
 
 /**
- * 2. 逆向 DCF：反算市场隐含终局利润 L
+ * 2. 逆向 DCF：反算市场隐含终局自由现金流 L
  * 思路：当前市值 = 显性期现值 + 终值现值 + 净现金
- *   反解出第 20 年的终值 TV，再由 TV 反推终局利润 L。
+ *   反解出第 20 年的终值 TV，再由 Gordon 公式反推终局自由现金流 L。
  *
  * 三种终值定价方式对应三种 L：
  *   - L_conservative：用 reverseR 作折现率、Gordon 永续
@@ -180,7 +180,7 @@ export function calcReverseDcf(
   // 隐含终值（第 20 年末）
   const impliedTv = impliedTvPv * Math.pow(1 + ke, 20);
 
-  // 由终值反推终局利润 L（Gordon：TV = L*(1+g)/(ke-g)）
+  // 由终值反推终局自由现金流 L（Gordon：TV = L*(1+g)/(ke-g)）
   const keMinusG = ke - gPerp;
   let l = 0;
   if (keMinusG > 1e-6) {
@@ -192,7 +192,7 @@ export function calcReverseDcf(
   const lE3 = l / e3;
   const lE0 = l / e0;
 
-  // 隐含终局 CAGR（从 E3 到 L，历经 17 年：E3 是第 3 年，终局是第 20 年）
+  // 兼容历史诊断用的折算值：从第 3 年净利润到第 20 年隐含自由现金流。
   const years = 17;
   let impliedCagr = 0;
   if (l > 0 && e3 > 0) {

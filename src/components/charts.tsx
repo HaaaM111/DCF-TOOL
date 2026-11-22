@@ -1,5 +1,8 @@
 "use client";
 
+import { useMemo, useState } from "react";
+import { Segmented } from "antd";
+import { aggregatePriceBars, type PriceBar, type PricePeriod } from "@/lib/price-candles";
 import { useTheme } from "@/app/providers";
 import { terminalPalette } from "@/lib/terminal-palette";
 import ReactECharts from "@/components/terminal-chart";
@@ -94,73 +97,83 @@ export function FcfBars({ rows }: { rows: { year: number; fcf: number; pvFcf: nu
   return <ReactECharts option={option} style={{ height: 300 }} />;
 }
 
-/**
- * 双轴趋势图：股价（左Y） + DCF 目标价（右Y，面积） + 置信区间带
- * @param prices 历史行情 [{ date, close }]
- * @param valuation 估值序列 [{ date, targetPrice }]，可为空
- * @param p5 置信区间下限（目标价）
- * @param p95 置信区间上限（目标价）
- */
-export function TrendChart({
-  prices,
-  valuation = [],
-  currency = "当地币",
-}: {
-  prices: { date: string; close: number }[];
+/** Plot verified OHLC for each period and align effective targets to the last traded day. */
+export function TrendChart({ prices, valuation = [], currency = "当地币" }: {
+  prices: PriceBar[];
   valuation?: { date: string; targetPrice: number | null }[];
   currency?: string;
 }) {
   const { mode } = useTheme();
   const palette = terminalPalette[mode];
-  const closeByDate = new Map(prices.map((p) => [p.date, p.close]));
+  const [period, setPeriod] = useState<PricePeriod>("day");
+  const bars = useMemo(() => aggregatePriceBars(prices, period), [prices, period]);
+  const dates = bars.map(({ date }) => date);
+  const periods = { day: "日 K", week: "周 K", month: "月 K" };
+  const hasCandles = bars.some((bar) => bar.candle);
+  const hasCloseOnly = bars.some((bar) => !bar.candle);
   const sorted = [...valuation].sort((a, b) => a.date.localeCompare(b.date));
-  const firstPriceDate = [...closeByDate.keys()].sort()[0];
-  const dates = [...new Set([...closeByDate.keys(),
-    ...sorted.filter((item) => !firstPriceDate || item.date >= firstPriceDate).map((item) => item.date)])].sort();
-  const closeData = dates.map((date) => closeByDate.get(date) ?? null);
   let version = 0;
   let target: number | null = null;
   const valData = dates.map((date) => {
     while (version < sorted.length && sorted[version].date <= date) target = sorted[version++].targetPrice;
     return target;
   });
-
+  const hasTargets = valData.some((value) => value !== null);
+  const showBars = period === "day" ? 120 : period === "week" ? 62 : bars.length;
+  const zoomStart = Math.max(0, 100 - showBars / Math.max(1, bars.length) * 100);
+  const series = [
+    ...(hasCandles ? [{
+      name: periods[period], type: "candlestick", data: bars.map((bar) => bar.candle ?? "-"),
+      itemStyle: { color: palette.positive, color0: palette.negative, borderColor: palette.positive, borderColor0: palette.negative },
+    }] : []),
+    ...(hasCloseOnly ? [{
+      name: "仅收盘价", type: hasCandles ? "scatter" : "line",
+      data: bars.map((bar) => bar.candle ? null : bar.close),
+      showSymbol: hasCandles, symbolSize: 5, itemStyle: { color: palette.accent },
+    }] : []),
+    ...(hasTargets ? [{
+      name: "已发布目标价", type: "line", data: valData, step: "end", showSymbol: false,
+      lineStyle: { width: 2, color: palette.link, type: "dashed" }, itemStyle: { color: palette.link },
+    }] : []),
+  ];
+  const showPrice = (value: number) => value.toFixed(2);
   const option = {
-    tooltip: { trigger: "axis" },
-    legend: { data: ["收盘价", ...(valData.some((value) => value !== null) ? ["已发布目标价"] : [])], top: 0 },
-    grid: { left: 55, right: 30, top: 40, bottom: 60 },
-    xAxis: {
-      type: "category",
-      data: dates,
-      axisLabel: { fontSize: 10, hideOverlap: true },
-      boundaryGap: false,
+    tooltip: {
+      trigger: "axis",
+      formatter: (items: { dataIndex: number }[]) => {
+        const index = items[0]?.dataIndex;
+        const bar = bars[index];
+        if (!bar) return "";
+        const range = bar.firstDate === bar.date ? bar.date : `${bar.firstDate} 至 ${bar.date}`;
+        const values = bar.candle
+          ? `开 ${showPrice(bar.candle[0])}　高 ${showPrice(bar.candle[3])}　低 ${showPrice(bar.candle[2])}　收 ${showPrice(bar.close)}`
+          : `收盘 ${showPrice(bar.close)}`;
+        const targetPrice = valData[index];
+        return `${range}<br/>${values} ${currency}${targetPrice == null ? "" : `<br/>已发布目标价 ${showPrice(targetPrice)} ${currency}`}`;
+      },
     },
+    legend: { data: series.map(({ name }) => name), top: 0 },
+    grid: { left: 55, right: 25, top: 42, bottom: 58 },
+    xAxis: { type: "category", data: dates, axisLabel: { fontSize: 10, hideOverlap: true, formatter: (date: string) =>
+      period === "month" ? date.slice(0, 7) : date }, boundaryGap: true },
     yAxis: { type: "value", name: `${currency}/股`, scale: true, axisLabel: { fontSize: 10 } },
     dataZoom: [
-      { type: "inside", start: 0, end: 100 },
-      { type: "slider", start: 0, end: 100, height: 20, bottom: 10 },
+      { type: "inside", start: zoomStart, end: 100 },
+      { type: "slider", start: zoomStart, end: 100, height: 20, bottom: 10 },
     ],
-    series: [
-      {
-        name: "收盘价",
-        type: "line",
-        data: closeData,
-        connectNulls: true,
-        showSymbol: false,
-        lineStyle: { width: 2, color: palette.accent }, itemStyle: { color: palette.accent },
-      },
-      {
-        name: "已发布目标价",
-        type: "line",
-        data: valData,
-        step: "end",
-        symbol: "circle",
-        lineStyle: { width: 2, color: palette.positive, type: "dashed" }, itemStyle: { color: palette.positive },
-      },
-    ],
+    series,
   };
 
-  return <ReactECharts option={option} style={{ height: 340 }} />;
+  return <>
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <Segmented<PricePeriod> aria-label="股价周期" value={period} onChange={setPeriod}
+        options={Object.entries(periods).map(([value, label]) => ({ value: value as PricePeriod, label }))} />
+      <span className="text-xs text-terminal-muted">
+        {hasCloseOnly ? "开高低缺失的区间仅显示收盘价" : "未复权 · 周/月以最后交易日收盘为准"}
+      </span>
+    </div>
+    <ReactECharts key={period} option={option} style={{ height: 340 }} />
+  </>;
 }
 
 /**
