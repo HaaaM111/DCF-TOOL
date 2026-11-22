@@ -40,7 +40,7 @@ const num = (v: number): number => (Number.isFinite(v) ? v : 0);
 export function calcForwardDcf(
   a: DcfAssumptions,
   b: CompanyBasics,
-  options?: { cashFlowMultipliers?: number[] },
+  options?: { cashFlowLogShocks?: number[]; requireFinite?: boolean },
 ): ForwardDcfResult {
   if (![...Object.values(a).filter(v=>typeof v === "number"), b.shares,b.currentPrice,b.netCash,b.e0].every(Number.isFinite) || b.shares<=0 || b.currentPrice<=0 || a.ke<=a.perpetualG || a.ke<=0 || a.perpetualG<=-1) throw new Error("无效DCF参数：股本/股价必须为正且 Ke > g");
   const ke = num(a.ke);
@@ -57,7 +57,9 @@ export function calcForwardDcf(
     else if (t <= 10) g = num(a.g2);
     else g = num(a.g3);
 
-    const fcf = fcfPrev * (1 + g) * (options?.cashFlowMultipliers?.[t-1] ?? 1);
+    const projectedFcf = fcfPrev * (1 + g);
+    const logShock = options?.cashFlowLogShocks?.[t - 1] ?? 0;
+    const fcf = projectedFcf * Math.exp(projectedFcf < 0 ? -logShock : logShock);
     const payoutRate = t <= 10 ? num(a.payoutRate1) : num(a.payoutRate2);
     const dividend = fcf * payoutRate;
     const retained = fcf - dividend;
@@ -117,6 +119,10 @@ export function calcForwardDcf(
   const adjustedTargetPrice = adjustedEquityValue / num(b.shares);
   const adjustedUpside =
     (adjustedTargetPrice / num(b.currentPrice) - 1) * 100;
+  if (options?.requireFinite
+      && ![pvExplicitDividend, pvTerminal, pvRetained, adjustedTargetPrice].every(Number.isFinite)) {
+    throw new RangeError("情景现金流或估值超出数值范围");
+  }
 
   // WACC：本系统简化为股权 DCF，WACC ≈ Ke（无债务权重影响）
   // 若需精确 WACC，可扩展：WACC = Ke*E/(D+E) + Kd*(1-T)*D/(D+E)

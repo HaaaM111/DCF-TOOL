@@ -22,9 +22,14 @@ export function summarizePrices(prices: number[]) {
     return ordered[lower] + (ordered[Math.ceil(index)] - ordered[lower]) * (index - lower);
   };
   const mean = ordered.reduce((sum, price) => sum + price, 0) / count;
-  const width = (ordered[count - 1] - ordered[0]) / 20 || 1;
-  const histogram = Array.from({ length: 20 }, (_, i) => ({ bin: ordered[0] + width * (i + 0.5), count: 0 }));
-  for (const price of ordered) histogram[Math.min(19, Math.floor((price - ordered[0]) / width))].count++;
+  const minimum = ordered[0];
+  const width = (ordered[count - 1] - minimum) / 20;
+  const histogram = width === 0
+    ? [{ bin: minimum, count }]
+    : Array.from({ length: 20 }, (_, i) => ({ bin: minimum + width * (i + 0.5), count: 0 }));
+  if (width > 0) {
+    for (const price of ordered) histogram[Math.min(19, Math.floor((price - minimum) / width))].count++;
+  }
   return {
     samples: count, p5: quantile(0.05), p25: quantile(0.25), median: quantile(0.5),
     p75: quantile(0.75), p95: quantile(0.95), mean,

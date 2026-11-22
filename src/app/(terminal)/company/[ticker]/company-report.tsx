@@ -31,6 +31,7 @@ import {
 import { useRouter } from "next/navigation";
 import OperatingValuationPanel from "@/components/operating-valuation-panel";
 import CompanySensitivityPanel from "@/components/company-sensitivity-panel";
+import CompanyOperatingSimulation from "@/components/company-operating-simulation";
 import ValuationAttributionPanel from "@/components/valuation-attribution-panel";
 import { ValueDonut, FcfBars, TrendChart, ConfidenceChart } from "@/components/charts";
 import {
@@ -131,7 +132,6 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
   const sensitivity = section === "sensitivity";
   const comparables = section === "comparables";
   const attribution = section === "attribution";
-  const needsSimulation = overview || sensitivity;
   const needsValidation = comparables;
 
   const [company, setCompany] = useState<CompanyData | null>(null);
@@ -146,6 +146,7 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
   const [priceCurrency, setPriceCurrency] = useState<string>();
   const [mcResult, setMcResult] = useState<MonteCarloResult | null>(null);
   const [mcLoading, setMcLoading] = useState(false);
+  const [mcError, setMcError] = useState("");
   const [jumpEnabled,setJumpEnabled]=useState(false);
   const [jumpLambda,setJumpLambda]=useState(0.1);
   const [jumpMean,setJumpMean]=useState(-0.2);
@@ -188,10 +189,14 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
 
   // 蒙特卡洛模拟（假设就绪后触发）
   useEffect(() => {
-    if (!needsSimulation || !company?.assumption || company.primaryValuation.kind !== "legacy") return;
-    let cancelled = false;
+    if (!sensitivity || !company?.assumption || company.primaryValuation.kind !== "legacy") return;
+    const controller = new AbortController();
+    const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]);
     setMcLoading(true);
+    setMcResult(null);
+    setMcError("");
     fetch("/api/simulation/monte-carlo", {
+      signal,
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -207,18 +212,21 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
         jump:{enabled:jumpEnabled,lambda:jumpLambda,mean:jumpMean,std:jumpStd},
       }),
     })
-      .then((r) => r.json())
-      .then((d) => {
-        if (!cancelled && d.result) setMcResult(d.result);
+      .then(async (response) => {
+        const body = await response.json();
+        if (!response.ok || !body.result) throw new Error(body.error || "估值模拟失败");
+        if (!controller.signal.aborted) setMcResult(body.result);
       })
-      .catch(() => {})
+      .catch((cause) => {
+        if (!controller.signal.aborted) {
+          setMcError(signal.aborted ? "模拟计算超时" : cause instanceof Error ? cause.message : "估值模拟失败");
+        }
+      })
       .finally(() => {
-        if (!cancelled) setMcLoading(false);
+        if (!controller.signal.aborted) setMcLoading(false);
       });
-    return () => {
-      cancelled = true;
-    };
-  }, [company, needsSimulation, jumpEnabled, jumpLambda, jumpMean, jumpStd]);
+    return () => controller.abort();
+  }, [company, sensitivity, jumpEnabled, jumpLambda, jumpMean, jumpStd]);
 
   // 同行对比允许依赖外部行情；敏感性独立读取底稿。
   useEffect(() => {
@@ -481,6 +489,9 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
       </>}
 
       {sensitivity && <CompanySensitivityPanel key={c.id} companyId={c.id} />}
+      {publication && (sensitivity || section === "models") && (
+        <CompanyOperatingSimulation key={publication.revision} companyId={c.id} revision={publication.revision} />
+      )}
 
       {sensitivity && primary.kind === "legacy" && c.assumption && <>
       {/* 三旋钮解算 */}
@@ -641,8 +652,15 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
         className="mb-4"
       >
         <div className="simulation-controls"><label><input type="checkbox" checked={jumpEnabled} onChange={e=>setJumpEnabled(e.target.checked)}/> 启用跳跃压力情景</label><label>λ/年 <InputNumber min={0} max={5} step={0.05} value={jumpLambda} onChange={v=>setJumpLambda(v??0.1)}/></label><label>跳跃对数均值 <InputNumber min={-2} max={1} step={0.05} value={jumpMean} onChange={v=>setJumpMean(v??-0.2)}/></label><label>幅度标准差 <InputNumber min={0} max={1} step={0.05} value={jumpStd} onChange={v=>setJumpStd(v??0.1)}/></label></div>
-        <Text type="secondary">逐年现金流泊松跳跃；未做漂移补偿，属于未校准压力测试，不能解释为真实灾难概率。</Text>
-        {mcResult?.base && <div className="mt-3">基础 P5/P95：¥{mcResult.base.p5.toFixed(2)} / ¥{mcResult.base.p95.toFixed(2)}{mcResult.jump && <> ｜含跳跃：¥{mcResult.jump.p5.toFixed(2)} / ¥{mcResult.jump.p95.toFixed(2)}</>} ｜拒绝样本 {mcResult.rejected??0}</div>}
+        <Text type="secondary">逐年现金流泊松跳跃。负向冲击压低正现金流，并扩大负现金流的缺口；该情景使用未校准参数。</Text>
+        {mcResult?.base && <div className="mt-3">
+          基础 P5/P95：¥{mcResult.base.p5.toFixed(2)} / ¥{mcResult.base.p95.toFixed(2)}
+          {mcResult.jump && <> ｜含跳跃：¥{mcResult.jump.p5.toFixed(2)} / ¥{mcResult.jump.p95.toFixed(2)}</>}
+        </div>}
+        {mcResult && <div className="mt-1 text-terminal-muted">
+          有效样本 {mcResult.samples} / {mcResult.samples + (mcResult.rejected ?? 0)}，
+          剔除 {mcResult.rejected ?? 0}（{((mcResult.rejected ?? 0) / (mcResult.samples + (mcResult.rejected ?? 0)) * 100).toFixed(1)}%）。
+        </div>}
         {mcLoading ? (
           <div className="text-center py-8"><Spin description="蒙特卡洛模拟中（3000 次采样）..." /></div>
         ) : mcResult ? (
@@ -669,7 +687,7 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
             />
           </div>
         ) : (
-          <Empty description="置信区间计算失败" />
+          <Empty description={mcError || "等待模拟结果"} />
         )}
       </Card>}
 

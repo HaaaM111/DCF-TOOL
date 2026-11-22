@@ -182,6 +182,14 @@ const expected = JSON.parse(fs.readFileSync('deployment-state/database-counts.js
     checkedValuation = true;
     const companyId = companies.find(company => company.ticker === checkTicker).id;
     const companyApi = 'http://127.0.0.1:3000/api/companies/' + encodeURIComponent(companyId);
+    const simulated = await fetch(companyApi + '/simulation', { headers, signal: AbortSignal.timeout(10000) });
+    if (!simulated.ok) throw Error('Simulation endpoint failed');
+    const { revision, simulation } = await simulated.json();
+    if (revision !== value.valuation.publication.revision ||
+        (simulation && ![simulation.coherent, simulation.workbook].every(stats => stats &&
+          stats.samples + simulation.rejected === simulation.config.samples &&
+          stats.p5 <= stats.median && stats.median <= stats.p95)))
+      throw Error('Published simulation failed validation');
     const heatmap = await fetch(companyApi + '/sensitivity', { headers, signal: AbortSignal.timeout(10000) });
     if (!heatmap.ok) throw Error('Sensitivity endpoint failed');
     const { sensitivity } = await heatmap.json();
