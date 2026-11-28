@@ -39,7 +39,7 @@ interface Company {
   netCash: number;
   e0: number;
   quadrant: string;
-  diagnosis: string;
+  diagnosis?: string;
   targetPrice: number | null;
   upside: number | null;
   primaryValuation: PrimaryValuation;
@@ -336,11 +336,9 @@ export default function DashboardPage() {
       title: "叙事分级诊断",
       dataIndex: "diagnosis",
       width: 132,
-      render: (v: string) => (
-        <Tag color={v.includes("现金") ? "green" : v.includes("高") ? "red" : "blue"}>
-          {v || "-"}
-        </Tag>
-      ),
+      render: (v?: string) => v
+        ? <Tag color={v.includes("现金") ? "green" : v.includes("高") ? "red" : "blue"}>{v}</Tag>
+        : <span className="text-terminal-muted">—</span>,
     },
     {
       title: "当前市值(亿)",
@@ -555,7 +553,16 @@ export default function DashboardPage() {
           <Table
             rowKey="id"
             columns={columns.filter(col=> !col.dataIndex || ["name","currentPrice","upside","impliedL","diagnosis"].includes(String(col.dataIndex)))}
-            expandable={{expandedRowRender:r=><div className="detail-grid">{columns.filter(col=>col.dataIndex).map(col=><div key={String(col.dataIndex)}><span>{String(col.title)}</span><strong>{String(r[col.dataIndex as keyof Company]??"—")}</strong></div>)}</div>}}
+            expandable={{ expandedRowRender: row => {
+              const quote = quotes[row.ticker.toUpperCase()];
+              return <div className="detail-grid">{columns.filter(col => col.dataIndex).map(col => {
+                const field = col.dataIndex as keyof Company;
+                const value = field === "currentPrice" ? marketQuotePrice(quote?.price ?? row.currentPrice, row.ticker)
+                  : field === "marketCap" ? fmt(quote ? quote.price * row.shares : row.marketCap)
+                  : String(row[field] ?? "—");
+                return <div key={field}><span>{String(col.title)}</span><strong>{value}</strong></div>;
+              })}</div>;
+            } }}
             dataSource={filtered}
             rowClassName={(company) => company.id === selected?.id ? "watchlist-selected" : ""}
             loading={loading}
