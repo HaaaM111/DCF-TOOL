@@ -10,6 +10,19 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        canvas: "var(--canvas)",
+        side: "var(--side)",
+        paper: "var(--paper)",
+        ink: "var(--ink)",
+        body: "var(--body)",
+        muted: "var(--muted)",
+        quiet: "var(--quiet)",
+        line: "var(--line)",
+        "line-strong": "var(--line-strong)",
+        brand: "var(--brand)",
+        "brand-deep": "var(--brand-deep)",
+        "brand-soft": "var(--brand-soft)",
+        brick: "var(--brick)",
         background: "var(--background)",
         foreground: "var(--foreground)",
         terminal: {
@@ -31,7 +44,10 @@ const config: Config = {
         sans: ["Inter", "Segoe UI", "PingFang SC", "Microsoft YaHei", "system-ui", "sans-serif"],
         mono: ["var(--font-terminal-mono)", "ui-monospace", "Cascadia Mono", "Consolas", "monospace"],
       },
-      borderRadius: { md: "6px" },
+      borderRadius: {
+        md: "6px",
+        inst: "5px",
+      },
     },
   },
   plugins: [],

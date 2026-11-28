@@ -6,6 +6,8 @@
  */
 import { NextRequest } from "next/server";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
+import { companyAccessWhere } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
 import {
   storeCompanyAnnouncements,
   SyncServiceError,
@@ -18,8 +20,10 @@ export async function POST(
   req: NextRequest,
   {params: pendingParams}: {params: Promise<{ companyId: string }>},) {
  const params=await pendingParams;
-  const guard = guardRequest(req);
+  const guard = await guardRequest(req);
   if (guard) return guard;
+  const owned = await prisma.company.findFirst({ where: companyAccessWhere(req, params.companyId), select: { id: true } });
+  if (!owned) return jsonError("标的不存在", 404, "NOT_FOUND");
 
   let body: { codes?: unknown };
   try {
@@ -51,5 +55,5 @@ export async function POST(
 }
 
 export async function OPTIONS(req: NextRequest) {
-  return guardRequest(req) ?? new Response(null, { status: 204 });
+  return (await guardRequest(req)) ?? new Response(null, { status: 204 });
 }

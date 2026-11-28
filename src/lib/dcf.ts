@@ -40,7 +40,7 @@ const num = (v: number): number => (Number.isFinite(v) ? v : 0);
 export function calcForwardDcf(
   a: DcfAssumptions,
   b: CompanyBasics,
-  options?: { cashFlowLogShocks?: number[]; requireFinite?: boolean },
+  options?: { cashFlowMultipliers?: number[]; cashFlowLogShocks?: number[]; requireFinite?: boolean },
 ): ForwardDcfResult {
   if (![...Object.values(a).filter(v=>typeof v === "number"), b.shares,b.currentPrice,b.netCash,b.e0].every(Number.isFinite) || b.shares<=0 || b.currentPrice<=0 || a.ke<=a.perpetualG || a.ke<=0 || a.perpetualG<=-1) throw new Error("无效DCF参数：股本/股价必须为正且 Ke > g");
   const ke = num(a.ke);
@@ -58,8 +58,9 @@ export function calcForwardDcf(
     else g = num(a.g3);
 
     const projectedFcf = fcfPrev * (1 + g);
+    const multiplier = options?.cashFlowMultipliers?.[t - 1] ?? 1;
     const logShock = options?.cashFlowLogShocks?.[t - 1] ?? 0;
-    const fcf = projectedFcf * Math.exp(projectedFcf < 0 ? -logShock : logShock);
+    const fcf = projectedFcf * multiplier * Math.exp(projectedFcf < 0 ? -logShock : logShock);
     const payoutRate = t <= 10 ? num(a.payoutRate1) : num(a.payoutRate2);
     const dividend = fcf * payoutRate;
     const retained = fcf - dividend;
@@ -354,7 +355,7 @@ export function diagnoseNarrative(
     return "高增长透支";
   }
   if (!gordon.isConsistent) {
-    return "需重审 Ke";
+    return "需重审关键假设";
   }
   return "稳态估值";
 }

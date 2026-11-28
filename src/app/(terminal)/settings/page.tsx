@@ -94,9 +94,9 @@ export default function SettingsPage() {
 
   async function logout() {
     try {
-      const response = await fetch("/api/auth/logout", { method: "POST", signal: AbortSignal.timeout(10000) });
+      const response = await fetch("/api/auth/signout", { method: "POST", signal: AbortSignal.timeout(10000) });
       if (!response.ok) throw new Error();
-      window.location.replace("/login");
+      window.location.replace("/sign-in");
     } catch { message.error("退出登录失败，请重试"); }
   }
 

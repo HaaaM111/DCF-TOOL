@@ -6,6 +6,7 @@
  */
 import { NextRequest } from "next/server";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
+import { companyAccessWhere } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { readLlmDbSettings } from "@/lib/llm-settings";
 import { analyzeCompanyAnnouncements } from "@/lib/announcement/analyze-service";
@@ -17,7 +18,7 @@ export async function POST(
   req: NextRequest,
   {params: pendingParams}: {params: Promise<{ companyId: string }>},) {
  const params=await pendingParams;
-  const guard = guardRequest(req);
+  const guard = await guardRequest(req);
   if (guard) return guard;
 
   let announcementIds: string[] | undefined;
@@ -35,7 +36,7 @@ export async function POST(
   }
 
   try {
-    const company = await prisma.company.findUnique({ where: { id: params.companyId } });
+    const company = await prisma.company.findFirst({ where: companyAccessWhere(req, params.companyId) });
     if (!company) {
       return jsonError("标的不存在", 404, "COMPANY_NOT_FOUND");
     }
@@ -55,5 +56,5 @@ export async function POST(
 }
 
 export async function OPTIONS(req: NextRequest) {
-  return guardRequest(req) ?? new Response(null, { status: 204 });
+  return (await guardRequest(req)) ?? new Response(null, { status: 204 });
 }

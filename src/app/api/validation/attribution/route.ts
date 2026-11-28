@@ -1,6 +1,8 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
+import { companyAccessWhere } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
 import { idSchema } from "@/lib/agent/schemas";
 import { chatCompletion, llmReady, llmTimeoutMs, SERVICE_UNAVAILABLE } from "@/lib/ai-client";
 import { readLlmDbSettings } from "@/lib/llm-settings";
@@ -11,10 +13,11 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
-  const guard = guardRequest(request);
+  const guard = await guardRequest(request);
   if (guard) return guard;
   const parsed = idSchema.safeParse(request.nextUrl.searchParams.get("companyId"));
   if (!parsed.success) return jsonError("标的参数无效", 422);
+  if (!await prisma.company.findFirst({ where: companyAccessWhere(request, parsed.data), select: { id: true } })) return jsonError("标的不存在", 404);
   try {
     const [evidence, config] = await Promise.all([loadAttributionEvidence(parsed.data), readLlmDbSettings().catch(() => null)]);
     if (!evidence) return jsonError("标的不存在", 404);
@@ -27,10 +30,11 @@ export async function GET(request: NextRequest) {
 const inputSchema = z.strictObject({ companyId: idSchema });
 
 export async function POST(request: NextRequest) {
-  const guard = guardRequest(request);
+  const guard = await guardRequest(request);
   if (guard) return guard;
   const parsed = inputSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return jsonError("标的参数无效", 422);
+  if (!await prisma.company.findFirst({ where: companyAccessWhere(request, parsed.data.companyId), select: { id: true } })) return jsonError("标的不存在", 404);
   try {
     const [evidence, config] = await Promise.all([loadAttributionEvidence(parsed.data.companyId), readLlmDbSettings()]);
     if (!evidence) return jsonError("标的不存在", 404);

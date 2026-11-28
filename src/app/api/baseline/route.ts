@@ -1,7 +1,3 @@
-/**
- * GET /api/baseline —— 基准库公司档案（只读参考，供界面底部对照展示）
- * 仅返回档案字段；该接口只读，不提供任何写入能力。
- */
 import { NextRequest } from "next/server";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
 import { prismaBase } from "@/lib/prisma";
@@ -10,7 +6,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
-  const guard = guardRequest(req);
+  const guard = await guardRequest(req);
   if (guard) return guard;
 
   try {
@@ -25,5 +21,5 @@ export async function GET(req: NextRequest) {
 }
 
 export async function OPTIONS(req: NextRequest) {
-  return guardRequest(req) ?? new Response(null, { status: 204 });
+  return (await guardRequest(req)) ?? new Response(null, { status: 204 });
 }

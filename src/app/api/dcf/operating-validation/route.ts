@@ -3,7 +3,7 @@ import { guardRequest, jsonError, jsonOk } from "@/lib/api";
 import { analyzeOperatingReport, operatingModelInputSchema } from "@/lib/operating-model-input";
 
 export async function POST(req: NextRequest) {
-  const guard = guardRequest(req);
+  const guard = await guardRequest(req);
   if (guard) return guard;
 
   const body = await req.json().catch(() => null);

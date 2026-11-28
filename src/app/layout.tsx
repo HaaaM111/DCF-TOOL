@@ -5,7 +5,7 @@ const mono=localFont({src:"./fonts/GeistMonoVF.woff",variable:"--font-terminal-m
 import Providers from "./providers";
 
 export const metadata: Metadata = {
-  title: "DCF 预期差挖掘工具",
+  title: "ValueInsight · 估值研究终端",
   description: "DCF 估值穿透与弹性空间测算终端",
 };
 

@@ -488,6 +488,13 @@ export async function fetchEastReportedCash(ticker: string, reportDate: string) 
   return row?.MONETARYFUNDS == null ? null : row.MONETARYFUNDS / 1e8;
 }
 
+/** 保留 main 的货币资金入口；调用方需要同期数据时使用 fetchEastReportedCash。 */
+export async function fetchEastCash(ticker: string): Promise<number> {
+  const cash = await fetchEastReportedCash(ticker, lastAnnualReportDate());
+  if (cash === null) throw new Error(`东财资产负债表无 ${ticker} 的货币资金`);
+  return cash;
+}
+
 async function readEastCashFlow(ticker: string, periodEnd: string) {
   const url = `${EMWEB_BASE}/PC_HSF10/NewFinanceAnalysis/XjllbAjaxNew`
     + `?companyType=4&reportDateType=0&reportType=1&dates=${periodEnd}&code=${toEmCode(ticker)}`;
@@ -540,7 +547,7 @@ export async function fetchEastFinancials(ticker: string) {
   ]);
 
   // 归母净资产：优先资产负债表 TOTAL_PARENT_EQUITY；兜底主表 TOTAL_EQUITY_PK（可能含少数股东权益）
-  const bookValue = balRow?.TOTAL_PARENT_EQUITY;
+  const bookValue = balRow?.TOTAL_PARENT_EQUITY ?? mainRow.TOTAL_EQUITY_PK;
   // 有息负债：15 项科目求和，口径对齐 iFinD ths_interest_bearing_debt_stock（不含应付利息）
   const DEBT_KEYS = [
     "SHORT_LOAN",

@@ -13,6 +13,7 @@ import { tickerSchema } from "@/lib/validation";
  */
 import { NextRequest } from "next/server";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
+import { getAuthenticatedUserId, isAdministrator } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import {
   resolveQuote,
@@ -30,7 +31,7 @@ function getTicker(req: NextRequest): string {
 }
 
 export async function GET(req: NextRequest) {
-  const guard = guardRequest(req);
+  const guard = await guardRequest(req);
   if (guard) return guard;
 
   const url = req.nextUrl;
@@ -76,7 +77,7 @@ export async function GET(req: NextRequest) {
         }
 
         const { data, source } = await resolvePriceHistory(ticker, start, end);
-        await saveHistory(ticker, data);
+        await saveHistory(ticker, data, getAuthenticatedUserId(req), isAdministrator(req));
         return jsonOk({ data, source, mock: source === "mock" });
       }
 
@@ -96,14 +97,17 @@ export async function GET(req: NextRequest) {
 async function saveHistory(
   ticker: string,
   bars: HistoryBar[],
+  userId: string,
+  isAdmin: boolean,
 ) {
   if (!bars.length) return;
 
-  // 查找对应 companyId（用户库）
-  const company = await prisma.company.findUnique({
-    where: { ticker },
+  // 查找对应 companyId（仅当前账号，管理员可跨账号）
+  const company = await prisma.company.findFirst({
+    where: { ticker, ...(isAdmin ? {} : { userId }) },
     select: { id: true },
   });
+  if (!company) return;
 
   for (const bar of bars) {
     await prisma.priceSnapshot.upsert({
@@ -114,12 +118,12 @@ async function saveHistory(
         date: new Date(bar.date),
         close: bar.close,
         volume: bar.volume ?? 0,
-        companyId: company?.id,
+        companyId: company.id,
       },
     });
   }
 }
 
 export async function OPTIONS(req: NextRequest) {
-  return guardRequest(req) ?? new Response(null, { status: 204 });
+  return (await guardRequest(req)) ?? new Response(null, { status: 204 });
 }

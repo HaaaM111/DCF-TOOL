@@ -209,11 +209,13 @@ export async function resolveFinancials(
   if (hasIfindCredentials()) {
     try {
       const f = await fetchFinancials(ticker);
-      const cash = options.includeReportedCash !== false && isEastMoneyEnabled()
+      const reportedCash = f.cash == null && options.includeReportedCash !== false && isEastMoneyEnabled()
         ? await fetchEastReportedCash(ticker, f.reportDate).catch(() => null) : null;
+      const cash = f.cash ?? reportedCash;
       const missingFields = f.missingFields.filter((field) => field !== "cash" || cash === null);
       const resolved = { source: "ifind" as const, data: { ...f, cash, missingFields,
-        incomplete: missingFields.length > 0, ...(cash === null ? {} : { cashSource: "eastmoney" as const }) } };
+        incomplete: missingFields.length > 0,
+        ...(f.cash == null && cash !== null ? { cashSource: "eastmoney" as const } : {}) } };
       if (!missingFields.some((field) => requiredAutofillFields.includes(field))) return resolved;
       partial = resolved;
     } catch {

@@ -30,6 +30,7 @@ yarn-error.log*
 # local env files
 .env*.local
 .env
+# .env.production 含真实密钥，统一通过部署环境变量注入。
 .env.production
 .env.*
 !.env.example
@@ -60,3 +61,8 @@ prisma/backup/
 # 部署包与临时备份
 valueinsight-deploy.zip
 prisma.config.ts.bak
+
+# 本地回滚/临时备份
+.rollback_tmp/
+# 部署包
+valueinsight-update.zip

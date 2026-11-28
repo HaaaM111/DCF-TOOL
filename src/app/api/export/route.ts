@@ -4,6 +4,7 @@
  */
 import { NextRequest } from "next/server";
 import { guardRequest } from "@/lib/api";
+import { getAuthenticatedUserId, isAdministrator } from "@/lib/auth";
 import { getAllCompaniesMerged } from "@/lib/dual-db";
 import { getOperatingRevision } from "@/lib/operating-model-store";
 import { operatingReportInput } from "@/lib/operating-model-input";
@@ -13,10 +14,10 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
-  const guard = guardRequest(req);
+  const guard = await guardRequest(req);
   if (guard) return guard;
 
-  const companies = await getAllCompaniesMerged();
+  const companies = await getAllCompaniesMerged(getAuthenticatedUserId(req), isAdministrator(req));
 
   const payload = await Promise.all(companies.map(async (c) => {
     const primary = c.primaryValuation as PrimaryValuation;
@@ -65,5 +66,5 @@ export async function GET(req: NextRequest) {
 }
 
 export async function OPTIONS(req: NextRequest) {
-  return guardRequest(req) ?? new Response(null, { status: 204 });
+  return (await guardRequest(req)) ?? new Response(null, { status: 204 });
 }

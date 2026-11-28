@@ -4,6 +4,7 @@
  */
 import { NextRequest } from "next/server";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
+import { companyAccessWhere } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { idSchema } from "@/lib/agent/schemas";
 import { timelineEntrySchema } from "@/lib/validation";
@@ -17,11 +18,13 @@ function companyIdParam(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
-  const guard = guardRequest(req);
+  const guard = await guardRequest(req);
   if (guard) return guard;
 
   const companyId = companyIdParam(req);
   if (!idSchema.safeParse(companyId).success) return jsonError("无效id", 422);
+  const owned = await prisma.company.findFirst({ where: companyAccessWhere(req, companyId), select: { id: true } });
+  if (!owned) return jsonError("标的不存在", 404, "NOT_FOUND");
   const notes = await prisma.timelineEntry.findMany({
     where: { companyId },
     orderBy: { date: "desc" },
@@ -30,12 +33,12 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const guard = guardRequest(req);
+  const guard = await guardRequest(req);
   if (guard) return guard;
 
   const companyId = companyIdParam(req);
   if (!idSchema.safeParse(companyId).success) return jsonError("无效id", 422);
-  const exists = await prisma.company.findUnique({ where: { id: companyId } });
+  const exists = await prisma.company.findFirst({ where: companyAccessWhere(req, companyId), select: { id: true } });
   if (!exists) return jsonError("标的不存在", 404, "NOT_FOUND");
 
   let body: unknown;
@@ -68,5 +71,5 @@ export async function POST(req: NextRequest) {
 }
 
 export async function OPTIONS(req: NextRequest) {
-  return guardRequest(req) ?? new Response(null, { status: 204 });
+  return (await guardRequest(req)) ?? new Response(null, { status: 204 });
 }

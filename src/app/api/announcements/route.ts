@@ -1,16 +1,13 @@
-/**
- * GET /api/announcements —— 公告列表查询（含预期差信号）
- * 参数：companyId / category / days（近 N 天，按 publishAt 过滤）/ page / pageSize，按 publishAt 倒序
- */
 import { NextRequest } from "next/server";
 import { guardRequest, jsonOk } from "@/lib/api";
 import { prisma } from "@/lib/prisma";
+import { getAuthenticatedUserId, isAdministrator } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
-  const guard = guardRequest(req);
+  const guard = await guardRequest(req);
   if (guard) return guard;
 
   const sp = req.nextUrl.searchParams;
@@ -24,8 +21,14 @@ export async function GET(req: NextRequest) {
     Math.max(1, parseInt(sp.get("pageSize") ?? "20", 10) || 20),
   );
 
+  const userId = getAuthenticatedUserId(req);
+  const ownedCompanies = await prisma.company.findMany({ where: isAdministrator(req) ? undefined : { userId }, select: { id: true } });
+  const ownedIds = ownedCompanies.map((company) => company.id);
+  if (companyId && !ownedIds.includes(companyId)) {
+    return jsonOk({ total: 0, page, pageSize, items: [] });
+  }
   const where = {
-    ...(companyId ? { companyId } : {}),
+    companyId: companyId ?? { in: ownedIds },
     ...(category ? { category } : {}),
     ...(days ? { publishAt: { gte: new Date(Date.now() - days * 24 * 3600 * 1000) } } : {}),
   };
@@ -45,5 +48,5 @@ export async function GET(req: NextRequest) {
 }
 
 export async function OPTIONS(req: NextRequest) {
-  return guardRequest(req) ?? new Response(null, { status: 204 });
+  return (await guardRequest(req)) ?? new Response(null, { status: 204 });
 }

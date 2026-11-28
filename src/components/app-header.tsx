@@ -12,26 +12,29 @@ import { usePathname } from "next/navigation";
 import { useTheme } from "@/app/providers";
 import { useContext, type ReactNode } from "react";
 import { AppShellContext } from "./app-shell";
+import AccountMenu from "./account-menu";
 
 const { Title } = Typography;
 
 const NAV_ITEMS = [
+  { key: "/home", label: "账号首页", icon: <DashboardOutlined /> },
   { key: "/valuation/board", label: "估值看板", icon: <DashboardOutlined /> },
   { key: "/announcements", label: "公告中心", icon: <FileSearchOutlined /> },
   { key: "/agent", label: "智能体对话", icon: <RobotOutlined /> },
 ];
 
 interface AppHeaderProps {
-  title: ReactNode;
+  title?: ReactNode;
   subtitle?: ReactNode;
   actions?: ReactNode;
+  children?: ReactNode;
 }
 
 /**
  * 全站统一顶栏：纯色深蓝、克制的导航 + 页面操作区 + 主题切换。
  * 仅承载视觉与导航，不包含业务逻辑。
  */
-export default function AppHeader({ title, subtitle, actions }: AppHeaderProps) {
+export default function AppHeader({ title, subtitle, actions, children }: AppHeaderProps) {
   const pathname = usePathname();
   const { mode, toggle } = useTheme();
   const withinShell = useContext(AppShellContext);
@@ -40,15 +43,18 @@ export default function AppHeader({ title, subtitle, actions }: AppHeaderProps) 
   if (withinShell) return actions ? <div className="terminal-toolbar">{actions}</div> : null;
 
   return (
+    <>
     <div className="brand-header px-6 py-3 flex items-center justify-between gap-x-4 gap-y-2 flex-wrap">
       <div className="flex items-center gap-3 min-w-0">
         <div className="hidden sm:flex items-center justify-center w-9 h-9 rounded-md bg-white/10 border border-white/20 font-mono-num text-[13px] font-bold">
           DCF
         </div>
         <div className="min-w-0">
-          <Title level={4} style={{ color: "#fff", margin: 0, lineHeight: 1.35 }}>
-            {title}
-          </Title>
+          {title && (
+            <Title level={4} style={{ color: "#fff", margin: 0, lineHeight: 1.35 }}>
+              {title}
+            </Title>
+          )}
           {subtitle && <div className="header-sub">{subtitle}</div>}
         </div>
       </div>
@@ -69,6 +75,7 @@ export default function AppHeader({ title, subtitle, actions }: AppHeaderProps) 
           ))}
         </div>
         {actions}
+        <AccountMenu />
         <Tooltip title={mode === "dark" ? "切换浅色" : "切换深色"}>
           <Button
             icon={mode === "dark" ? <BulbFilled /> : <BulbOutlined />}
@@ -77,5 +84,7 @@ export default function AppHeader({ title, subtitle, actions }: AppHeaderProps) 
         </Tooltip>
       </div>
     </div>
+    {children}
+    </>
   );
 }

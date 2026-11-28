@@ -13,7 +13,7 @@ test("settings write works on deployed SQLite archives with a required independe
   try {
     await client.$executeRaw`CREATE TABLE AppSetting (id TEXT NOT NULL PRIMARY KEY, userId TEXT, key TEXT NOT NULL UNIQUE,
       value TEXT NOT NULL, updatedAt DATETIME NOT NULL)`;
-    await assert.rejects(client.appSetting.create({ data: { key: "old-path", value: "first" } }), /id|constraint/i);
+    await assert.rejects(client.$executeRaw`INSERT INTO "AppSetting" ("key","value","updatedAt") VALUES ('old-path', 'first', ${Date.now()})`, /id|constraint/i);
     await client.$transaction(async (tx) => {
       await writeAppSetting(tx, "valuation", "first");
       await writeAppSetting(tx, "valuation", "keep original", true);

@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
+import { getAuthenticatedUserId, isAdministrator } from "@/lib/auth";
 import { resolveFinancials, resolveQuote } from "@/lib/data-source";
 import { isEastMoneyEnabled } from "@/lib/eastmoney-client";
 import { hasIfindCredentials } from "@/lib/ifind-client";
@@ -11,8 +12,11 @@ import { tickerSchema } from "@/lib/validation";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-async function verifyPublishedModel(ticker: string) {
-  const company = await prisma.company.findUnique({ where: { ticker }, select: { id: true } });
+async function verifyPublishedModel(request: NextRequest, ticker: string) {
+  const company = await prisma.company.findFirst({
+    where: { ticker, ...(isAdministrator(request) ? {} : { userId: getAuthenticatedUserId(request) }) },
+    select: { id: true },
+  });
   if (!company) return null;
   const publication = await getOperatingPublication(company.id);
   if (!publication) return null;
@@ -27,7 +31,7 @@ async function verifyPublishedModel(ticker: string) {
 }
 
 export async function GET(request: NextRequest) {
-  const guard = guardRequest(request);
+  const guard = await guardRequest(request);
   if (guard) return guard;
   const providers = { ifind: hasIfindCredentials(), eastmoney: isEastMoneyEnabled() };
   const input = request.nextUrl.searchParams.get("ticker");
@@ -36,7 +40,7 @@ export async function GET(request: NextRequest) {
   if (!parsed.success) return jsonError("请输入有效的股票代码", 422, "INVALID_TICKER");
   const ticker = parsed.data;
   const [quoteResult, financialResult, valuationResult] = await Promise.allSettled([
-    resolveQuote(ticker), resolveFinancials(ticker), verifyPublishedModel(ticker),
+    resolveQuote(ticker), resolveFinancials(ticker), verifyPublishedModel(request, ticker),
   ]);
   const quote = quoteResult.status === "fulfilled" && quoteResult.value.source !== "mock" ? quoteResult.value : null;
   const finance = financialResult.status === "fulfilled" && financialResult.value.source !== "mock" ? financialResult.value : null;

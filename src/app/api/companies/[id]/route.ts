@@ -9,6 +9,7 @@ import { guardRequest, jsonError, jsonOk } from "@/lib/api";
 import { prisma } from "@/lib/prisma";
 import { getCompanyMerged } from "@/lib/dual-db";
 import { assumptionsSchema, companySchema } from "@/lib/validation";
+import { companyAccessWhere, getAuthenticatedUserId, isAdministrator } from "@/lib/auth";
 import { activeOperatingKey, operatingPublicationPrefix, operatingRevisionPrefix } from "@/lib/operating-model-store";
 import {
   calcDcf,
@@ -24,11 +25,12 @@ function idParam(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
-  const guard = guardRequest(req);
+  const guard = await guardRequest(req);
   if (guard) return guard;
 
   const id = idParam(req);
-  const company = await getCompanyMerged(id);
+  const userId = getAuthenticatedUserId(req);
+  const company = await getCompanyMerged(id, userId, isAdministrator(req));
   if (!company) return jsonError("标的不存在", 404, "NOT_FOUND");
   return jsonOk({ company });
 }
@@ -59,11 +61,12 @@ function companyFields(c: ReturnType<typeof companySchema.parse>) {
 }
 
 export async function PUT(req: NextRequest) {
-  const guard = guardRequest(req);
+  const guard = await guardRequest(req);
   if (guard) return guard;
 
   const id = idParam(req);
-  const existing = await prisma.company.findUnique({ where: { id } });
+  const userId = getAuthenticatedUserId(req);
+  const existing = await prisma.company.findFirst({ where: companyAccessWhere(req, id) });
   if (!existing) return jsonError("标的不存在", 404, "NOT_FOUND");
 
   let body: unknown;
@@ -172,16 +175,16 @@ export async function PUT(req: NextRequest) {
   }
 
   // 组装响应（公司档案 + 快照 + 假设 + 时间线）
-  const company = await getCompanyMerged(id);
+  const company = await getCompanyMerged(id, userId, isAdministrator(req));
   return jsonOk({ company });
 }
 
 export async function DELETE(req: NextRequest) {
-  const guard = guardRequest(req);
+  const guard = await guardRequest(req);
   if (guard) return guard;
 
   const id = idParam(req);
-  const existing = await prisma.company.findUnique({ where: { id } });
+  const existing = await prisma.company.findFirst({ where: companyAccessWhere(req, id) });
   if (!existing) return jsonError("标的不存在", 404, "NOT_FOUND");
 
   // 级联清理关联数据（用户库各表无物理外键，需按引用关系手动删除）
@@ -223,5 +226,5 @@ export async function DELETE(req: NextRequest) {
 }
 
 export async function OPTIONS(req: NextRequest) {
-  return guardRequest(req) ?? new Response(null, { status: 204 });
+  return (await guardRequest(req)) ?? new Response(null, { status: 204 });
 }

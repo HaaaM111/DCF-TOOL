@@ -7,6 +7,7 @@ import { createUIMessageStream,createUIMessageStreamResponse,streamText,stepCoun
 import { randomUUID } from "node:crypto";
 import { guardRequest,jsonError } from "@/lib/api";
 import { prisma } from "@/lib/prisma";
+import { companyAccessWhere } from "@/lib/auth";
 import { assumptionsSchema,companySchema } from "@/lib/validation";
 import { chatCompletion,createLlmModel,resolveLlmConfig,SERVICE_UNAVAILABLE } from "@/lib/ai-client";
 import { readLlmDbSettings } from "@/lib/llm-settings";
@@ -19,13 +20,13 @@ import { getOperatingPublication, getOperatingRevision } from "@/lib/operating-m
 import { selectPrimaryValuation } from "@/lib/primary-valuation";
 
 export async function handleAgentChat(req:NextRequest){
-  const guard=guardRequest(req);if(guard)return guard;
+  const guard=await guardRequest(req);if(guard)return guard;
   if(Number(req.headers.get("content-length")||0)>100000)return jsonError("请求过大",413);
   const parsed=chatSchema.safeParse(await req.json().catch(()=>null));
   if(!parsed.success)return jsonError("对话参数校验失败",422,"VALIDATION_ERROR");
   const {companyId,messages}=parsed.data;
   const [company, assumption, snapshot, publication] = await Promise.all([
-    prisma.company.findUnique({where:{id:companyId}}), prisma.assumption.findUnique({where:{companyId}}),
+    prisma.company.findFirst({where:companyAccessWhere(req,companyId)}), prisma.assumption.findUnique({where:{companyId}}),
     prisma.companySnapshot.findUnique({where:{companyId}}), getOperatingPublication(companyId),
   ]);
   if(!company)return jsonError("标的不存在",404);

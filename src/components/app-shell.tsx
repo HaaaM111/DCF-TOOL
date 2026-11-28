@@ -3,14 +3,15 @@
 import { createContext, useState, type CSSProperties, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { App, Drawer, Dropdown } from "antd";
+import { Drawer } from "antd";
 import {
-  BulbFilled, BulbOutlined, DashboardOutlined, FileAddOutlined, FileSearchOutlined, HomeOutlined, LogoutOutlined, MenuFoldOutlined, MenuOutlined,
-  MenuUnfoldOutlined, RobotOutlined, SettingOutlined, UserOutlined,
+  BulbFilled, BulbOutlined, DashboardOutlined, FileAddOutlined, FileSearchOutlined, HomeOutlined, MenuFoldOutlined, MenuOutlined,
+  MenuUnfoldOutlined, RobotOutlined, SettingOutlined,
 } from "@ant-design/icons";
 import { useTheme } from "@/app/providers";
 import { companySections } from "@/app/(terminal)/company/[ticker]/sections";
 import { TerminalBrand } from "./terminal-brand";
+import AccountMenu from "./account-menu";
 import home from "@/app/(terminal)/dashboard/home.module.css";
 
 export const AppShellContext = createContext(false);
@@ -45,7 +46,6 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [drawer, setDrawer] = useState(false);
-  const { message } = App.useApp();
   const { mode, toggle } = useTheme();
   const themeLabel = mode === "dark" ? "切换浅色" : "切换深色";
   const current = navigation.find(({ href }) => pathname === href || pathname.startsWith(href + "/"));
@@ -55,25 +55,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
     ? companyModule?.label ?? "标的详情"
     : pathname === "/model/edit" ? "编辑估值假设" : "估值工作台");
 
-  async function logout() {
-    try {
-      const response = await fetch("/api/auth/logout", { method: "POST", signal: AbortSignal.timeout(10000) });
-      if (!response.ok) throw new Error();
-      window.location.replace("/login");
-    } catch {
-      message.error("退出登录失败，请重试");
-    }
-  }
-
-  const account = (showLabel = false) => <Dropdown trigger={["click"]} placement="bottomRight" classNames={{ root: "terminal-account-menu" }}
-    menu={{ items: [
-      { key: "settings", label: <Link href="/settings">设置</Link>, icon: <SettingOutlined /> },
-      { key: "logout", label: "退出登录", icon: <LogoutOutlined /> },
-    ], onClick: ({ key }) => { if (key === "logout") void logout(); } }}>
-    <button type="button" aria-label="账户菜单" className={showLabel ? undefined : control}>
-      <UserOutlined aria-hidden="true" />{showLabel && <span>账户</span>}
-    </button>
-  </Dropdown>;
+  const account = (showLabel = false) => <AccountMenu terminal showLabel={showLabel} className={control} />;
   const themeControl = (homeStyle = false) => <button type="button" aria-label={themeLabel} title={themeLabel}
     className={homeStyle ? undefined : control} onClick={toggle}>
     {mode === "dark" ? <BulbFilled aria-hidden="true" /> : <BulbOutlined aria-hidden="true" />}

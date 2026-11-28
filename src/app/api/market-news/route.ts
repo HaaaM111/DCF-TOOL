@@ -28,7 +28,7 @@ const readSina = createMarketNewsReader(async () => parseSinaMarketNews(await fe
 ), Date.now()));
 
 export async function GET(request: NextRequest) {
-  const guard = guardRequest(request);
+  const guard = await guardRequest(request);
   if (guard) return guard;
   const feeds = (await Promise.all([readEastmoney(), readSina()])).filter((feed) => feed !== undefined);
   if (!feeds.length) return jsonError("财经快讯暂时不可用，请稍后重试", 503, "MARKET_NEWS_UNAVAILABLE");

@@ -1,11 +1,10 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { authConfig, SESSION_COOKIE, verifySession } from "@/lib/session";
+import { getSessionUserFromToken, SESSION_COOKIE } from "@/lib/auth";
 import AppShell from "@/components/app-shell";
 
 export default async function TerminalLayout({ children }: { children: React.ReactNode }) {
-  const session = (await cookies()).get(SESSION_COOKIE)?.value;
-  const config = authConfig();
-  if (!config || !verifySession(session, config)) redirect("/login");
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
+  if (!(await getSessionUserFromToken(token))) redirect("/sign-in");
   return <AppShell>{children}</AppShell>;
 }

@@ -36,6 +36,30 @@ export async function mergeCompanySnapshot(
     Object.assign(out, snapFields);
   }
 
+  // Administrators can see legacy and unassessed records that have no snapshot yet.
+  // Keep the dashboard row shape complete so optional valuation fields never crash UI code.
+  const valuationDefaults = {
+    quadrant: "",
+    diagnosis: "",
+    targetPrice: 0,
+    upside: 0,
+    originalUpside: 0,
+    impliedKe: 0,
+    forwardKe: 0,
+    wacc: 0,
+    terminalProfitY20: 0,
+    terminalFcfE3: 0,
+    impliedL: 0,
+    impliedLE3: 0,
+    impliedCagr: 0,
+    terminalProfitEst: 0,
+    transitionG: 0,
+    lastEvalDate: null,
+  };
+  for (const [key, value] of Object.entries(valuationDefaults)) {
+    if (out[key] === undefined) out[key] = value;
+  }
+
   out.assumption = assumption;
   const primary = selectPrimaryValuation(out, publication);
   out.primaryValuation = primary;
@@ -45,9 +69,10 @@ export async function mergeCompanySnapshot(
   return out;
 }
 
-/** 全部标的（含快照与假设），供排行榜使用，按更新时间倒序 */
-export async function getAllCompaniesMerged() {
+/** 全部标的（含快照与假设），供排行榜使用，按更新时间倒序；传 userId 时仅返回该账号的数据 */
+export async function getAllCompaniesMerged(userId?: string, isAdmin = false) {
   const companies = await prisma.company.findMany({
+    where: isAdmin ? undefined : userId ? { userId } : undefined,
     orderBy: { updatedAt: "desc" },
   });
   const active = await prisma.appSetting.findMany({ where: { key: { startsWith: activeOperatingKey("") } } });
@@ -55,9 +80,11 @@ export async function getAllCompaniesMerged() {
   return Promise.all(companies.map((c) => mergeCompanySnapshot(c, publications.get(activeOperatingKey(c.id)) ?? null)));
 }
 
-/** 单个标的（含快照、假设、时间线），供模型编辑/报告页使用 */
-export async function getCompanyMerged(id: string) {
-  const company = await prisma.company.findUnique({ where: { id } });
+/** 单个标的（含快照、假设、时间线），供模型编辑/报告页使用；传 userId 时校验归属 */
+export async function getCompanyMerged(id: string, userId?: string, isAdmin = false) {
+  const company = await prisma.company.findFirst({
+    where: isAdmin || !userId ? { id } : { id, userId },
+  });
   if (!company) return null;
 
   const [merged, timeline] = await Promise.all([

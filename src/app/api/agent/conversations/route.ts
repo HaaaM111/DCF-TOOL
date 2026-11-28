@@ -10,6 +10,7 @@ import { idSchema } from "@/lib/agent/schemas";
  */
 import { NextRequest } from "next/server";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
+import { companyAccessWhere } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { sanitizeAiText } from "@/lib/ai-client";
 
@@ -26,7 +27,7 @@ interface ConvMsg {
 }
 
 export async function GET(req: NextRequest) {
-  const guard = guardRequest(req);
+  const guard = await guardRequest(req);
   if (guard) return guard;
 
   const companyId = req.nextUrl.searchParams.get("companyId");
@@ -35,6 +36,8 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    const company = await prisma.company.findFirst({ where: companyAccessWhere(req, companyId), select: { id: true } });
+    if (!company) return jsonError("标的不存在", 404, "NOT_FOUND");
     const rows = await prisma.agentConversation.findMany({
       where: { companyId },
       orderBy: { createdAt: "asc" },
@@ -52,7 +55,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const guard = guardRequest(req);
+  const guard = await guardRequest(req);
   if (guard) return guard;
 
   let body: { companyId?: string; messages?: ConvMsg[] };
@@ -89,6 +92,8 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    const company = await prisma.company.findFirst({ where: companyAccessWhere(req, companyId), select: { id: true } });
+    if (!company) return jsonError("标的不存在", 404, "NOT_FOUND");
     await prisma.agentConversation.createMany({ data: cleaned });
     return jsonOk({ ok: true, count: cleaned.length });
   } catch (e) {
@@ -101,5 +106,5 @@ export async function POST(req: NextRequest) {
 }
 
 export async function OPTIONS(req: NextRequest) {
-  return guardRequest(req) ?? new Response(null, { status: 204 });
+  return (await guardRequest(req)) ?? new Response(null, { status: 204 });
 }

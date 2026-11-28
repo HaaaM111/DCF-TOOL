@@ -13,7 +13,7 @@ const batchSchema = z.string().max(MARKET_QUOTE_BATCH_SIZE * 21)
   .pipe(z.array(tickerSchema).min(1).max(MARKET_QUOTE_BATCH_SIZE));
 
 export async function GET(req: NextRequest) {
-  const guard = guardRequest(req);
+  const guard = await guardRequest(req);
   if (guard) return guard;
   const request = batchSchema.safeParse(req.nextUrl.searchParams.get("tickers"));
   if (!request.success) return jsonError("标的代码无效或超出批量查询上限", 422, "INVALID_TICKERS");

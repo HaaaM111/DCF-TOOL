@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
+import { companyAccessWhere } from "@/lib/auth";
 import { idSchema } from "@/lib/agent/schemas";
 import { getOperatingPublication, getOperatingRevision } from "@/lib/operating-model-store";
 import { operatingSensitivity } from "@/lib/operating-scenarios";
@@ -12,14 +13,14 @@ import { calcSensitivityHeatmap } from "@/lib/valuation-validation";
 type Context = { params: Promise<{ id: string }> };
 
 export async function GET(request: NextRequest, context: Context) {
-  const guard = guardRequest(request);
+  const guard = await guardRequest(request);
   if (guard) return guard;
   const parsed = idSchema.safeParse((await context.params).id);
   if (!parsed.success) return jsonError("标的参数无效", 422);
   const companyId = parsed.data;
   try {
     const [company, snapshot, saved, publication] = await Promise.all([
-      prisma.company.findUnique({ where: { id: companyId } }),
+      prisma.company.findFirst({ where: companyAccessWhere(request, companyId) }),
       prisma.companySnapshot.findUnique({ where: { companyId } }),
       prisma.assumption.findUnique({ where: { companyId } }),
       getOperatingPublication(companyId),

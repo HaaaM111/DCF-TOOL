@@ -6,10 +6,12 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
+import { companyAccessWhere } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { idSchema } from "@/lib/agent/schemas";
 import { getOperatingHistory } from "@/lib/operating-model-store";
 import { resolvePriceHistory } from "@/lib/data-source";
+import { fetchTencentPriceHistory } from "@/lib/tencent-client";
 import { mainlandCloseWindow } from "@/lib/peer-selection";
 
 export const runtime = "nodejs";
@@ -17,15 +19,15 @@ export const dynamic = "force-dynamic";
 const rangeSchema = z.enum(["6m", "24m"]).default("6m");
 
 export async function GET(req: NextRequest) {
-  const guard = guardRequest(req);
+  const guard = await guardRequest(req);
   if (guard) return guard;
 
   const id = req.nextUrl.pathname.split("/")[3];
   if (!idSchema.safeParse(id).success) return jsonError("无效id", 422);
   const range = rangeSchema.safeParse(req.nextUrl.searchParams.get("range") ?? undefined);
   if (!range.success) return jsonError("行情区间须为 6m 或 24m", 422);
-  const company = await prisma.company.findUnique({
-    where: { id },
+  const company = await prisma.company.findFirst({
+    where: companyAccessWhere(req, id),
     select: { ticker: true },
   });
   if (!company) return jsonError("标的不存在", 404, "NOT_FOUND");
@@ -52,7 +54,16 @@ export async function GET(req: NextRequest) {
   const latest = savedPrices.at(-1)?.date;
   const needsHistory = range.data === "24m" || savedPrices.length < 60 || !latest || Date.parse(end) - Date.parse(latest) > 7 * 86_400_000;
   const fetched = needsHistory ? await resolvePriceHistory(company.ticker, start, end).catch(() => null) : null;
-  const prices = [...new Map([...savedPrices, ...(fetched?.source !== "mock" ? fetched?.data ?? [] : [])]
+  let historySource: string | null = fetched?.source ?? null;
+  let historyBars = fetched?.source !== "mock" ? fetched?.data ?? [] : [];
+  if (needsHistory && !historyBars.length) {
+    const tencentBars = await fetchTencentPriceHistory(company.ticker, start, end).catch(() => []);
+    if (tencentBars.length) {
+      historyBars = tencentBars;
+      historySource = "tencent";
+    }
+  }
+  const prices = [...new Map([...savedPrices, ...historyBars]
     .map((row) => [row.date, row])).values()].sort((a, b) => a.date.localeCompare(b.date));
 
   const currency = /\.(SH|SZ|BJ)$/i.test(company.ticker) ? "CNY" : /\.HK$/i.test(company.ticker) ? "HKD" : null;
@@ -61,9 +72,9 @@ export async function GET(req: NextRequest) {
     date: localDate.format(new Date(item.publishedAt)),
     targetPrice: !item.retrospective && item.currency === currency ? item.price : null,
   })).reverse();
-  return jsonOk({ prices, valuation, currency, source: fetched?.source !== "mock" && fetched?.data.length ? fetched.source : prices.length ? "saved" : null });
+  return jsonOk({ prices, valuation, currency, source: historyBars.length ? historySource : prices.length ? "saved" : null });
 }
 
 export async function OPTIONS(req: NextRequest) {
-  return guardRequest(req) ?? new Response(null, { status: 204 });
+  return (await guardRequest(req)) ?? new Response(null, { status: 204 });
 }

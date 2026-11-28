@@ -1,79 +1,113 @@
-import test from "node:test";
+import test, { before } from "node:test";
 import assert from "node:assert/strict";
-import { NextRequest } from "next/server";
-import { proxy } from "../src/proxy";
-import { validateApiRequest } from "../src/lib/request-schema";
-import { POST as login } from "../src/app/api/auth/login/route";
-import { POST as logout } from "../src/app/api/auth/logout/route";
-import { createSession, loginDestination, SESSION_COOKIE, verifySession } from "../src/lib/session";
 
-test("internal pages and APIs require a signed session", async () => {
-  const password = process.env.APP_ACCESS_PASSWORD;
-  const secret = process.env.APP_SESSION_SECRET;
-  process.env.APP_ACCESS_PASSWORD = "verification-password";
-  process.env.APP_SESSION_SECRET = "test-secret-aaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-  try {
-    const base = "https://localhost:3000";
-    const url = base + "/api/agent/config";
-    for (const path of ["/dashboard", "/company/603786.SH/sensitivity?x=1", "/valuation/new", "/settings", "/report/test"]) {
-      const response = await proxy(new NextRequest(base + path));
-      assert.equal(response.status, 303);
-      assert.equal(new URL(response.headers.get("location")!, base).searchParams.get("next"), path);
-    }
-    assert.equal((await proxy(new NextRequest(base + "/login"))).status, 200);
-    assert.equal((await proxy(new NextRequest(url))).status, 401);
-    const authorization = "Basic " + Buffer.from("admin:verification-password").toString("base64");
-    assert.equal((await proxy(new NextRequest(url, { headers: { authorization } }))).status, 401);
+let NextRequest: typeof import("next/server").NextRequest;
+let middleware: typeof import("../src/middleware").middleware;
+let guardRequest: typeof import("../src/lib/api").guardRequest;
+let validateApiRequest: typeof import("../src/lib/request-schema").validateApiRequest;
+let attachAuthenticatedUser: typeof import("../src/lib/auth").attachAuthenticatedUser;
+let companyAccessWhere: typeof import("../src/lib/auth").companyAccessWhere;
+let hashPassword: typeof import("../src/lib/auth").hashPassword;
+let isAdministrator: typeof import("../src/lib/auth").isAdministrator;
+let isSameOriginRequest: typeof import("../src/lib/auth").isSameOriginRequest;
+let SESSION_COOKIE: typeof import("../src/lib/auth").SESSION_COOKIE;
+let verifyPassword: typeof import("../src/lib/auth").verifyPassword;
+let signOut: typeof import("../src/app/api/auth/signout/route").POST;
 
-    const signIn = (password: string, origin = base) => login(new NextRequest(base + "/api/auth/login", {
-      method: "POST", headers: { origin, "Content-Type": "application/json" },
-      body: JSON.stringify({ username: "admin", password }),
-    }));
-    const wrong = await signIn("wrong");
-    assert.equal(wrong.status, 401);
-    assert.equal(wrong.headers.get("set-cookie"), null);
-    assert.equal((await signIn("verification-password", "https://evil.invalid")).status, 403);
-    const ok = await signIn("verification-password");
-    assert.equal(ok.status, 200);
-    assert.deepEqual(await ok.json(), { ok: true });
-    const setCookie = ok.headers.get("set-cookie")!;
-    for (const attribute of [/HttpOnly/i, /Secure/i, /SameSite=lax/i, /Path=\//i]) assert.match(setCookie, attribute);
-    assert.doesNotMatch(setCookie, /Domain=/i);
-    const cookie = setCookie.split(";")[0];
-    assert.equal((await proxy(new NextRequest(url, { headers: { cookie } }))).status, 200);
-    assert.equal((await proxy(new NextRequest(url, { headers: { cookie, "sec-fetch-site": "cross-site" } }))).status, 403);
-    assert.equal((await proxy(new NextRequest(url, { headers: { cookie: SESSION_COOKIE + "=forged" } }))).status, 401);
-    assert.equal((await proxy(new NextRequest(url, { method: "POST", headers: { cookie, origin: "https://evil.invalid" }, body: "{}" }))).status, 403);
-    const signedOut = await logout(new NextRequest(base + "/api/auth/logout", { method: "POST", headers: { cookie, origin: base } }));
-    assert.match(signedOut.headers.get("set-cookie")!, /Max-Age=0/i);
-    delete process.env.APP_SESSION_SECRET;
-    assert.equal((await proxy(new NextRequest(url))).status, 503);
-    assert.equal((await proxy(new NextRequest(base + "/dashboard"))).status, 503);
-  } finally {
-    if (password === undefined) delete process.env.APP_ACCESS_PASSWORD; else process.env.APP_ACCESS_PASSWORD = password;
-    if (secret === undefined) delete process.env.APP_SESSION_SECRET; else process.env.APP_SESSION_SECRET = secret;
+before(async () => {
+  process.env.DATABASE_URL ??= "file:./prisma/user.db";
+  process.env.BASELINE_DATABASE_URL ??= "file:./prisma/baseline.db?mode=ro";
+  ({ NextRequest } = await import("next/server"));
+  ({ middleware } = await import("../src/middleware"));
+  ({ guardRequest } = await import("../src/lib/api"));
+  ({ validateApiRequest } = await import("../src/lib/request-schema"));
+  ({
+    attachAuthenticatedUser,
+    companyAccessWhere,
+    hashPassword,
+    isAdministrator,
+    isSameOriginRequest,
+    SESSION_COOKIE,
+    verifyPassword,
+  } = await import("../src/lib/auth"));
+  ({ POST: signOut } = await import("../src/app/api/auth/signout/route"));
+});
+
+test("public pages stay open and terminal pages redirect to account sign-in", () => {
+  const base = "https://localhost:3000";
+  for (const path of ["/", "/sign-in", "/sign-up", "/admin-setup"]) {
+    assert.equal(middleware(new NextRequest(base + path)).status, 200);
   }
-});
-
-test("signed sessions expire and reject tampering and credential changes", () => {
-  const config = { password: "verification-password", secret: "test-secret-aaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
-  const now = 1800000000000;
-  const token = createSession(config, now);
-  assert.equal(verifySession(token, config, now), true);
-  assert.equal(verifySession(token, config, now + 8 * 60 * 60 * 1000), false);
-  assert.equal(verifySession(token.slice(0, -1) + (token.endsWith("A") ? "B" : "A"), config, now), false);
-  assert.equal(verifySession(token, { ...config, password: "changed" }, now), false);
-});
-
-test("login return destinations are restricted to terminal paths", () => {
-  assert.equal(loginDestination("/company/603786.SH/sensitivity?mode=fcff"), "/company/603786.SH/sensitivity?mode=fcff");
-  for (const invalid of ["//evil.invalid/dashboard", "/\\evil.invalid", "/company/%2f%2fevil.invalid",
-    "/company/../login", "https://evil.invalid", "/api/companies"]) {
-    assert.equal(loginDestination(invalid), "/dashboard");
+  for (const path of ["/dashboard", "/company/603786.SH/sensitivity?x=1", "/valuation/new", "/settings", "/home"]) {
+    const response = middleware(new NextRequest(base + path));
+    assert.equal(response.status, 307);
+    const location = new URL(response.headers.get("location")!, base);
+    assert.equal(location.pathname, "/sign-in");
+    assert.equal(location.searchParams.get("next"), new URL(path, base).pathname);
   }
+  assert.equal(middleware(new NextRequest(base + "/dashboard", {
+    headers: { cookie: `${SESSION_COOKIE}=present` },
+  })).status, 200);
 });
-test("server Zod gate rejects malicious keys and out-of-range query input",async()=>{
-  assert.equal(await validateApiRequest(new NextRequest("http://localhost/api/announcements?days=-1")),false);
-  assert.equal(await validateApiRequest(new NextRequest("http://localhost/api/companies",{method:"POST",body:'{"__proto__":{"admin":true}}'})),false);
-  assert.equal(await validateApiRequest(new NextRequest("http://localhost/api/agent/chat",{method:"POST",body:'{"messages":[]}'})),true);
+
+test("API guard rejects missing sessions and sign-out clears the account cookie", async () => {
+  const base = "https://localhost:3000";
+  const unauthenticated = await guardRequest(new NextRequest(base + "/api/agent/config"));
+  assert.equal(unauthenticated?.status, 401);
+  assert.deepEqual(await unauthenticated?.json(), { error: "请先登录后继续", code: "UNAUTHENTICATED" });
+
+  const signedOut = await signOut(new NextRequest(base + "/api/auth/signout", {
+    method: "POST",
+    headers: { origin: base, host: "localhost:3000" },
+  }));
+  assert.equal(signedOut.status, 200);
+  assert.match(signedOut.headers.get("set-cookie")!, /Max-Age=0|Expires=Thu, 01 Jan 1970/i);
+  assert.match(signedOut.headers.get("set-cookie")!, /HttpOnly/i);
+  assert.equal((await signOut(new NextRequest(base + "/api/auth/signout", {
+    method: "POST",
+    headers: { origin: "https://evil.invalid", host: "localhost:3000" },
+  }))).status, 403);
+});
+
+test("password hashes use scrypt and constant-time verification", async () => {
+  const stored = await hashPassword("verification-password");
+  assert.match(stored, /^scrypt\$/);
+  assert.equal(await verifyPassword("verification-password", stored), true);
+  assert.equal(await verifyPassword("wrong", stored), false);
+  assert.equal(await verifyPassword("verification-password", "invalid"), false);
+});
+
+test("company access is scoped to the account except for administrators", () => {
+  const request = new NextRequest("https://localhost:3000/api/companies/c1");
+  attachAuthenticatedUser(request, { id: "user-1", role: "user" });
+  assert.deepEqual(companyAccessWhere(request, "c1"), { id: "c1", userId: "user-1" });
+  assert.equal(isAdministrator(request), false);
+
+  const adminRequest = new NextRequest("https://localhost:3000/api/companies/c1");
+  attachAuthenticatedUser(adminRequest, { id: "admin-1", role: "admin" });
+  assert.deepEqual(companyAccessWhere(adminRequest, "c1"), { id: "c1" });
+  assert.equal(isAdministrator(adminRequest), true);
+});
+
+test("same-origin checks reject cross-site mutations", () => {
+  const request = new NextRequest("https://localhost:3000/api/auth/signout", {
+    headers: { origin: "https://evil.invalid", host: "localhost:3000" },
+  });
+  assert.equal(isSameOriginRequest(request, request.headers.get("origin")), false);
+  assert.equal(isSameOriginRequest(request, null), true);
+  assert.equal(isSameOriginRequest(new NextRequest(request.url, {
+    headers: { origin: "https://localhost:3000", host: "localhost:3000" },
+  }), "https://localhost:3000"), true);
+});
+
+test("server Zod gate rejects malicious keys and out-of-range query input", async () => {
+  assert.equal(await validateApiRequest(new NextRequest("http://localhost/api/announcements?days=-1")), false);
+  assert.equal(await validateApiRequest(new NextRequest("http://localhost/api/companies", {
+    method: "POST",
+    body: '{"__proto__":{"admin":true}}',
+  })), false);
+  assert.equal(await validateApiRequest(new NextRequest("http://localhost/api/agent/chat", {
+    method: "POST",
+    body: '{"messages":[]}',
+  })), true);
 });

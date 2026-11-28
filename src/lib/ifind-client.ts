@@ -24,10 +24,11 @@
  *   ths_ncf_from_oa_stock          经营活动现金流净额（CFO）
  *   ths_cash_paid_for_assets_stock 资本开支（Capex）
  *   ths_depreciation_etc_stock     固定资产折旧/油气折耗/生物折旧（不含无形/长摊摊销）
+ *   ths_currency_fund_stock        货币资金（与东财 MONETARYFUNDS 逐项核对一致）
  *   ths_np_atoopc_pit_stock        归母净利润（PIT，参数 [今天,报告期,1]）
  *   ths_total_equity_atoopc_pit_stock 归母净资产（PIT，参数 [今天,报告期,1]）
  *
- * 历史行情 functionpara 必须用 Currency:"RMB"（MHB=美元会把 A 股价格错算成美元）；
+ * 历史行情 functionpara 必须用 Currency:"RMB"（币种参数错误会把 A 股价格按外币换算）；
  * 历史行情默认不复权（与东方财富 fqt=0 一致）。
  */
 
@@ -52,6 +53,9 @@ const MAX_RETRIES = 2;
 const RETRY_BASE_DELAY_MS = 800;
 /** 重试最大退避间隔（ms），防止指数退避过大 */
 const RETRY_MAX_DELAY_MS = 10000;
+/** 包含 Token 刷新、重试和退避的整次调用超时 */
+const REQUEST_TOTAL_TIMEOUT_MS =
+  REQUEST_TIMEOUT_MS * (MAX_RETRIES + 1) + RETRY_BASE_DELAY_MS * 3 + 1000;
 
 // ============================================================
 // 内存 Token 缓存
@@ -162,9 +166,34 @@ async function refreshAccessToken(): Promise<string> {
 // 通用请求封装（带重试）
 // ============================================================
 
-/** 指数退避等待 */
-function sleep(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
+/** 指数退避等待；调用方取消时立即结束，不继续占用请求时长。 */
+function sleep(ms: number, signal?: AbortSignal) {
+  if (signal?.aborted) return Promise.reject(signal.reason);
+  return new Promise<void>((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal?.reason);
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+/** 等待共享的 Token 刷新 Promise，同时让当前请求的外部信号及时生效。 */
+async function withAbort<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  signal.throwIfAborted();
+  let onAbort: (() => void) | undefined;
+  try {
+    return await Promise.race([work, new Promise<never>((_, reject) => {
+      onAbort = () => reject(signal.reason);
+      signal.addEventListener("abort", onAbort, { once: true });
+    })]);
+  } finally {
+    if (onAbort) signal.removeEventListener("abort", onAbort);
+  }
 }
 
 /** 判断是否值得重试的错误（网络错误、超时、5xx、401 Token 失效） */
@@ -213,12 +242,14 @@ async function ifindPost<T>(
   signal?: AbortSignal,
 ): Promise<T> {
   let lastErr: unknown;
+  const timeout = AbortSignal.timeout(REQUEST_TOTAL_TIMEOUT_MS);
+  const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
-      signal?.throwIfAborted();
-      const token = await getAccessToken();
-      signal?.throwIfAborted();
+      requestSignal.throwIfAborted();
+      const token = await withAbort(getAccessToken(), requestSignal);
+      requestSignal.throwIfAborted();
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
@@ -231,7 +262,7 @@ async function ifindPost<T>(
             ifindlang: "cn",
           },
           body: JSON.stringify(body),
-          signal: signal ? AbortSignal.any([signal, controller.signal]) : controller.signal,
+          signal: AbortSignal.any([requestSignal, controller.signal]),
         });
 
         if (res.status === 401 || res.status === 403) {
@@ -252,16 +283,18 @@ async function ifindPost<T>(
       }
     } catch (err) {
       lastErr = err;
-      if (signal?.aborted || attempt >= MAX_RETRIES || !isRetryable(err)) break;
+      if (requestSignal.aborted) requestSignal.throwIfAborted();
+      if (attempt >= MAX_RETRIES || !isRetryable(err)) break;
       const delay = Math.min(
         RETRY_BASE_DELAY_MS * Math.pow(2, attempt),
         RETRY_MAX_DELAY_MS,
       );
-      await sleep(delay);
+      await sleep(delay, requestSignal);
     }
   }
 
-  // 重试耗尽，抛出带上下文的错误
+  // 重试耗尽，抛出带上下文的错误；外部取消不应被改写成上游失败。
+  if (requestSignal.aborted) requestSignal.throwIfAborted();
   if (lastErr instanceof Error && lastErr.name === "AbortError") {
     throw new Error(`iFinD 请求超时 [${path}]，已重试 ${MAX_RETRIES} 次`);
   }
@@ -366,10 +399,12 @@ export async function fetchFinancials(ticker: string) {
   // 普通指标（参数 [报告期,100,报告期]）
   const indicators = [
     "ths_stock_short_name_stock", // 名称
+    "ths_np_stock", // 净利润（PIT 归母缺失时兜底）
     "ths_revenue_stock", // 营业收入
     cfoIndicator,
     capexIndicator,
     "ths_depreciation_etc_stock", // D&A
+    "ths_currency_fund_stock", // 货币资金
     "ths_total_shares_stock", // 总股本
     "ths_interest_bearing_debt_stock", // 有息负债
     "ths_total_assets_stock", // 总资产
@@ -404,10 +439,13 @@ export async function fetchFinancials(ticker: string) {
   const tbl = resp.tables?.[0]?.table;
   const name = tbl?.["ths_stock_short_name_stock"]?.[0] as string | undefined;
   const npParent = extractValue(resp, "ths_np_atoopc_pit_stock"); // PIT 归母净利润，优先
+  const np = extractValue(resp, "ths_np_stock"); // PIT 归母缺失时保留 main 的净利润兜底
+  const earnings = npParent ?? np;
   const revenue = extractValue(resp, "ths_revenue_stock");
   const cfo = extractValue(resp, cfoIndicator);
   const capex = extractValue(resp, capexIndicator);
   const da = extractValue(resp, "ths_depreciation_etc_stock");
+  const cash = extractValue(resp, "ths_currency_fund_stock");
   const shares = extractValue(resp, "ths_total_shares_stock");
   const debt = extractValue(resp, "ths_interest_bearing_debt_stock");
   const totalAssets = extractValue(resp, "ths_total_assets_stock");
@@ -418,15 +456,15 @@ export async function fetchFinancials(ticker: string) {
   return {
     ticker,
     name: name || ticker,
-    cash: null,
+    cash: cash == null ? null : cash / YI,
     debt: (debt ?? 0) / YI,
     shares: (shares ?? 0) / YI, // 股 → 亿股
     cfo: Number(((cfo ?? 0) / YI).toFixed(2)),
     capex: Number(((capex ?? 0) / YI).toFixed(2)),
     reportedCashFlow: { periodEnd: `${year}-12-31`, cfo: cfo == null ? null : cfo / YI, capex: capex == null ? null : capex / YI },
-    missingFields: missingFinancialFields({ cash: null, debt, shares, e0: npParent, revenue, bookValue: totalParentEquity, cfo, capex, da, totalAssets }),
+    missingFields: missingFinancialFields({ cash, debt, shares, e0: earnings, revenue, bookValue: totalParentEquity, cfo, capex, da, totalAssets }),
     da: (da ?? 0) / YI,
-    e0: (npParent ?? 0) / YI,
+    e0: (earnings ?? 0) / YI,
     revenue: (revenue ?? 0) / YI,
     bookValue: Number(((totalParentEquity ?? 0) / YI).toFixed(2)),
     comparable: {
@@ -453,7 +491,7 @@ export async function fetchPriceHistory(
     indicators: "open,high,low,close,volume",
     startdate: startDate,
     enddate: endDate,
-    functionpara: { Currency: "YSHB", Fill: "Omit", CPS: "no" },
+    functionpara: { Currency: "RMB", Fill: "Omit", CPS: "no" },
   };
 
   const resp = await ifindPost<{

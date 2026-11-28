@@ -7,7 +7,7 @@ import { describeIndustrySnapshot, industryNameSchema } from "@/lib/industry-sna
 const lookupSchema = z.object({ industry: industryNameSchema, date: z.iso.date().optional(), download: z.literal("1").optional() }).strict();
 
 export async function GET(request: NextRequest) {
-  const guard = guardRequest(request);
+  const guard = await guardRequest(request);
   if (guard) return guard;
   const query = Object.fromEntries(request.nextUrl.searchParams);
   if (!Object.keys(query).length) return jsonOk({ groups: await industryDirectory() });
@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const guard = guardRequest(request);
+  const guard = await guardRequest(request);
   if (guard) return guard;
   const parsed = lookupSchema.pick({ industry: true }).safeParse(await request.json().catch(() => null));
   if (!parsed.success) return jsonError("行业参数无效", 422);
