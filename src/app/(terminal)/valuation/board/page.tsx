@@ -22,6 +22,8 @@ import {
   SearchOutlined,
 } from "@ant-design/icons";
 import AppHeader from "@/components/app-header";
+import { useMarketQuotes } from "@/components/use-market-quotes";
+import { marketQuoteCaption, marketQuotePrice } from "@/lib/market-quote";
 import { useWorkspace } from "@/app/providers";
 import type { ColumnsType, ColumnType } from "antd/es/table";
 import type { PrimaryValuation } from "@/lib/primary-valuation";
@@ -100,6 +102,8 @@ export default function DashboardPage() {
   const [quadrantFilter, setQuadrantFilter] = useState<string>("");
   const [keyword, setKeyword] = useState("");
   const [selectedId, setSelectedId] = useState<string>();
+  const [quoteRefresh, setQuoteRefresh] = useState(0);
+  const { quotes, failed: quoteFailed } = useMarketQuotes(companies.map(company => company.ticker), quoteRefresh);
   const { message } = App.useApp();
 
   const loadData = useCallback(async () => {
@@ -158,6 +162,8 @@ export default function DashboardPage() {
     count: companies.filter((c) => c.quadrant === q.key).length,
   }));
   const selected = filtered.find((company) => company.id === selectedId) ?? filtered[0];
+  const selectedQuote = selected ? quotes[selected.ticker.toUpperCase()] : null;
+  const selectedMarketCap = selected && selectedQuote ? selectedQuote.price * selected.shares : selected?.marketCap;
 
   const handleDelete = async (id: string, name: string) => {
     Modal.confirm({
@@ -216,12 +222,16 @@ export default function DashboardPage() {
     {
       title: "最新市价",
       dataIndex: "currentPrice",
-      width: 82,
+      width: 128,
       className: "font-mono-num",
       align: "right",
-      render: (v: number) => (
-        <span>¥{fmt(v, 2)}</span>
-      ),
+      render: (v: number, row) => {
+        const quote = quotes[row.ticker.toUpperCase()];
+        return <div>
+          <div>{marketQuotePrice(quote?.price ?? v, row.ticker)}</div>
+          <div className="text-[10px] leading-tight text-terminal-muted">{marketQuoteCaption(quote, quoteFailed)}</div>
+        </div>;
+      },
     },
     {
       title: "主估值",
@@ -389,7 +399,7 @@ export default function DashboardPage() {
       ),
     },
     {
-      title: "最新市价",
+      title: "档案市价",
       dataIndex: "currentPrice",
       width: 90,
       className: "font-mono-num",
@@ -502,7 +512,7 @@ export default function DashboardPage() {
         subtitle="正向 20 年 DCF 内在价值 + 逆向终局现金流 L 反算 · 安全：服务端二次校验"
         actions={
           <Space wrap size={6}>
-            <Button icon={<ReloadOutlined />} onClick={loadData}>
+            <Button icon={<ReloadOutlined />} onClick={() => { void loadData(); setQuoteRefresh(key => key + 1); }}>
               刷新
             </Button>
             <Button icon={<ExportOutlined />} onClick={handleExport}>
@@ -581,10 +591,11 @@ export default function DashboardPage() {
               <span className="font-mono text-xs text-terminal-muted">{selected.ticker}</span>
             </div>
             <dl className="snapshot-grid">
-              <dt>档案行情</dt><dd>{fmt(selected.currentPrice, 2)} {/\.HK$/i.test(selected.ticker) ? "HKD" : /\.(SH|SZ|BJ)$/i.test(selected.ticker) ? "CNY" : "当地币"}/股</dd>
+              <dt>最新市价</dt><dd>{marketQuotePrice(selectedQuote?.price ?? selected.currentPrice, selected.ticker)}
+                <div className="text-[10px] text-terminal-muted">{marketQuoteCaption(selectedQuote, quoteFailed)}</div></dd>
               <dt>主估值</dt><dd>{selected.primaryValuation.kind === "unavailable" ? "待核验" : `${fmt(selected.primaryValuation.price, 2)} ${selected.primaryValuation.kind === "operating" ? selected.primaryValuation.publication.currency : "元"}/股`}</dd>
               <dt>同日潜在空间</dt><dd className={selected.upside === null || selected.upside === 0 ? undefined : selected.upside > 0 ? "txt-pos" : "txt-neg"}>{selected.upside === null ? "—" : fmtPct(selected.upside)}</dd>
-              <dt>市值</dt><dd>{fmt(selected.marketCap)} 亿</dd>
+              <dt>{selectedQuote ? "估算市值" : "档案市值"}</dt><dd>{fmt(selectedMarketCap ?? selected.marketCap)} 亿</dd>
               <dt>净现金</dt><dd>{fmt(selected.netCash)} 亿</dd>
               <dt>估值日期</dt><dd>{selected.primaryValuation.kind === "operating" ? selected.primaryValuation.publication.valuationDate : "—"}</dd>
               {selected.primaryValuation.kind === "operating" && <>

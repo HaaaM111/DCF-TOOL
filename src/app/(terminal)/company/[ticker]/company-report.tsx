@@ -29,6 +29,8 @@ import {
   DeleteOutlined,
 } from "@ant-design/icons";
 import { useRouter } from "next/navigation";
+import { useMarketQuotes } from "@/components/use-market-quotes";
+import { marketQuoteCaption, marketQuotePrice } from "@/lib/market-quote";
 import OperatingValuationPanel from "@/components/operating-valuation-panel";
 import CompanySensitivityPanel from "@/components/company-sensitivity-panel";
 import CompanyOperatingSimulation from "@/components/company-operating-simulation";
@@ -134,6 +136,8 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
   const needsValidation = comparables;
 
   const [company, setCompany] = useState<CompanyData | null>(null);
+  const { quotes, failed: quoteFailed } = useMarketQuotes(overview && company ? [company.ticker] : []);
+  const quote = company ? quotes[company.ticker.toUpperCase()] : null;
   const [loading, setLoading] = useState(true);
   const [knobPayout, setKnobPayout] = useState<number>();
   const [knobExitPe, setKnobExitPe] = useState<number>();
@@ -410,8 +414,9 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
       <div className="market-strip research-strip mb-3 grid grid-cols-2 overflow-hidden rounded-md border border-terminal-line bg-terminal-surface sm:grid-cols-3 xl:grid-cols-5">
 
           <div className="research-metric min-w-0">
-            <Statistic title="当前股价 / 市值" value={c.currentPrice} precision={2} prefix="¥" />
-            <div className="text-xs text-terminal-muted">{c.marketCap.toFixed(1)} 亿 ｜ 总股本 {c.shares} 亿股</div>
+            <Statistic title="最新市价" value={marketQuotePrice(quote?.price ?? c.currentPrice, c.ticker)} />
+            <div className="text-xs text-terminal-muted">{marketQuoteCaption(quote, quoteFailed)}</div>
+            <div className="text-xs text-terminal-muted">{quote ? "估算市值" : "档案市值"} {(quote ? quote.price * c.shares : c.marketCap).toFixed(1)} 亿 ｜ 总股本 {c.shares} 亿股</div>
           </div>
 
           <div className="research-metric min-w-0">
@@ -686,7 +691,7 @@ export default function CompanyReport({ id, section }: { id: string; section: Co
               className="mt-3"
               type={mcResult.pricePercentile > 75 ? "warning" : mcResult.pricePercentile < 25 ? "success" : "info"}
               showIcon
-              title={`当前市价处于分布的第 ${mcResult.pricePercentile.toFixed(0)} 分位`}
+              title={`模型基准市价处于分布的第 ${mcResult.pricePercentile.toFixed(0)} 分位`}
               description={
                 mcResult.pricePercentile > 75
                   ? "市价接近分布上沿，市场定价偏乐观，安全边际不足。"

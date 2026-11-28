@@ -99,23 +99,43 @@ if ($LASTEXITCODE -ne 0) { throw 'Unable to back up service parameters' }
 $snapshot = @'
 const fs = require('node:fs');
 const path = require('node:path');
+const { createHash } = require('node:crypto');
 const { DatabaseSync, backup } = require('node:sqlite');
 (async () => {
   const [source, destination] = process.argv.slice(2);
   const summary = {};
+  const files = [];
+  const readCounts = (db, tables) => Object.fromEntries(tables.map(table =>
+    [table, db.prepare('SELECT COUNT(*) count FROM "' + table + '"').get().count]));
   for (const name of ['user', 'baseline']) {
     const db = new DatabaseSync(path.join(source, 'prisma', name + '.db'), { readOnly: true });
-    if (db.prepare('PRAGMA quick_check').get().quick_check !== 'ok') throw Error('Database integrity failed');
-    const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map(row => row.name);
-    const counts = {};
-    for (const table of ['Company', 'Assumption', 'ValuationReport']) {
-      if (tables.includes(table)) counts[table] = db.prepare('SELECT COUNT(*) count FROM "' + table + '"').get().count;
+    const filename = name + '.db';
+    const output = path.join(destination, filename);
+    try {
+      if (db.prepare('PRAGMA quick_check').get().quick_check !== 'ok') throw Error('Database integrity failed');
+      const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map(row => row.name);
+      summary[name] = readCounts(db, ['Company', 'Assumption', 'ValuationReport'].filter(table => tables.includes(table)));
+      await backup(db, output);
+    } finally {
+      db.close();
     }
-    await backup(db, path.join(destination, name + '.db'));
-    db.close();
-    summary[name] = counts;
+    const copy = new DatabaseSync(output, { readOnly: true });
+    try {
+      const copyCounts = readCounts(copy, Object.keys(summary[name]));
+      if (copy.prepare('PRAGMA quick_check').get().quick_check !== 'ok' ||
+          JSON.stringify(copyCounts) !== JSON.stringify(summary[name])) throw Error('Backup integrity failed');
+    } finally {
+      copy.close();
+    }
+    const hash = createHash('sha256');
+    for await (const chunk of fs.createReadStream(output)) hash.update(chunk);
+    const bytes = fs.statSync(output).size;
+    if (!bytes) throw Error('Backup is empty');
+    files.push({ filename, bytes, sha256: hash.digest('hex') });
   }
   fs.writeFileSync(path.join(destination, 'database-counts.json'), JSON.stringify(summary));
+  fs.writeFileSync(path.join(destination, 'backup-manifest.json'),
+    JSON.stringify({ verifiedAt: new Date().toISOString(), files }, null, 2));
 })().catch(() => { console.error('DATABASE_BACKUP_FAILED'); process.exitCode = 1; });
 '@
 $health = @'
@@ -146,6 +166,10 @@ const expected = JSON.parse(fs.readFileSync('deployment-state/database-counts.js
   if (!Array.isArray(companies) || companies.length !== expected.user.Company) throw Error('Database count mismatch');
   const anonymous = await fetch('http://127.0.0.1:3000/api/companies');
   if (anonymous.status !== 401) throw Error('Authentication failed');
+  const quoteApi = 'http://127.0.0.1:3000/api/market-quotes?tickers=';
+  const privateQuotes = await fetch(quoteApi + '603786.SH', { signal: AbortSignal.timeout(5000) });
+  const invalidQuotes = await fetch(quoteApi + '%21', { headers, signal: AbortSignal.timeout(5000) });
+  if (privateQuotes.status !== 401 || invalidQuotes.status !== 422) throw Error('Market quotes access check failed');
   const dashboard = await fetch('http://127.0.0.1:3000/dashboard', { redirect: 'manual' });
   const loginDestination = new URL(dashboard.headers.get('location') ?? '/', 'http://127.0.0.1:3000');
   if (dashboard.status !== 303 || loginDestination.pathname !== '/login' || loginDestination.searchParams.get('next') !== '/dashboard') throw Error('Login redirect failed');
@@ -176,6 +200,11 @@ const expected = JSON.parse(fs.readFileSync('deployment-state/database-counts.js
   const checkTicker = companies.some(company => company.ticker === '603786.SH') ? '603786.SH' : null;
   let checkedValuation = false;
   if (checkTicker) {
+    const latest = await fetch(quoteApi + checkTicker, { headers, signal: AbortSignal.timeout(13000) });
+    if (!latest.ok || !latest.headers.get('cache-control')?.includes('no-store')) throw Error('Market quote request failed');
+    const quote = (await latest.json()).quotes?.[checkTicker];
+    if (!quote || !(quote.price > 0) || !quote.date || !['ifind', 'eastmoney'].includes(quote.source))
+      throw Error('Verified market quote unavailable');
     const checked = await fetch('http://127.0.0.1:3000/api/settings/data-check?ticker=' + checkTicker, { headers, signal: AbortSignal.timeout(55000) });
     if (!checked.ok) throw Error('Valuation diagnostics failed');
     const value = await checked.json();
@@ -226,6 +255,9 @@ if ($wasRunning) { Stop-Service -Name $ServiceName }
 try {
     & $node (Join-Path $state 'snapshot.cjs') $ProductionRoot $state
     if ($LASTEXITCODE -ne 0) { throw 'Database backup failed' }
+    $backupManifest = Join-Path $state 'backup-manifest.json'
+    $backup = Get-Content -LiteralPath $backupManifest -Raw | ConvertFrom-Json
+    if ($backup.files.Count -ne 2 -or !$backup.verifiedAt) { throw 'Database backup manifest is incomplete' }
     $nssmSettings = @{
         Application = $node
         AppDirectory = $release
@@ -247,7 +279,7 @@ try {
     if (!$healthy) { throw 'Release health check failed' }
     $listener = @(Get-NetTCPConnection -State Listen -LocalPort 3000)
     if ($listener.Count -ne 1 -or $listener[0].LocalAddress -ne '127.0.0.1') { throw 'Unexpected application listener' }
-    $result = [pscustomobject]@{ commit=$Commit; buildId=$buildId; release=$release; service=(Get-Service -Name $ServiceName).Status.ToString(); bind='127.0.0.1:3000'; backups=$state } | ConvertTo-Json -Compress
+    $result = [pscustomobject]@{ commit=$Commit; buildId=$buildId; release=$release; service=(Get-Service -Name $ServiceName).Status.ToString(); bind='127.0.0.1:3000'; backups=$state; backupManifest=$backupManifest } | ConvertTo-Json -Compress
     [IO.File]::WriteAllText((Join-Path $state 'deployment-result.json'), $result, [Text.UTF8Encoding]::new($false))
     Write-Output $result
 } catch {

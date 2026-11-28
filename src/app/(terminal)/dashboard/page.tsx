@@ -5,6 +5,8 @@ import { ArrowRightOutlined, ExportOutlined, ReloadOutlined } from "@ant-design/
 import Link from "next/link";
 import type { PrimaryValuation } from "@/lib/primary-valuation";
 import { useWorkspace } from "@/app/providers";
+import { useMarketQuotes } from "@/components/use-market-quotes";
+import { marketQuoteCaption, marketQuotePrice } from "@/lib/market-quote";
 import { MARKET_NEWS_POLL_MS, MARKET_NEWS_SOURCES, marketNewsBatch, type MarketNewsFeed, type MarketNewsItem } from "@/lib/market-news";
 import QuadrantChart from "./quadrant-chart";
 import styles from "./home.module.css";
@@ -119,6 +121,8 @@ export default function DashboardPage() {
   }, []);
 
   const selected = companies.find((company) => company.id === selectedId) ?? companies[0];
+  const { quotes, failed: quoteFailed } = useMarketQuotes(selected ? [selected.ticker] : []);
+  const quote = selected ? quotes[selected.ticker.toUpperCase()] : null;
   const latestDate = companies.flatMap((company) => company.primaryValuation.kind === "operating"
     ? [company.primaryValuation.publication.valuationDate] : company.lastEvalDate ? [company.lastEvalDate] : []).sort().at(-1);
   const primary = selected?.primaryValuation;
@@ -160,7 +164,8 @@ export default function DashboardPage() {
             <span>{selected?.ticker ?? (companyState === "loading" ? "正在载入" : companyState === "error" ? "标的读取失败" : "暂无自选标的")}</span>
           </div>
           <dl className={styles.metrics}>
-            <div><dt>档案行情</dt><dd>{selected ? price(selected.currentPrice, currencyOf(selected.ticker)) : "—"}</dd></div>
+            <div><dt>最新市价</dt><dd>{selected ? marketQuotePrice(quote?.price ?? selected.currentPrice, selected.ticker) : "—"}</dd>
+              {selected && <span className="text-xs text-terminal-muted">{marketQuoteCaption(quote, quoteFailed)}</span>}</div>
             <div><dt>DCF 主估值</dt><dd>{selected && primary ? price(primary.price, primary.kind === "operating" ? primary.publication.currency : currencyOf(selected.ticker)) : "—"}</dd></div>
             <div><dt>同日潜在空间</dt><dd className={upside === null || upside === 0 ? "" : upside > 0 ? "txt-pos" : "txt-neg"}>{upside === null ? "—" : signed(upside)}</dd></div>
           </dl>

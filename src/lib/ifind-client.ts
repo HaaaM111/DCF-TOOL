@@ -210,12 +210,15 @@ function isRetryable(err: unknown): boolean {
 async function ifindPost<T>(
   path: string,
   body: Record<string, unknown>,
+  signal?: AbortSignal,
 ): Promise<T> {
   let lastErr: unknown;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
+      signal?.throwIfAborted();
       const token = await getAccessToken();
+      signal?.throwIfAborted();
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
@@ -228,7 +231,7 @@ async function ifindPost<T>(
             ifindlang: "cn",
           },
           body: JSON.stringify(body),
-          signal: controller.signal,
+          signal: signal ? AbortSignal.any([signal, controller.signal]) : controller.signal,
         });
 
         if (res.status === 401 || res.status === 403) {
@@ -249,7 +252,7 @@ async function ifindPost<T>(
       }
     } catch (err) {
       lastErr = err;
-      if (attempt >= MAX_RETRIES || !isRetryable(err)) break;
+      if (signal?.aborted || attempt >= MAX_RETRIES || !isRetryable(err)) break;
       const delay = Math.min(
         RETRY_BASE_DELAY_MS * Math.pow(2, attempt),
         RETRY_MAX_DELAY_MS,
@@ -326,6 +329,11 @@ export async function fetchQuote(ticker: string) {
   const last = rows.sort((a, b) => b.date.localeCompare(a.date))[0];
   if (!last) throw new Error(`无法获取 ${ticker} 的最近交易日收盘价`);
   return { ticker, ...last };
+}
+
+export function fetchIfindMarketQuotes(tickers: string[]) {
+  return ifindPost<unknown>("/api/v1/real_time_quotation",
+    { codes: tickers.join(","), indicators: "latest" }, AbortSignal.timeout(5000));
 }
 
 /**
