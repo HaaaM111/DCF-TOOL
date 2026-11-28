@@ -1,18 +1,23 @@
+/**
+ * POST /api/announcements/[companyId]/analyze —— 公告分析入口（智能体工具/快捷按钮共用）
+ * ------------------------------------------------------------------
+ * 对该公司已采集但未分析的公告生成预期差信号（analyze-service），写回 AnnouncementSignal。
+ * 配置来源：env 优先 + DB（页面配置）兜底；未配置 key 时 llmReady=false，不报错。
+ */
 import { NextRequest } from "next/server";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
+import { companyAccessWhere } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { readLlmDbSettings } from "@/lib/llm-settings";
 import { analyzeCompanyAnnouncements } from "@/lib/announcement/analyze-service";
-import { companyAccessWhere, getAuthenticatedUserId } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(
   req: NextRequest,
-  { params: pendingParams }: { params: Promise<{ companyId: string }> },
-) {
-  const params = await pendingParams;
+  {params: pendingParams}: {params: Promise<{ companyId: string }>},) {
+ const params=await pendingParams;
   const guard = await guardRequest(req);
   if (guard) return guard;
 

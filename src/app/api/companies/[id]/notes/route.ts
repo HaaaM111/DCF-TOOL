@@ -1,13 +1,19 @@
+/**
+ * GET  /api/companies/[id]/notes  —— 获取时间线记录
+ * POST /api/companies/[id]/notes  —— 新增时间线记录（XSS 与长度校验）
+ */
 import { NextRequest } from "next/server";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
+import { companyAccessWhere } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { companyAccessWhere, getAuthenticatedUserId } from "@/lib/auth";
+import { idSchema } from "@/lib/agent/schemas";
 import { timelineEntrySchema } from "@/lib/validation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 function companyIdParam(req: NextRequest) {
+  // path: /api/companies/[id]/notes
   return req.nextUrl.pathname.split("/")[3];
 }
 
@@ -16,7 +22,7 @@ export async function GET(req: NextRequest) {
   if (guard) return guard;
 
   const companyId = companyIdParam(req);
-  const userId = getAuthenticatedUserId(req);
+  if (!idSchema.safeParse(companyId).success) return jsonError("无效id", 422);
   const owned = await prisma.company.findFirst({ where: companyAccessWhere(req, companyId), select: { id: true } });
   if (!owned) return jsonError("标的不存在", 404, "NOT_FOUND");
   const notes = await prisma.timelineEntry.findMany({
@@ -31,7 +37,7 @@ export async function POST(req: NextRequest) {
   if (guard) return guard;
 
   const companyId = companyIdParam(req);
-  const userId = getAuthenticatedUserId(req);
+  if (!idSchema.safeParse(companyId).success) return jsonError("无效id", 422);
   const exists = await prisma.company.findFirst({ where: companyAccessWhere(req, companyId), select: { id: true } });
   if (!exists) return jsonError("标的不存在", 404, "NOT_FOUND");
 
@@ -55,6 +61,7 @@ export async function POST(req: NextRequest) {
     data: {
       companyId,
       date: new Date(parsed.data.date),
+      // 原样存储；前端以 React 文本节点渲染（{n.content}）时会自动转义，防 XSS 且显示原文
       content: parsed.data.content,
       tags: parsed.data.tags ?? "",
     },

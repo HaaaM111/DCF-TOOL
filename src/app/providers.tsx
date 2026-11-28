@@ -13,152 +13,148 @@ import {
   useState,
   ReactNode,
 } from "react";
+import { terminalPalette } from "@/lib/terminal-palette";
+import { preferencesSchema, workspaceDefaults, workspaceStorageKey, type WorkspacePreferences } from "@/lib/workspace-preferences";
+import TerminalInteractions from "@/components/terminal-interactions";
 import dayjs from "dayjs";
 import "dayjs/locale/zh-cn";
 
 dayjs.locale("zh-cn");
 
-export type ThemeMode = "light" | "dark" | "system";
-type ResolvedMode = "light" | "dark";
-
+// 主题切换上下文
+type ThemeMode = "light" | "dark";
 interface ThemeCtx {
   mode: ThemeMode;
-  resolvedMode: ResolvedMode;
-  setMode: (m: ThemeMode) => void;
+  toggle: () => void;
+  setTheme: (value: ThemeMode) => void;
 }
-const ThemeContext = createContext<ThemeCtx>({
-  mode: "light",
-  resolvedMode: "light",
-  setMode: () => {},
-});
+const ThemeContext = createContext<ThemeCtx>({ mode: "light", toggle: () => {}, setTheme: () => {} });
 export const useTheme = () => useContext(ThemeContext);
+const WorkspaceContext = createContext({
+  preferences: workspaceDefaults,
+  savePreferences: (_value: WorkspacePreferences) => {},
+});
+export const useWorkspace = () => useContext(WorkspaceContext);
 
-/**
- * Miranda — old-world broadsheet.
- * Parchment #e2dedb / Bone cream #cdc6be / Ink #1d1d1b / Charcoal #69645f / Ember #c03f13.
- * The dark set keeps the same warm hue family and only flips the value ladder, so a
- * light<dark switch reads as dimming the lamp instead of a colour jump.
- */
-function buildTheme(mode: ResolvedMode) {
+function buildTheme(mode: ThemeMode) {
   const isDark = mode === "dark";
-  const palette = isDark
-    ? {
-        primary: "#ece7de",
-        success: "#6f9a78",
-        error: "#cf6a4c",
-        warning: "#d5613c",
-        info: "#a49b90",
-        layout: "#1c1b19",
-        container: "#262421",
-        elevated: "#2b2925",
-        border: "#3b3733",
-        borderSecondary: "#332f2b",
-        text: "#ece7de",
-        textSecondary: "#a49b90",
-        tableHead: "#2e2b27",
-        rowHover: "#302d29",
-        fill: "#2e2b27",
-      }
-    : {
-        primary: "#1d1d1b",
-        success: "#3f6b4f",
-        error: "#b0452b",
-        warning: "#c03f13",
-        info: "#6b655e",
-        layout: "#e2dedb",
-        container: "#ece7e1",
-        elevated: "#f1ece6",
-        border: "#cdc6be",
-        borderSecondary: "#d8d1c8",
-        text: "#1d1d1b",
-        textSecondary: "#6b655e",
-        tableHead: "#ded7cd",
-        rowHover: "#e6e0d8",
-        fill: "#ded7cd",
-      };
-
+  const palette = terminalPalette[mode];
+  const fieldBackground = palette.field;
+  const field = {
+    colorBgContainer: fieldBackground,
+    activeBorderColor: palette.accentHover,
+    hoverBorderColor: palette.divider,
+    activeShadow: "none",
+    errorActiveShadow: "none",
+    warningActiveShadow: "none",
+  };
   return {
     algorithm: isDark ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
     token: {
-      colorPrimary: palette.primary,
-      colorSuccess: palette.success,
-      colorError: palette.error,
+      colorPrimary: palette.accent,
+      colorPrimaryHover: palette.accentHover,
+      colorSuccess: palette.positive,
+      colorError: palette.negative,
       colorWarning: palette.warning,
-      colorInfo: palette.info,
-      colorBgLayout: palette.layout,
-      colorBgContainer: palette.container,
-      colorBgElevated: palette.elevated,
-      colorBorder: palette.border,
-      colorBorderSecondary: palette.borderSecondary,
-      colorText: palette.text,
-      colorTextSecondary: palette.textSecondary,
-      colorFillSecondary: palette.fill,
-      borderRadius: 4,
+      colorInfo: palette.link,
+      borderRadius: 6,
+      borderRadiusLG: 6,
+      controlHeight: 36,
+      controlHeightSM: 28,
+      controlOutlineWidth: 0,
+      fontSize: 14,
       fontFamily:
-        'Georgia, "Times New Roman", "Songti SC", "Noto Serif SC", "SimSun", "Source Han Serif SC", serif',
+        'Inter, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif',
+      colorBgLayout: palette.canvas,
+      colorBgContainer: palette.panel,
+      colorBorder: palette.line,
+      colorText: palette.ink,
+      colorTextSecondary: palette.muted,
+      colorTextPlaceholder: palette.muted,
+      colorLink: palette.link,
     },
     components: {
       Card: {
-        borderRadiusLG: 2,
+        headerHeight: 40,
+        headerHeightSM: 36,
+        headerFontSize: 14,
+        headerFontSizeSM: 14,
+        headerPadding: 14,
+        headerPaddingSM: 12,
+        bodyPadding: 14,
+        bodyPaddingSM: 12,
         boxShadowTertiary: "none",
       },
+      Button: {
+        defaultBg: "transparent",
+        defaultHoverBg: palette.hover,
+        primaryColor: palette.onAccent,
+        defaultShadow: "none",
+        primaryShadow: "none",
+        dangerShadow: "none",
+      },
+      Input: field,
+      InputNumber: field,
+      Select: { selectorBg: fieldBackground, activeBorderColor: palette.accentHover, activeOutlineColor: "transparent" },
+      DatePicker: field,
       Table: {
-        headerBg: palette.tableHead,
-        headerColor: palette.textSecondary,
-        rowHoverBg: palette.rowHover,
+        headerBg: palette.panel,
+        headerColor: palette.muted,
+        headerSplitColor: palette.line,
+        borderColor: palette.line,
+        rowHoverBg: palette.hover,
+        cellPaddingBlock: 8,
+        cellPaddingBlockMD: 8,
+        cellPaddingBlockSM: 8,
+        cellPaddingInline: 12,
+        cellPaddingInlineMD: 12,
+        cellPaddingInlineSM: 12,
       },
       Tag: {
-        borderRadiusSM: 2,
-      },
-      Button: {
-        fontWeight: 400,
-      },
-      Input: {
-        borderRadius: 2,
+        borderRadiusSM: 4,
       },
     },
   };
 }
 
-const STORAGE_KEY = "dcf-theme";
-
 export default function Providers({ children }: { children: ReactNode }) {
-  const [mode, setModeState] = useState<ThemeMode>("light");
-  const [resolvedMode, setResolvedMode] = useState<ResolvedMode>("light");
+  const [mode, setMode] = useState<ThemeMode>("light");
+  const [preferences, setPreferences] = useState(workspaceDefaults);
 
-  // Restore an explicitly saved choice; first visits stay on the light broadsheet.
+  // 从 localStorage 读取偏好
   useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved === "dark" || saved === "system") setModeState(saved);
+    const saved = localStorage.getItem("dcf-theme");
+    if (saved === "light" || saved === "dark") setMode(saved);
+    try {
+      const parsed = preferencesSchema.safeParse(JSON.parse(localStorage.getItem(workspaceStorageKey) ?? "null"));
+      if (parsed.success) setPreferences(parsed.data);
+    } catch { /* Ignore an invalid local preference record. */ }
   }, []);
 
+  // 同步到 <html> class
   useEffect(() => {
     const root = document.documentElement;
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const apply = () => {
-      const resolved: ResolvedMode =
-        mode === "system" ? (media.matches ? "dark" : "light") : mode;
-      root.classList.toggle("dark", resolved === "dark");
-      root.style.colorScheme = resolved;
-      setResolvedMode(resolved);
-    };
-    apply();
-    if (mode === "system") {
-      media.addEventListener("change", apply);
-      return () => media.removeEventListener("change", apply);
-    }
+    if (mode === "dark") root.classList.add("dark");
+    else root.classList.remove("dark");
   }, [mode]);
 
-  const setMode = (next: ThemeMode) => {
-    localStorage.setItem(STORAGE_KEY, next);
-    setModeState(next);
+  const setTheme = (value: ThemeMode) => {
+    localStorage.setItem("dcf-theme", value);
+    setMode(value);
+  };
+  const savePreferences = (value: WorkspacePreferences) => {
+    const next = preferencesSchema.parse(value);
+    localStorage.setItem(workspaceStorageKey, JSON.stringify(next));
+    setPreferences(next);
   };
 
   return (
-    <ThemeContext.Provider value={{ mode, resolvedMode, setMode }}>
-      <ConfigProvider locale={zhCN} theme={buildTheme(resolvedMode)}>
+    <ThemeContext.Provider value={{ mode, toggle: () => setTheme(mode === "light" ? "dark" : "light"), setTheme }}>
+      <WorkspaceContext.Provider value={{ preferences, savePreferences }}>
+      <ConfigProvider locale={zhCN} theme={buildTheme(mode)}><TerminalInteractions/>
         <AntdApp>{children}</AntdApp>
       </ConfigProvider>
+      </WorkspaceContext.Provider>
     </ThemeContext.Provider>
   );
 }

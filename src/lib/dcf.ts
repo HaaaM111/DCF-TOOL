@@ -3,7 +3,7 @@
  * ------------------------------------------------------------------
  * 包含四大模块：
  *   1. 正向 DCF（20 年 FCF 推演 + Gordon 永续 + 股东回报口径）
- *   2. 逆向 DCF（反算市场隐含终局利润 L）
+ *   2. 逆向 DCF（反算市场隐含终局自由现金流 L）
  *   3. Gordon 镜像自洽校验
  *   4. 三变量敏感性矩阵（L 对 r / ExitPE / g）
  *
@@ -40,7 +40,7 @@ const num = (v: number): number => (Number.isFinite(v) ? v : 0);
 export function calcForwardDcf(
   a: DcfAssumptions,
   b: CompanyBasics,
-  options?: { cashFlowMultipliers?: number[] },
+  options?: { cashFlowMultipliers?: number[]; cashFlowLogShocks?: number[]; requireFinite?: boolean },
 ): ForwardDcfResult {
   if (![...Object.values(a).filter(v=>typeof v === "number"), b.shares,b.currentPrice,b.netCash,b.e0].every(Number.isFinite) || b.shares<=0 || b.currentPrice<=0 || a.ke<=a.perpetualG || a.ke<=0 || a.perpetualG<=-1) throw new Error("无效DCF参数：股本/股价必须为正且 Ke > g");
   const ke = num(a.ke);
@@ -57,7 +57,10 @@ export function calcForwardDcf(
     else if (t <= 10) g = num(a.g2);
     else g = num(a.g3);
 
-    const fcf = fcfPrev * (1 + g) * (options?.cashFlowMultipliers?.[t-1] ?? 1);
+    const projectedFcf = fcfPrev * (1 + g);
+    const multiplier = options?.cashFlowMultipliers?.[t - 1] ?? 1;
+    const logShock = options?.cashFlowLogShocks?.[t - 1] ?? 0;
+    const fcf = projectedFcf * multiplier * Math.exp(projectedFcf < 0 ? -logShock : logShock);
     const payoutRate = t <= 10 ? num(a.payoutRate1) : num(a.payoutRate2);
     const dividend = fcf * payoutRate;
     const retained = fcf - dividend;
@@ -81,9 +84,7 @@ export function calcForwardDcf(
   // 用第 20 年分红作为永续起点，更贴合“股东回报口径”
   const dY20 = rows[19].dividend;
   const keMinusG = ke - gPerp;
-  // 永续价值（年末）；若 ke<=g 退化为有限倍数避免爆炸
-  const terminalValue =
-    keMinusG > 1e-6 ? (dY20 * (1 + gPerp)) / keMinusG : dY20 * 50;
+  const terminalValue = (dY20 * (1 + gPerp)) / keMinusG;
   const pvTerminal = terminalValue / Math.pow(1 + ke, 20);
 
   // 留存现金累积折现到现值
@@ -93,7 +94,7 @@ export function calcForwardDcf(
 
   // ---- 原版口径（FCF DCF）----
   // TV 用 FCF 而非分红
-  const tvFcf = keMinusG > 1e-6 ? (fcfY20 * (1 + gPerp)) / keMinusG : fcfY20 * 50;
+  const tvFcf = (fcfY20 * (1 + gPerp)) / keMinusG;
   const pvTvFcf = tvFcf / Math.pow(1 + ke, 20);
   const originalEv = pvExplicitFcf + pvTvFcf;
   const originalEquityValue = originalEv + netCash;
@@ -119,6 +120,10 @@ export function calcForwardDcf(
   const adjustedTargetPrice = adjustedEquityValue / num(b.shares);
   const adjustedUpside =
     (adjustedTargetPrice / num(b.currentPrice) - 1) * 100;
+  if (options?.requireFinite
+      && ![pvExplicitDividend, pvTerminal, pvRetained, adjustedTargetPrice].every(Number.isFinite)) {
+    throw new RangeError("情景现金流或估值超出数值范围");
+  }
 
   // WACC：本系统简化为股权 DCF，WACC ≈ Ke（无债务权重影响）
   // 若需精确 WACC，可扩展：WACC = Ke*E/(D+E) + Kd*(1-T)*D/(D+E)
@@ -146,9 +151,9 @@ export function calcForwardDcf(
 }
 
 /**
- * 2. 逆向 DCF：反算市场隐含终局利润 L
+ * 2. 逆向 DCF：反算市场隐含终局自由现金流 L
  * 思路：当前市值 = 显性期现值 + 终值现值 + 净现金
- *   反解出第 20 年的终值 TV，再由 TV 反推终局利润 L。
+ *   反解出第 20 年的终值 TV，再由 Gordon 公式反推终局自由现金流 L。
  *
  * 三种终值定价方式对应三种 L：
  *   - L_conservative：用 reverseR 作折现率、Gordon 永续
@@ -176,7 +181,7 @@ export function calcReverseDcf(
   // 隐含终值（第 20 年末）
   const impliedTv = impliedTvPv * Math.pow(1 + ke, 20);
 
-  // 由终值反推终局利润 L（Gordon：TV = L*(1+g)/(ke-g)）
+  // 由终值反推终局自由现金流 L（Gordon：TV = L*(1+g)/(ke-g)）
   const keMinusG = ke - gPerp;
   let l = 0;
   if (keMinusG > 1e-6) {
@@ -188,7 +193,7 @@ export function calcReverseDcf(
   const lE3 = l / e3;
   const lE0 = l / e0;
 
-  // 隐含终局 CAGR（从 E3 到 L，历经 17 年：E3 是第 3 年，终局是第 20 年）
+  // 兼容历史诊断用的折算值：从第 3 年净利润到第 20 年隐含自由现金流。
   const years = 17;
   let impliedCagr = 0;
   if (l > 0 && e3 > 0) {
@@ -245,7 +250,7 @@ export function calcSensitivity(
   b: CompanyBasics,
   forward: ForwardDcfResult,
 ): SensitivityMatrix {
-  const e3 = num(a.e3) || 1e-9;
+  const e3 = num(a.e3);
   const marketCap = num(b.currentPrice) * num(b.shares);
   const netCash = num(b.netCash);
 
@@ -258,30 +263,33 @@ export function calcSensitivity(
     return tvPv * Math.pow(1 + r, 20);
   };
 
+  const rate = num(a.reverseR) || num(a.ke);
+  const growth = num(a.perpetualG);
+  const axis = (base: number, step: number) =>
+    [-2, -1, 0, 1, 2].map((offset) => offset === 0 ? base : Number((base + offset * step).toFixed(10)));
+  const cell = (param: number, value: number | null) => {
+    const l = value !== null && Number.isFinite(value) ? value : null;
+    return { param, l, lE3: l !== null && e3 > 0 && Number.isFinite(l / e3) ? l / e3 : null };
+  };
+  const gordon = (r: number, g: number) =>
+    r > 0 && r <= 1 && g > -1 && r - g > 1e-6 ? impliedTvAt(r) * (r - g) / (1 + g) : null;
+
   // ① L 对折现率 r（Gordon 永续）
-  const rValues = [0.08, 0.09, 0.1, 0.11, 0.12];
+  const rValues = axis(rate, 0.01);
   const rCells = rValues.map((r) => {
-    const tv = impliedTvAt(r);
-    const g = num(a.perpetualG);
-    const l = r - g > 1e-6 ? (tv * (r - g)) / (1 + g) : 0;
-    return { param: r, l: num(l), lE3: num(l / e3) };
+    return cell(r, gordon(r, growth));
   });
 
   // ② L 对退出 PE（终值 = L * ExitPE）
   const peValues = [0.6, 0.8, 1, 1.2, 1.4].map(x=>x*a.exitPe);
   const peCells = peValues.map((pe) => {
-    const tv = impliedTvAt(num(a.reverseR) || num(a.ke));
-    const l = pe > 0 ? tv / pe : 0;
-    return { param: pe, l: num(l), lE3: num(l / e3) };
+    return cell(pe, pe > 0 ? impliedTvAt(rate) / pe : null);
   });
 
   // ③ L 对永续 g（Gordon）
-  const gValues = [-0.01, 0, 0.01, 0.02, 0.03];
+  const gValues = axis(growth, 0.005);
   const gCells = gValues.map((g) => {
-    const r = num(a.reverseR) || num(a.ke);
-    const tv = impliedTvAt(r);
-    const l = r - g > 1e-6 ? (tv * (r - g)) / (1 + g) : 0;
-    return { param: g, l: num(l), lE3: num(l / e3) };
+    return cell(g, gordon(rate, g));
   });
 
   return { r: rCells, exitPe: peCells, g: gCells };

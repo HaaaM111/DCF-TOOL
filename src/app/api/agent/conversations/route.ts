@@ -10,6 +10,7 @@ import { idSchema } from "@/lib/agent/schemas";
  */
 import { NextRequest } from "next/server";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
+import { companyAccessWhere } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { sanitizeAiText } from "@/lib/ai-client";
 
@@ -35,6 +36,8 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    const company = await prisma.company.findFirst({ where: companyAccessWhere(req, companyId), select: { id: true } });
+    if (!company) return jsonError("标的不存在", 404, "NOT_FOUND");
     const rows = await prisma.agentConversation.findMany({
       where: { companyId },
       orderBy: { createdAt: "asc" },
@@ -89,6 +92,8 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    const company = await prisma.company.findFirst({ where: companyAccessWhere(req, companyId), select: { id: true } });
+    if (!company) return jsonError("标的不存在", 404, "NOT_FOUND");
     await prisma.agentConversation.createMany({ data: cleaned });
     return jsonOk({ ok: true, count: cleaned.length });
   } catch (e) {

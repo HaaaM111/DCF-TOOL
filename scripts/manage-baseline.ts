@@ -6,7 +6,7 @@
  *   npx tsx scripts/manage-baseline.ts import <export.json>
  *   npx tsx scripts/manage-baseline.ts update <id|ticker> <company.json>
  *   npx tsx scripts/manage-baseline.ts delete <id|ticker>
- *   npx tsx scripts/manage-baseline.ts sync-market [--mock]
+ *   npx tsx scripts/manage-baseline.ts sync-market
  *
  * company.json 格式与旧 POST /api/companies 一致：{ "company": {...}, "assumptions": {...} }
  * export.json 由 GET /api/export 生成：[{ company: {...}, assumptions: {...} }]
@@ -384,17 +384,15 @@ async function deleteCompany(key: string) {
   });
 }
 
-/** 行情同步：写 PriceSnapshot（用户库）+ 刷新 Company.currentPrice（基准库）
- *  数据链路：东财（免费）→ iFinD → mock；--mock 强制使用模拟数据 */
+/** 仅将可核验的不复权日线收盘价写入行情快照和基准库。 */
 async function syncMarket(forceMock: boolean) {
   const { resolveQuote } = await import("../src/lib/data-source");
-  const { getMockCompanyData } = await import("../src/lib/ifind-client");
+  if (forceMock) throw new Error("模拟行情不能写入行情快照；请在独立测试库生成示例数据。");
 
-  const useMock = forceMock;
   let total = 0;
   let success = 0;
   let failed = 0;
-  const sourceCount = { eastmoney: 0, ifind: 0, mock: 0 };
+  const sourceCount = { eastmoney: 0, ifind: 0 };
   const errors: string[] = [];
 
   await withWritable(async () => {
@@ -408,25 +406,18 @@ async function syncMarket(forceMock: boolean) {
 
       for (const company of companies) {
         try {
-          let close: number;
-          if (useMock) {
-            close = getMockCompanyData(company.ticker).currentPrice;
-            sourceCount.mock++;
-          } else {
-            const { data, source } = await resolveQuote(company.ticker);
-            close = data.close;
-            sourceCount[source]++;
-          }
-
-          const today = new Date();
-          today.setHours(0, 0, 0, 0);
+          const { data, source } = await resolveQuote(company.ticker, { dailyCloseOnly: true });
+          if (source === "mock" || data.kind !== "daily-close") throw new Error("无可核验的收盘价");
+          const { close } = data;
+          const date = new Date(data.date + "T00:00:00.000Z");
+          sourceCount[source]++;
 
           await user.priceSnapshot.upsert({
-            where: { ticker_date: { ticker: company.ticker, date: today } },
+            where: { ticker_date: { ticker: company.ticker, date } },
             update: { close, companyId: company.id },
             create: {
               ticker: company.ticker,
-              date: today,
+              date,
               close,
               volume: 0,
               companyId: company.id,
@@ -435,7 +426,7 @@ async function syncMarket(forceMock: boolean) {
 
           await base.company.update({
             where: { id: company.id },
-            data: { currentPrice: close, quoteUpdatedAt: new Date() },
+            data: { currentPrice: close, quoteUpdatedAt: date },
           });
 
           success++;
@@ -452,8 +443,8 @@ async function syncMarket(forceMock: boolean) {
   });
 
   console.log(
-    `行情同步完成：total=${total} success=${success} failed=${failed} mock=${useMock} ` +
-      `来源：东财=${sourceCount.eastmoney} iFinD=${sourceCount.ifind} mock=${sourceCount.mock}`,
+    `行情同步完成：total=${total} success=${success} failed=${failed} ` +
+      `来源：东财=${sourceCount.eastmoney} iFinD=${sourceCount.ifind}`,
   );
   if (errors.length) console.error("错误明细：\n" + errors.join("\n"));
 }
@@ -517,7 +508,7 @@ async function main() {
           "  npx tsx scripts/manage-baseline.ts import <export.json>",
           "  npx tsx scripts/manage-baseline.ts update <id|ticker> <company.json>",
           "  npx tsx scripts/manage-baseline.ts delete <id|ticker>",
-          "  npx tsx scripts/manage-baseline.ts sync-market [--mock]",
+          "  npx tsx scripts/manage-baseline.ts sync-market",
         ].join("\n"),
       );
   }

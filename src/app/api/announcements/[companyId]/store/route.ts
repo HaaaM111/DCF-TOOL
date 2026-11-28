@@ -1,3 +1,9 @@
+/**
+ * POST /api/announcements/[companyId]/store —— 批量存储候选公告（正式入库）
+ * ------------------------------------------------------------------
+ * body: { codes: string[] }（候选 code = 巨潮 announcementId）
+ * 从候选缓存取公告，提取 PDF 正文后入库；已存在公告跳过（幂等）。
+ */
 import { NextRequest } from "next/server";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
 import { companyAccessWhere } from "@/lib/auth";
@@ -12,9 +18,8 @@ export const dynamic = "force-dynamic";
 
 export async function POST(
   req: NextRequest,
-  { params: pendingParams }: { params: Promise<{ companyId: string }> },
-) {
-  const params = await pendingParams;
+  {params: pendingParams}: {params: Promise<{ companyId: string }>},) {
+ const params=await pendingParams;
   const guard = await guardRequest(req);
   if (guard) return guard;
   const owned = await prisma.company.findFirst({ where: companyAccessWhere(req, params.companyId), select: { id: true } });

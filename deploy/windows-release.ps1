@@ -6,7 +6,8 @@ param(
     [ValidatePattern('^https://[A-Za-z0-9.-]+(?::[0-9]{1,5})?$')][string]$PublicOrigin,
     [string]$ProductionRoot = 'C:\valueinsight',
     [string]$ReleaseRoot = 'C:\valueinsight-releases',
-    [string]$ServiceName = 'ValueInsight'
+    [string]$ServiceName = 'ValueInsight',
+    [switch]$RecoverStoppedService
 )
 
 $ErrorActionPreference = 'Stop'
@@ -18,8 +19,11 @@ $old = Get-ItemProperty -LiteralPath $registry
 $service = Get-Service -Name $ServiceName
 $nssm = (Get-CimInstance Win32_Service -Filter "Name='$ServiceName'").PathName.Trim('"')
 if (!(Test-Path -LiteralPath $nssm -PathType Leaf)) { throw 'NSSM executable is unavailable' }
-if ($service.Status -ne 'Running') { throw 'The current service must be running before deployment' }
-if ((Get-FileHash -LiteralPath $Archive).Hash -ne $ExpectedSha256) { throw 'Artifact checksum mismatch' }
+$wasRunning = $service.Status -eq 'Running'
+if (!$wasRunning -and !($RecoverStoppedService -and $service.Status -eq 'Stopped')) {
+    throw 'The current service must be running before deployment'
+}
+if ((Get-FileHash -LiteralPath $Archive -Algorithm SHA256).Hash -ne $ExpectedSha256) { throw 'Artifact checksum mismatch' }
 if (Test-Path -LiteralPath $release) { throw 'This release directory already exists' }
 foreach ($name in @('user.db', 'baseline.db')) {
     if (!(Test-Path -LiteralPath (Join-Path $ProductionRoot "prisma\$name") -PathType Leaf)) { throw 'Production database is missing' }
@@ -94,23 +98,43 @@ if ($LASTEXITCODE -ne 0) { throw 'Unable to back up service parameters' }
 $snapshot = @'
 const fs = require('node:fs');
 const path = require('node:path');
+const { createHash } = require('node:crypto');
 const { DatabaseSync, backup } = require('node:sqlite');
 (async () => {
   const [source, destination] = process.argv.slice(2);
   const summary = {};
+  const files = [];
+  const readCounts = (db, tables) => Object.fromEntries(tables.map(table =>
+    [table, db.prepare('SELECT COUNT(*) count FROM "' + table + '"').get().count]));
   for (const name of ['user', 'baseline']) {
     const db = new DatabaseSync(path.join(source, 'prisma', name + '.db'), { readOnly: true });
-    if (db.prepare('PRAGMA quick_check').get().quick_check !== 'ok') throw Error('Database integrity failed');
-    const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map(row => row.name);
-    const counts = {};
-    for (const table of ['Company', 'Assumption', 'ValuationReport']) {
-      if (tables.includes(table)) counts[table] = db.prepare('SELECT COUNT(*) count FROM "' + table + '"').get().count;
+    const filename = name + '.db';
+    const output = path.join(destination, filename);
+    try {
+      if (db.prepare('PRAGMA quick_check').get().quick_check !== 'ok') throw Error('Database integrity failed');
+      const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map(row => row.name);
+      summary[name] = readCounts(db, ['Company', 'Assumption', 'ValuationReport'].filter(table => tables.includes(table)));
+      await backup(db, output);
+    } finally {
+      db.close();
     }
-    await backup(db, path.join(destination, name + '.db'));
-    db.close();
-    summary[name] = counts;
+    const copy = new DatabaseSync(output, { readOnly: true });
+    try {
+      const copyCounts = readCounts(copy, Object.keys(summary[name]));
+      if (copy.prepare('PRAGMA quick_check').get().quick_check !== 'ok' ||
+          JSON.stringify(copyCounts) !== JSON.stringify(summary[name])) throw Error('Backup integrity failed');
+    } finally {
+      copy.close();
+    }
+    const hash = createHash('sha256');
+    for await (const chunk of fs.createReadStream(output)) hash.update(chunk);
+    const bytes = fs.statSync(output).size;
+    if (!bytes) throw Error('Backup is empty');
+    files.push({ filename, bytes, sha256: hash.digest('hex') });
   }
   fs.writeFileSync(path.join(destination, 'database-counts.json'), JSON.stringify(summary));
+  fs.writeFileSync(path.join(destination, 'backup-manifest.json'),
+    JSON.stringify({ verifiedAt: new Date().toISOString(), files }, null, 2));
 })().catch(() => { console.error('DATABASE_BACKUP_FAILED'); process.exitCode = 1; });
 '@
 $health = @'
@@ -118,36 +142,173 @@ const fs = require('node:fs');
 const { parseEnv } = require('node:util');
 const env = parseEnv(fs.readFileSync('.env.local', 'utf8'));
 const expected = JSON.parse(fs.readFileSync('deployment-state/database-counts.json', 'utf8'));
-const headers = { authorization: 'Basic ' + Buffer.from('admin:' + env.APP_ACCESS_PASSWORD).toString('base64') };
+const baseUrl = 'http://127.0.0.1:3000';
+const healthEmail = (env.HEALTHCHECK_EMAIL ?? '').trim();
+const healthPassword = env.HEALTHCHECK_PASSWORD ?? '';
+let headers = {};
+let authenticated = false;
+let accountRole = null;
+let companies = null;
+let newsCount = null;
+let newsSources = [];
+let checkedValuation = false;
 (async () => {
-  let response;
-  for (let attempt = 0; attempt < 30; attempt++) {
-    try { response = await fetch('http://127.0.0.1:3000/api/companies', { headers, signal: AbortSignal.timeout(2000) });
-      if (response.ok) break;
-    } catch {}
-    await new Promise(resolve => setTimeout(resolve, 500));
+  try {
+    if (Boolean(healthEmail) !== Boolean(healthPassword)) throw Error('Health check credentials are incomplete');
+    if (healthEmail) {
+      let login;
+      for (let attempt = 0; attempt < 30; attempt++) {
+        try {
+          login = await fetch(baseUrl + '/api/auth/sign-in', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: healthEmail, password: healthPassword }),
+            signal: AbortSignal.timeout(2000),
+          });
+          if (login.ok) break;
+        } catch {}
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+      const cookie = login?.headers.get('set-cookie')?.split(';')[0];
+      const account = login?.ok ? await login.json() : null;
+      if (!login?.ok || !cookie?.startsWith('vi_session=') || !account?.user?.id) throw Error('Session login failed');
+      headers = { cookie };
+      authenticated = true;
+      accountRole = account.user.role;
+    }
+    let response;
+    for (let attempt = 0; attempt < 30; attempt++) {
+      try {
+        response = await fetch(baseUrl + '/api/companies', { headers, signal: AbortSignal.timeout(2000) });
+        if (authenticated ? response.ok : response.status === 401) break;
+      } catch {}
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+    if (authenticated) {
+      if (!response?.ok) throw Error('Authenticated API failed');
+      companies = (await response.json()).companies;
+      if (!Array.isArray(companies) || (accountRole === 'admin' && companies.length !== expected.user.Company))
+        throw Error('Database count mismatch');
+      const anonymous = await fetch(baseUrl + '/api/companies');
+      if (anonymous.status !== 401) throw Error('Authentication failed');
+      const quoteApi = baseUrl + '/api/market-quotes?tickers=';
+      const privateQuotes = await fetch(quoteApi + '603786.SH', { signal: AbortSignal.timeout(5000) });
+      const invalidQuotes = await fetch(quoteApi + '%21', { headers, signal: AbortSignal.timeout(5000) });
+      if (privateQuotes.status !== 401 || invalidQuotes.status !== 422) throw Error('Market quotes access check failed');
+      const routes = ['/dashboard', '/agent', '/announcements', '/valuation/new', '/valuation/board', '/settings'];
+      const company = companies[0];
+      if (company) {
+        const report = '/company/' + encodeURIComponent(company.ticker);
+        routes.push(report, report + '/sensitivity', report + '/ai-attribution', report + '/notes');
+      }
+      for (const route of routes) {
+        const page = await fetch(baseUrl + route, { headers, signal: AbortSignal.timeout(10000) });
+        if (!page.ok) throw Error('Page check failed');
+        await page.arrayBuffer();
+      }
+      const news = await fetch(baseUrl + '/api/market-news', { headers, signal: AbortSignal.timeout(10000) });
+      if (!news.ok) throw Error('Market news feed failed');
+      const feed = await news.json();
+      const sources = new Set(feed.items?.map(item => item.source));
+      if (feed.stale || !Array.isArray(feed.items) || feed.items.length <= 13 ||
+          !sources.has('eastmoney') || !sources.has('sina') ||
+          feed.items.some(item => !item.title || !item.url?.startsWith('https://')))
+        throw Error('Market news feed is incomplete');
+      newsCount = feed.items.length;
+      newsSources = [...sources];
+      const invalidCheck = await fetch(baseUrl + '/api/settings/data-check?ticker=%40%21', { headers, signal: AbortSignal.timeout(5000) });
+      if (invalidCheck.status !== 422) throw Error('Settings input validation failed');
+      const industries = await fetch(baseUrl + '/api/settings/industry-multiples', { headers, signal: AbortSignal.timeout(10000) });
+      if (!industries.ok || ((await industries.json()).groups?.length ?? 0) < 8)
+        throw Error('Industry directory unavailable');
+      const checkTicker = companies.some(company => company.ticker === '603786.SH') ? '603786.SH' : null;
+      if (checkTicker) {
+        const latest = await fetch(quoteApi + checkTicker, { headers, signal: AbortSignal.timeout(13000) });
+        if (!latest.ok || !latest.headers.get('cache-control')?.includes('no-store')) throw Error('Market quote request failed');
+        const quote = (await latest.json()).quotes?.[checkTicker];
+        if (!quote || !(quote.price > 0) || !quote.date || !['ifind', 'eastmoney'].includes(quote.source))
+          throw Error('Verified market quote unavailable');
+        const checked = await fetch(baseUrl + '/api/settings/data-check?ticker=' + checkTicker, { headers, signal: AbortSignal.timeout(55000) });
+        if (!checked.ok) throw Error('Valuation diagnostics failed');
+        const value = await checked.json();
+        if (!value.quote?.date || !value.finance?.cashFlowVerified ||
+            !value.valuation?.result?.priceMatches || !value.valuation?.result?.reconciliation?.passed)
+          throw Error('Published DCF or data verification failed');
+        checkedValuation = true;
+        const companyId = companies.find(company => company.ticker === checkTicker).id;
+        const companyApi = baseUrl + '/api/companies/' + encodeURIComponent(companyId);
+        const prices = await fetch(companyApi + '/prices?range=24m', { headers, signal: AbortSignal.timeout(20000) });
+        if (!prices.ok || !(await prices.json()).prices?.some(bar =>
+          bar.open > 0 && bar.high >= Math.max(bar.open, bar.close) && bar.low > 0 && bar.low <= Math.min(bar.open, bar.close)))
+          throw Error('OHLC history unavailable');
+        const simulated = await fetch(companyApi + '/simulation', { headers, signal: AbortSignal.timeout(10000) });
+        if (!simulated.ok) throw Error('Simulation endpoint failed');
+        const { revision, simulation } = await simulated.json();
+        if (revision !== value.valuation.publication.revision ||
+            (simulation && ('workbook' in simulation || !simulation.coherent ||
+              simulation.coherent.samples + simulation.rejected !== simulation.config.samples ||
+              simulation.coherent.p5 > simulation.coherent.median || simulation.coherent.median > simulation.coherent.p95)))
+          throw Error('Published simulation failed validation');
+        const heatmap = await fetch(companyApi + '/sensitivity', { headers, signal: AbortSignal.timeout(10000) });
+        if (!heatmap.ok) throw Error('Sensitivity endpoint failed');
+        const { sensitivity } = await heatmap.json();
+        if (sensitivity?.kind !== 'operating' || 'workbookMatrix' in sensitivity || sensitivity.rateLabel !== 'WACC' ||
+            sensitivity.base.price !== value.valuation.publication.price ||
+            !sensitivity.matrix?.some(cell =>
+              cell.wacc === sensitivity.base.wacc && cell.g === sensitivity.base.g &&
+              cell.targetPrice !== null && Math.abs(cell.targetPrice - sensitivity.base.price) < 1e-8))
+          throw Error('Sensitivity baseline failed reconciliation');
+        const attribution = await fetch(baseUrl + '/api/validation/attribution?companyId=' + encodeURIComponent(companyId), { headers, signal: AbortSignal.timeout(10000) });
+        if (!attribution.ok) throw Error('Attribution evidence endpoint failed');
+        const { evidence } = await attribution.json();
+        if (evidence?.primary?.kind !== 'operating' || evidence.primary.price !== value.valuation.publication.price ||
+            evidence.reconciliation !== 'passed' || !evidence.model?.sensitivity?.length ||
+            !['aligned', 'reference', 'unavailable'].includes(evidence.comparison?.mode) ||
+            (evidence.comparison.mode !== 'aligned' && evidence.comparison.differencePct !== null))
+          throw Error('Attribution evidence did not match the verified publication');
+      }
+    } else {
+      if (response?.status !== 401) throw Error('Authentication failed');
+      const signIn = await fetch(baseUrl + '/sign-in', { signal: AbortSignal.timeout(5000) });
+      if (!signIn.ok) throw Error('Sign-in page failed');
+      await signIn.arrayBuffer();
+    }
+    const dashboard = await fetch(baseUrl + '/dashboard', { redirect: 'manual' });
+    const loginDestination = new URL(dashboard.headers.get('location') ?? '/', baseUrl);
+    if (![303, 307, 308].includes(dashboard.status) || loginDestination.pathname !== '/sign-in' ||
+        loginDestination.searchParams.get('next') !== '/dashboard') throw Error('Login redirect failed');
+    console.log(JSON.stringify({ authenticatedApi: authenticated, accountRole, anonymousStatus: 401,
+      companyCount: authenticated ? companies.length : null, pages: true, newsCount, newsSources, checkedValuation }));
+  } finally {
+    if (headers.cookie) {
+      try {
+        await fetch(baseUrl + '/api/auth/signout', { method: 'POST', headers, signal: AbortSignal.timeout(2000) });
+      } catch {}
+    }
   }
-  if (!response?.ok) throw Error('Authenticated API failed');
-  const { companies } = await response.json();
-  if (!Array.isArray(companies) || companies.length !== expected.user.Company) throw Error('Database count mismatch');
-  const anonymous = await fetch('http://127.0.0.1:3000/api/companies');
-  if (anonymous.status !== 401) throw Error('Authentication failed');
-  for (const route of ['/dashboard', '/agent']) {
-    const page = await fetch('http://127.0.0.1:3000' + route, { headers });
-    if (!page.ok) throw Error('Page check failed');
-    await page.arrayBuffer();
-  }
-  console.log(JSON.stringify({ authenticatedApi: true, anonymousStatus: 401, companyCount: companies.length, pages: true }));
 })().catch(() => { console.error('RELEASE_HEALTH_FAILED'); process.exitCode = 1; });
 '@
 [IO.File]::WriteAllText((Join-Path $state 'snapshot.cjs'), $snapshot, [Text.UTF8Encoding]::new($false))
 [IO.File]::WriteAllText((Join-Path $release 'release-health.cjs'), $health, [Text.UTF8Encoding]::new($false))
 
-Stop-Service -Name $ServiceName
+if ($wasRunning) { Stop-Service -Name $ServiceName }
 (Get-Service -Name $ServiceName).WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30))
 try {
     & $node (Join-Path $state 'snapshot.cjs') $ProductionRoot $state
     if ($LASTEXITCODE -ne 0) { throw 'Database backup failed' }
+    $backupManifest = Join-Path $state 'backup-manifest.json'
+    $backup = Get-Content -LiteralPath $backupManifest -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($backup.files.Count -ne 2 -or !$backup.verifiedAt) { throw 'Database backup manifest is incomplete' }
+    foreach ($name in @('user.db', 'baseline.db')) {
+        $entry = @($backup.files | Where-Object { $_.filename -eq $name })
+        $backupFile = Join-Path $state $name
+        if ($entry.Count -ne 1 -or $entry[0].bytes -le 0 -or
+            $entry[0].sha256 -notmatch '^[a-f0-9]{64}$' -or
+            (Get-Item -LiteralPath $backupFile).Length -ne [int64]$entry[0].bytes -or
+            (Get-FileHash -LiteralPath $backupFile -Algorithm SHA256).Hash.ToLowerInvariant() -ne $entry[0].sha256) {
+            throw 'Database backup verification failed'
+        }
+    }
     $nssmSettings = @{
         Application = $node
         AppDirectory = $release
@@ -169,7 +330,7 @@ try {
     if (!$healthy) { throw 'Release health check failed' }
     $listener = @(Get-NetTCPConnection -State Listen -LocalPort 3000)
     if ($listener.Count -ne 1 -or $listener[0].LocalAddress -ne '127.0.0.1') { throw 'Unexpected application listener' }
-    $result = [pscustomobject]@{ commit=$Commit; buildId=$buildId; release=$release; service=(Get-Service -Name $ServiceName).Status.ToString(); bind='127.0.0.1:3000'; backups=$state } | ConvertTo-Json -Compress
+    $result = [pscustomobject]@{ commit=$Commit; buildId=$buildId; release=$release; service=(Get-Service -Name $ServiceName).Status.ToString(); bind='127.0.0.1:3000'; backups=$state; backupManifest=$backupManifest } | ConvertTo-Json -Compress
     [IO.File]::WriteAllText((Join-Path $state 'deployment-result.json'), $result, [Text.UTF8Encoding]::new($false))
     Write-Output $result
 } catch {
@@ -178,7 +339,9 @@ try {
     (Get-Service -Name $ServiceName).WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30))
     & reg.exe import $registryBackup | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Automatic service rollback failed; restore the saved registry parameters' }
-    Start-Service -Name $ServiceName
-    (Get-Service -Name $ServiceName).WaitForStatus('Running', [TimeSpan]::FromSeconds(30))
+    if ($wasRunning) {
+        Start-Service -Name $ServiceName
+        (Get-Service -Name $ServiceName).WaitForStatus('Running', [TimeSpan]::FromSeconds(30))
+    }
     throw $failure
 }

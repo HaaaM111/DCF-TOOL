@@ -74,10 +74,10 @@ export interface ForwardDcfResult {
 
 /** 逆向 DCF 结果 */
 export interface ReverseDcfResult {
-  l: number;              // 市场隐含终局利润 L
+  l: number;              // Gordon 口径下第 20 年市场隐含自由现金流
   lE3: number;            // L / E3 倍数
   lE0: number;            // L / E0 倍数
-  impliedCagr: number;    // 隐含终局 CAGR（20y）%
+  impliedCagr: number;    // 第 3 年净利润到第 20 年隐含 FCF 的 17 年折算值 %
   impliedKe: number;      // 隐含 Ke（Gordon 反推）
 }
 
@@ -96,8 +96,8 @@ export interface GordonCheckResult {
 /** 敏感性矩阵单元 */
 export interface SensitivityCell {
   param: number;          // 参数值
-  l: number;              // 隐含终局利润 L
-  lE3: number;            // L/E3
+  l: number | null;       // 无有效组合时为空
+  lE3: number | null;     // E3 非正时不计算倍数
 }
 
 /** 敏感性矩阵 */

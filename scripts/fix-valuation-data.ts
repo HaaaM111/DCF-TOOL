@@ -128,7 +128,7 @@ async function refreshCash(ticker: string): Promise<number | null> {
   try {
     if (hasIfindCredentials()) {
       const f = await fetchFinancials(ticker);
-      if (f.cash > 0) return f.cash;
+      if (f.cash !== null && f.cash > 0) return f.cash;
     }
   } catch {
     /* 落到东财 */

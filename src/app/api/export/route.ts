@@ -1,7 +1,14 @@
+/**
+ * GET /api/export —— 导出全部标的（公司 + 假设 + 评估快照）为 JSON
+ * 用于备份与跨设备迁移。
+ */
 import { NextRequest } from "next/server";
 import { guardRequest } from "@/lib/api";
-import { getAllCompaniesMerged } from "@/lib/dual-db";
 import { getAuthenticatedUserId, isAdministrator } from "@/lib/auth";
+import { getAllCompaniesMerged } from "@/lib/dual-db";
+import { getOperatingRevision } from "@/lib/operating-model-store";
+import { operatingReportInput } from "@/lib/operating-model-input";
+import type { PrimaryValuation } from "@/lib/primary-valuation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,7 +19,14 @@ export async function GET(req: NextRequest) {
 
   const companies = await getAllCompaniesMerged(getAuthenticatedUserId(req), isAdministrator(req));
 
-  const payload = companies.map((c: Record<string, unknown>) => ({
+  const payload = await Promise.all(companies.map(async (c) => {
+    const primary = c.primaryValuation as PrimaryValuation;
+    const input = primary.kind === "operating" ? await getOperatingRevision(String(c.id), primary.publication.revision) : null;
+    const operatingModel = primary.kind === "operating" ? {
+      publication: primary.publication,
+      input: input ? operatingReportInput(input) : null,
+    } : undefined;
+    return {
     company: {
       name: c.name,
       ticker: c.ticker,
@@ -24,6 +38,9 @@ export async function GET(req: NextRequest) {
       netCashAdj: c.netCashAdj,
       netCash: c.netCash,
       e0: c.e0,
+      revenue: c.revenue,
+      bookValue: c.bookValue,
+      industry: c.industry,
       cfo: c.cfo,
       capex: c.capex,
       da: c.da,
@@ -34,6 +51,8 @@ export async function GET(req: NextRequest) {
       diagnosis: c.diagnosis ?? "",
     },
     assumptions: (c.assumption as unknown) ?? undefined,
+    operatingModel,
+    };
   }));
 
   const json = JSON.stringify(payload, null, 2);

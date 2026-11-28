@@ -1,6 +1,8 @@
+> 2026-11-10 增量升级：需要 Node.js ≥22。安全配置、模块变更、验证命令与限制见 [升级说明](docs/UPGRADE.md)。
+
 # ValueInsight · DCF 预期差挖掘工具
 
-基于 Next.js 14 + Ant Design 的 DCF 估值分析终端，面向 A 股 / 港股标的的估值穿透与预期差挖掘，内置公告智能体。
+基于 Next.js 16 + React 19 + Ant Design 的 DCF 估值分析终端，面向 A 股 / 港股标的的估值穿透与预期差挖掘，内置公告智能体。
 
 ## 功能特性
 
@@ -9,23 +11,27 @@
 - **四象限诊断**：绿灯双低 / 绿灯预期已装满 / 红灯退出倍数高 / 红灯预期落空
 - **蒙特卡洛模拟**：目标价置信区间（P5 / P25 / 中位数 / P75 / P95）
 - **估值交叉验证**：绝对估值（DCF）× 相对估值（PE/PB/PS 行业中枢）+ AI 归因
+- **经营估值**：版本化经营模型、情景假设、敏感性矩阵与已发布估值基准
+- **实时行情**：页面可见时每 60 秒刷新报价，展示行情时间与来源；实时接口不可用时回退至已核验日线收盘价
 - **公告智能体**：按需抓取巨潮公告 → 规则分类 → LLM 生成预期差信号与假设修正建议（只出信号，不改假设）
-- **数据源**：同花顺 iFinD 真实行情与财务数据，东财免费接口分流兜底；未配置 Token 时自动进入 Mock 模式
+- **数据源**：同花顺 iFinD 真实行情与财务数据，东财与腾讯免费接口分流兜底；Mock 数据仅用于明确标注的开发场景
 
 ## 快速开始
 
-环境要求：Node.js ≥ 18。
+环境要求：Node.js ≥ 22。
 
 ```bash
-# 1. 安装依赖
-npm install
+# 1. 安装依赖并生成双数据库客户端
+npm ci
+npm run db:generate
 
 # 2. 配置环境变量
 #    .env.local 填入 iFinD refresh_token（可选，不填则使用 Mock 数据）
 #    首次使用先初始化种子数据（会通过 iFinD 拉取真实财务数据）
 npx tsx prisma/seed.ts
 
-# 3. 生产模式启动（推荐，秒开）
+# 3. 自动化测试与生产模式启动
+npm test
 npm run build
 npm run start
 # 打开 http://localhost:3000
@@ -40,6 +46,8 @@ npm run dev
 | --- | --- | --- |
 | `DATABASE_URL` | 用户库 SQLite 路径（建议相对路径 `file:./prisma/user.db`） | `.env` / `.env.production` |
 | `BASELINE_DATABASE_URL` | 基准库 SQLite 路径（运行时带 `mode=ro`） | `.env` / `.env.production` |
+| `APP_ACCESS_PASSWORD` | 首个管理员初始化密码；日常账号使用邮箱注册与登录 | 部署环境变量 |
+| `ALLOW_INSECURE_COOKIE` | 仅本地 HTTP 预览可设为 `true`；生产必须保持 HTTPS | `.env.local` |
 | `IFIND_REFRESH_TOKEN` | 同花顺 iFinD refresh_token（**切勿提交**） | `.env.local` |
 | `IFIND_BASE_URL` / `IFIND_TOKEN_PATH` | iFinD 接口地址与 token 路径 | `.env` |
 | `DEEPSEEK_API_KEY` | DeepSeek API Key，用于 AI 归因 / 公告信号（可选） | `.env.local` |
@@ -60,7 +68,7 @@ npm run dev
 
 ### 账号与数据隔离
 
-- `/` 是公开介绍页；注册、登录后进入 `/home`，其他研究页面和数据 API 都要求有效登录会话。
+- `/` 是公开介绍页；注册、登录后进入 `/home`。`/dashboard`、`/valuation/*`、`/company/*`、`/settings`、`/agent`、`/announcements` 等终端页面与数据 API 都要求有效登录会话。
 - 每个账号首次注册时会从只读基准库创建一份独立公司清单。公司修改、研究记录及智能体 API 配置按账号隔离。
 - 旧版数据库中的无账号归属记录会继续保留，但不会自动显示给新账号或被转交给第一个注册者。
 - 登录使用 SQLite 持久化会话、HttpOnly Cookie 与 scrypt 密码哈希；生产部署需使用 HTTPS。
@@ -176,7 +184,7 @@ npx tsx scripts/manage-baseline.ts sync-market        # 行情同步（写 Price
 
 | 文件 | 作用 |
 | --- | --- |
-| `deploy/init-server.sh` | 服务器首次初始化：Node 20、PM2、Nginx、Git、防火墙、Certbot |
+| `deploy/init-server.sh` | 服务器首次初始化：Node 22、PM2、Nginx、Git、防火墙、Certbot |
 | `deploy/deploy.sh` | 一键部署：拉代码 → 装依赖 → Prisma generate → db push → build → PM2 重启 |
 | `deploy/nginx.conf` | Nginx 反代配置：80 端口、安全头、静态缓存、gzip、健康检查 |
 
@@ -195,8 +203,8 @@ scripts/
   sync-initial-companies.ts  # 初始标的同步
 src/
   app/api/              # Next.js API 路由（companies / dcf / simulation / validation / ifind / announcements / agent / export）
-  app/                  # 页面：dashboard（仪表盘）、model/edit（假设编辑）、report/[id]（报告）、announcements（公告中心）、agent（智能体）
-  lib/                  # 业务逻辑：dcf / monte-carlo / valuation-validation / ai-client / ifind-client / eastmoney-client / data-source / dual-db / announcement/
+  app/                  # 页面：公开落地页、账号首页、(terminal) 估值终端、公司报告、公告中心与智能体
+  lib/                  # 业务逻辑：dcf / monte-carlo / valuation-validation / operating-* / market-quote* / auth / data-source / announcement/
   components/           # 图表与验证组件
   types/dcf.ts          # DCF 类型定义
 deploy/                 # ECS 部署脚本

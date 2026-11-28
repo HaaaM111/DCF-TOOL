@@ -11,6 +11,8 @@
 
 # next.js
 /.next/
+/.next-*/
+/.release-windows/
 /out/
 
 # production
@@ -28,8 +30,10 @@ yarn-error.log*
 # local env files
 .env*.local
 .env
-# .env.production 曾放行跟踪，已取消跟踪并改为忽略（含真实密钥，请走部署环境变量）
+# .env.production 含真实密钥，统一通过部署环境变量注入。
 .env.production
+.env.*
+!.env.example
 
 # vercel
 .vercel

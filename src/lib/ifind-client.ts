@@ -28,7 +28,7 @@
  *   ths_np_atoopc_pit_stock        归母净利润（PIT，参数 [今天,报告期,1]）
  *   ths_total_equity_atoopc_pit_stock 归母净资产（PIT，参数 [今天,报告期,1]）
  *
- * 历史行情 functionpara 必须用 Currency:"RMB"（MHB=美元会把 A 股价格错算成美元）；
+ * 历史行情 functionpara 必须用 Currency:"RMB"（币种参数错误会把 A 股价格按外币换算）；
  * 历史行情默认不复权（与东方财富 fqt=0 一致）。
  */
 
@@ -53,6 +53,9 @@ const MAX_RETRIES = 2;
 const RETRY_BASE_DELAY_MS = 800;
 /** 重试最大退避间隔（ms），防止指数退避过大 */
 const RETRY_MAX_DELAY_MS = 10000;
+/** 包含 Token 刷新、重试和退避的整次调用超时 */
+const REQUEST_TOTAL_TIMEOUT_MS =
+  REQUEST_TIMEOUT_MS * (MAX_RETRIES + 1) + RETRY_BASE_DELAY_MS * 3 + 1000;
 
 // ============================================================
 // 内存 Token 缓存
@@ -163,9 +166,34 @@ async function refreshAccessToken(): Promise<string> {
 // 通用请求封装（带重试）
 // ============================================================
 
-/** 指数退避等待 */
-function sleep(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
+/** 指数退避等待；调用方取消时立即结束，不继续占用请求时长。 */
+function sleep(ms: number, signal?: AbortSignal) {
+  if (signal?.aborted) return Promise.reject(signal.reason);
+  return new Promise<void>((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal?.reason);
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+/** 等待共享的 Token 刷新 Promise，同时让当前请求的外部信号及时生效。 */
+async function withAbort<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  signal.throwIfAborted();
+  let onAbort: (() => void) | undefined;
+  try {
+    return await Promise.race([work, new Promise<never>((_, reject) => {
+      onAbort = () => reject(signal.reason);
+      signal.addEventListener("abort", onAbort, { once: true });
+    })]);
+  } finally {
+    if (onAbort) signal.removeEventListener("abort", onAbort);
+  }
 }
 
 /** 判断是否值得重试的错误（网络错误、超时、5xx、401 Token 失效） */
@@ -211,12 +239,17 @@ function isRetryable(err: unknown): boolean {
 async function ifindPost<T>(
   path: string,
   body: Record<string, unknown>,
+  signal?: AbortSignal,
 ): Promise<T> {
   let lastErr: unknown;
+  const timeout = AbortSignal.timeout(REQUEST_TOTAL_TIMEOUT_MS);
+  const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
-      const token = await getAccessToken();
+      requestSignal.throwIfAborted();
+      const token = await withAbort(getAccessToken(), requestSignal);
+      requestSignal.throwIfAborted();
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
@@ -229,7 +262,7 @@ async function ifindPost<T>(
             ifindlang: "cn",
           },
           body: JSON.stringify(body),
-          signal: controller.signal,
+          signal: AbortSignal.any([requestSignal, controller.signal]),
         });
 
         if (res.status === 401 || res.status === 403) {
@@ -250,16 +283,18 @@ async function ifindPost<T>(
       }
     } catch (err) {
       lastErr = err;
+      if (requestSignal.aborted) requestSignal.throwIfAborted();
       if (attempt >= MAX_RETRIES || !isRetryable(err)) break;
       const delay = Math.min(
         RETRY_BASE_DELAY_MS * Math.pow(2, attempt),
         RETRY_MAX_DELAY_MS,
       );
-      await sleep(delay);
+      await sleep(delay, requestSignal);
     }
   }
 
-  // 重试耗尽，抛出带上下文的错误
+  // 重试耗尽，抛出带上下文的错误；外部取消不应被改写成上游失败。
+  if (requestSignal.aborted) requestSignal.throwIfAborted();
   if (lastErr instanceof Error && lastErr.name === "AbortError") {
     throw new Error(`iFinD 请求超时 [${path}]，已重试 ${MAX_RETRIES} 次`);
   }
@@ -272,6 +307,9 @@ async function ifindPost<T>(
 // ============================================================
 // iFinD 数据接口
 // ============================================================
+
+import { chinaMarketDate, missingFinancialFields, normalizeQuoteDay } from "./financial-data-quality";
+import { priceRange } from "./price-candles";
 
 interface IFindTable {
   thscode: string;
@@ -297,8 +335,8 @@ function extractValue(
   if (!arr || arr.length === 0) return null;
   const v = arr[0];
   if (v === null || v === undefined || v === "") return null;
-  const num = typeof v === "number" ? v : parseFloat(String(v));
-  return isNaN(num) ? null : num;
+  const num = typeof v === "number" ? v : String(v).trim() ? Number(v) : NaN;
+  return Number.isFinite(num) ? num : null;
 }
 
 /**
@@ -318,23 +356,17 @@ function buildIndipara(
  * 使用 basic_data_service + ths_close_price_stock
  */
 export async function fetchQuote(ticker: string) {
-  const today = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-  const body = {
-    codes: ticker,
-    indipara: buildIndipara(["ths_close_price_stock"], today),
-  };
-  const resp = await ifindPost<IFindResponse>("/api/v1/basic_data_service", body);
+  const today = chinaMarketDate(new Date());
+  const start = chinaMarketDate(new Date(Date.now() - 14 * 86_400_000));
+  const rows = await fetchPriceHistory(ticker, start, today);
+  const last = rows.sort((a, b) => b.date.localeCompare(a.date))[0];
+  if (!last) throw new Error(`无法获取 ${ticker} 的最近交易日收盘价`);
+  return { ticker, ...last };
+}
 
-  if (resp.errorcode !== 0) {
-    throw new Error(`iFinD 行情获取失败: ${resp.errmsg || "未知错误"}`);
-  }
-
-  const close = extractValue(resp, "ths_close_price_stock");
-  if (close === null) {
-    throw new Error(`无法获取 ${ticker} 的收盘价`);
-  }
-
-  return { ticker, close, volume: 0, date: today };
+export function fetchIfindMarketQuotes(tickers: string[]) {
+  return ifindPost<unknown>("/api/v1/real_time_quotation",
+    { codes: tickers.join(","), indicators: "latest" }, AbortSignal.timeout(5000));
 }
 
 /**
@@ -342,6 +374,21 @@ export async function fetchQuote(ticker: string) {
  * 拉取：净利润(E0)、CFO、Capex、D&A、总股本、有息负债、总资产
  * 报告期取最近一个年报（12-31）
  */
+const cfoIndicator = "ths_ncf_from_oa_stock";
+const capexIndicator = "ths_cash_paid_for_assets_stock";
+
+export async function fetchIfindAnnualCashFlow(ticker: string, periodEnd: string) {
+  const resp = await ifindPost<IFindResponse>("/api/v1/basic_data_service", {
+    codes: ticker,
+    indipara: buildIndipara([cfoIndicator, capexIndicator], periodEnd.replaceAll("-", "")),
+  });
+  if (resp.errorcode !== 0) throw new Error("iFinD 年报现金流不可用");
+  if (resp.tables?.[0]?.thscode?.toUpperCase() !== ticker.toUpperCase()) throw new Error("iFinD 证券代码不匹配");
+  const cfo = extractValue(resp, cfoIndicator);
+  const capex = extractValue(resp, capexIndicator);
+  return { periodEnd, cfo: cfo == null ? null : cfo / 1e8, capex: capex == null ? null : capex / 1e8 };
+}
+
 export async function fetchFinancials(ticker: string) {
   // 取最近一个完整年报：当前年份-1 的 12-31
   const now = new Date();
@@ -352,10 +399,10 @@ export async function fetchFinancials(ticker: string) {
   // 普通指标（参数 [报告期,100,报告期]）
   const indicators = [
     "ths_stock_short_name_stock", // 名称
-    "ths_np_stock", // 净利润（含少数股东，PIT 归母缺失时兜底）
+    "ths_np_stock", // 净利润（PIT 归母缺失时兜底）
     "ths_revenue_stock", // 营业收入
-    "ths_ncf_from_oa_stock", // CFO
-    "ths_cash_paid_for_assets_stock", // Capex
+    cfoIndicator,
+    capexIndicator,
     "ths_depreciation_etc_stock", // D&A
     "ths_currency_fund_stock", // 货币资金
     "ths_total_shares_stock", // 总股本
@@ -388,18 +435,20 @@ export async function fetchFinancials(ticker: string) {
     throw new Error(`iFinD 财务数据获取失败: ${resp.errmsg || "未知错误"}`);
   }
 
+  if (resp.tables?.[0]?.thscode?.toUpperCase() !== ticker.toUpperCase()) throw new Error("iFinD 证券代码不匹配");
   const tbl = resp.tables?.[0]?.table;
   const name = tbl?.["ths_stock_short_name_stock"]?.[0] as string | undefined;
-  const np = extractValue(resp, "ths_np_stock") ?? 0;
   const npParent = extractValue(resp, "ths_np_atoopc_pit_stock"); // PIT 归母净利润，优先
-  const revenue = extractValue(resp, "ths_revenue_stock") ?? 0;
-  const cfo = extractValue(resp, "ths_ncf_from_oa_stock") ?? 0;
-  const capex = extractValue(resp, "ths_cash_paid_for_assets_stock") ?? 0;
-  const da = extractValue(resp, "ths_depreciation_etc_stock") ?? 0;
-  const cash = extractValue(resp, "ths_currency_fund_stock") ?? 0;
-  const shares = extractValue(resp, "ths_total_shares_stock") ?? 0;
-  const debt = extractValue(resp, "ths_interest_bearing_debt_stock") ?? 0;
-  const totalAssets = extractValue(resp, "ths_total_assets_stock") ?? 0;
+  const np = extractValue(resp, "ths_np_stock"); // PIT 归母缺失时保留 main 的净利润兜底
+  const earnings = npParent ?? np;
+  const revenue = extractValue(resp, "ths_revenue_stock");
+  const cfo = extractValue(resp, cfoIndicator);
+  const capex = extractValue(resp, capexIndicator);
+  const da = extractValue(resp, "ths_depreciation_etc_stock");
+  const cash = extractValue(resp, "ths_currency_fund_stock");
+  const shares = extractValue(resp, "ths_total_shares_stock");
+  const debt = extractValue(resp, "ths_interest_bearing_debt_stock");
+  const totalAssets = extractValue(resp, "ths_total_assets_stock");
   const totalParentEquity = extractValue(resp, "ths_total_equity_atoopc_pit_stock"); // PIT 归母净资产
 
   // 单位转换：元 → 亿元
@@ -407,16 +456,23 @@ export async function fetchFinancials(ticker: string) {
   return {
     ticker,
     name: name || ticker,
-    cash: Number((cash / YI).toFixed(2)), // 货币资金（ths_currency_fund_stock）
-    debt: Number((debt / YI).toFixed(2)),
-    shares: Number((shares / 1e8).toFixed(2)), // 股 → 亿股
-    cfo: Number((cfo / YI).toFixed(2)),
-    capex: Number((capex / YI).toFixed(2)),
-    da: Number((da / YI).toFixed(2)),
-    e0: Number(((npParent ?? np) / YI).toFixed(2)), // 优先 PIT 归母净利润，兜底净利润
-    revenue: Number((revenue / YI).toFixed(2)),
+    cash: cash == null ? null : cash / YI,
+    debt: (debt ?? 0) / YI,
+    shares: (shares ?? 0) / YI, // 股 → 亿股
+    cfo: Number(((cfo ?? 0) / YI).toFixed(2)),
+    capex: Number(((capex ?? 0) / YI).toFixed(2)),
+    reportedCashFlow: { periodEnd: `${year}-12-31`, cfo: cfo == null ? null : cfo / YI, capex: capex == null ? null : capex / YI },
+    missingFields: missingFinancialFields({ cash, debt, shares, e0: earnings, revenue, bookValue: totalParentEquity, cfo, capex, da, totalAssets }),
+    da: (da ?? 0) / YI,
+    e0: (earnings ?? 0) / YI,
+    revenue: (revenue ?? 0) / YI,
     bookValue: Number(((totalParentEquity ?? 0) / YI).toFixed(2)),
-    totalAssets: Number((totalAssets / YI).toFixed(2)),
+    comparable: {
+      shares: (shares ?? 0) / YI,
+      parentEarnings: npParent == null ? undefined : npParent / YI,
+      parentBook: totalParentEquity == null ? undefined : totalParentEquity / YI,
+    },
+    totalAssets: (totalAssets ?? 0) / YI,
     reportDate: `${year}-12-31`,
   };
 }
@@ -435,7 +491,7 @@ export async function fetchPriceHistory(
     indicators: "open,high,low,close,volume",
     startdate: startDate,
     enddate: endDate,
-    functionpara: { Currency: "RMB", Fill: "Omit" },
+    functionpara: { Currency: "RMB", Fill: "Omit", CPS: "no" },
   };
 
   const resp = await ifindPost<{
@@ -453,16 +509,19 @@ export async function fetchPriceHistory(
   }
 
   const tbl = resp.tables?.[0];
-  if (!tbl || !tbl.time) return [];
+  if (!tbl || tbl.thscode?.toUpperCase() !== ticker.toUpperCase() || !Array.isArray(tbl.time)) return [];
 
   const closes = tbl.table?.["close"] ?? [];
   const volumes = tbl.table?.["volume"] ?? [];
+  const { open = [], high = [], low = [] } = tbl.table ?? {};
 
-  return tbl.time.map((date, i) => ({
-    date: date.slice(0, 10),
-    close: closes[i] ?? 0,
-    volume: volumes[i] ?? 0,
-  }));
+  return tbl.time.flatMap((value, i) => {
+    const date = typeof value === "string" ? normalizeQuoteDay(value) : null;
+    const close = closes[i];
+    return date && date >= startDate && date <= endDate && Number.isFinite(close) && close > 0
+      ? [{ date, close, ...priceRange(open[i], high[i], low[i], close),
+        volume: Number.isFinite(volumes[i]) ? volumes[i] : 0 }] : [];
+  });
 }
 
 /**
@@ -513,7 +572,10 @@ const STOCK_POOL: { ticker: string; name: string; market: string; industry: stri
   { ticker: "000581.SZ", name: "威孚高科", market: "SZ", industry: "汽车零部件" },
   { ticker: "600741.SH", name: "华域汽车", market: "SH", industry: "汽车零部件" },
   { ticker: "002920.SZ", name: "德赛西威", market: "SZ", industry: "汽车零部件" },
-  { ticker: "603799.SH", name: "华友钴业", market: "SH", industry: "汽车零部件" },
+  { ticker: "603786.SH", name: "科博达", market: "SH", industry: "汽车零部件" },
+  { ticker: "002906.SZ", name: "华阳集团", market: "SZ", industry: "汽车零部件" },
+  { ticker: "600699.SH", name: "均胜电子", market: "SH", industry: "汽车零部件" },
+  { ticker: "603799.SH", name: "华友钴业", market: "SH", industry: "有色金属" },
   // 白酒/食品饮料
   { ticker: "600519.SH", name: "贵州茅台", market: "SH", industry: "白酒" },
   { ticker: "000858.SZ", name: "五粮液", market: "SZ", industry: "白酒" },

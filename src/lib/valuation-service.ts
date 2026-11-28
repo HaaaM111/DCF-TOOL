@@ -1,34 +1,52 @@
 import "server-only";
 import { prisma } from "./prisma";
-import { calcDcf } from "./dcf";
 import { calcRelativeValuation,calcHistoricalPercentiles,calcSensitivityHeatmap,crossValidate } from "./valuation-validation";
-import { compareMultiples,type Comparable } from "./relative-multiples";
-import { readMetrics } from "./financial-metrics";
+import { calculatePeerValuation } from "./peer-valuation-service";
 import { assumptionsSchema,companySchema } from "./validation";
-import { resolveCompanyData } from "./data-source";
-import { getIndustryPeers } from "./ifind-client";
+import { getOperatingPublication, getOperatingRevision } from "./operating-model-store";
+import { selectPrimaryValuation } from "./primary-valuation";
+import { operatingSensitivity } from "./operating-scenarios";
+import { writeAppSetting } from "./app-setting-write";
 
 export async function validateCompany(companyId:string){
-  const raw=await prisma.company.findUnique({where:{id:companyId}}),saved=await prisma.assumption.findUnique({where:{companyId}});
-  const company=companySchema.parse(raw),a=assumptionsSchema.parse(saved),ownMetrics=await readMetrics(companyId);
-  const local=company.industry?await prisma.company.findMany({where:{industry:company.industry,id:{not:companyId}},take:20}):[];
-  const warnings=["同行必须在币种、报告期和会计口径上可比；已保存输入仍需人工复核。"],excluded:string[]=[];
-  const peers:Comparable[]=await Promise.all(local.map(async p=>{const m=await readMetrics(p.id);const aligned=ownMetrics&&m?.period===ownMetrics.period;return {...p,ebit:aligned?m?.ebit??undefined:undefined,ebitda:aligned?m?.ebitda??undefined:undefined};}));
-  if(peers.length<3&&company.industry){
-    const tickers=getIndustryPeers(company.industry,company.ticker).filter(p=>!peers.some(x=>x.ticker===p.ticker)).slice(0,6);
-    // Bounded batches preserve upstream capacity; mock data never enters formal comparisons.
-    for(let i=0;i<tickers.length;i+=3){const batch=await Promise.allSettled(tickers.slice(i,i+3).map(async p=>{const result=await resolveCompanyData(p.ticker);if(result.source==="mock"||result.data.incomplete){excluded.push(p.ticker);return;}peers.push({...result.data,marketCap:result.data.marketCap});}));batch.forEach((r,j)=>{if(r.status==="rejected")excluded.push(tickers[i+j].ticker);});}
-  }
-  const subject={...company,ticker:company.ticker,ebit:ownMetrics?.ebit??undefined,ebitda:ownMetrics?.ebitda??undefined};
-  const multiples=compareMultiples(subject,peers),legacy=calcRelativeValuation(company.marketCap,company.e0,company.revenue,company.bookValue,peers);
-  const output=calcDcf(a,company),absoluteValue=output.forward.adjustedEquityValue;
+  const [raw, saved, snapshot, publication] = await Promise.all([
+    prisma.company.findUnique({ where: { id: companyId } }), prisma.assumption.findUnique({ where: { companyId } }),
+    prisma.companySnapshot.findUnique({ where: { companyId } }), getOperatingPublication(companyId),
+  ]);
+  const company=companySchema.parse(raw), assumptions=assumptionsSchema.safeParse(saved);
+  const primary = selectPrimaryValuation({ ...company, targetPrice: snapshot?.targetPrice }, publication);
+  const { subject, peers, multiples, evidence: peerSelection } = await calculatePeerValuation({ ...company, id: companyId });
+  const legacy=calcRelativeValuation(subject.marketCap,subject.e0,subject.revenue,subject.bookValue,peers);
+  const published = primary.kind === "operating" ? primary.publication : null;
+  const absoluteValue = published && published.currency === peerSelection.currency ? published.equityValueUnits / 1e8 : null;
   const history=await prisma.historicalValuation.findMany({where:{companyId},orderBy:{year:"asc"}});
   const percentiles=calcHistoricalPercentiles({pe:legacy.currentPe,pb:legacy.currentPb,ps:legacy.currentPs},history);
-  const check=crossValidate(absoluteValue,multiples.relativeValue??0);
-  const heatmap=calcSensitivityHeatmap(a,company);
-  const validation={companyId,absoluteValue,...legacy,...percentiles,relativeValue:multiples.relativeValue??0,...check,aiAttribution:null as string|null,sensitivityHeatmap:heatmap,multiples,hasHistory:history.length>0,warnings,excluded};
+  const aligned = published && !published.retrospective && published.comparableQuote !== null && published.valuationDate === peerSelection.quoteDate;
+  const check=crossValidate(aligned ? absoluteValue ?? NaN : NaN,multiples.relativeValue??0);
+  const input = published ? await getOperatingRevision(companyId, published.revision) : null;
+  const heatmap = input ? operatingSensitivity(input, false)
+    .map(({ wacc, g, coherentPrice }) => ({ wacc, g, targetPrice: coherentPrice }))
+    : primary.kind === "legacy" && assumptions.success ? calcSensitivityHeatmap(assumptions.data, company) : [];
+  const validation={companyId,absoluteValue,...legacy,...percentiles,relativeValue:multiples.relativeValue,...check,
+    aiAttribution:null as string|null,sensitivityHeatmap:heatmap,sensitivityRate:input ? "WACC" : "Ke",
+    sensitivityCurrency:input?.currency ?? "CNY",primaryValuation:primary,multiples,hasHistory:history.length>0,peerSelection};
   const latest=await prisma.valuationReport.findFirst({where:{companyId},orderBy:{createdAt:"desc"}});
-  if(latest && check.diffRate!==null){const {peers:unusedPeers,...core}=legacy;void unusedPeers;const data={...core,...percentiles,companyId,reportId:latest.id,absoluteValue,relativeValue:validation.relativeValue,diffRate:check.diffRate,conclusion:check.conclusion,sensitivityHeatmap:JSON.parse(JSON.stringify(heatmap)),aiAttribution:null};await prisma.validationResult.upsert({where:{reportId:latest.id},create:data,update:data});}
-  if(latest){const key=`validation_details:${latest.id}`;await prisma.appSetting.upsert({where:{key},create:{key,value:JSON.stringify(validation)},update:{value:JSON.stringify(validation)}});}
+  if (latest) {
+    // A journal failure must not erase a calculation that already completed.
+    try {
+      if (absoluteValue !== null && check.diffRate !== null && validation.relativeValue !== null) {
+        const { peers: unusedPeers, ...core } = legacy;
+        void unusedPeers;
+        const data = { ...core, ...percentiles, companyId, reportId: latest.id, absoluteValue,
+          relativeValue: validation.relativeValue, diffRate: check.diffRate, conclusion: check.conclusion,
+          sensitivityHeatmap: JSON.parse(JSON.stringify(heatmap)), aiAttribution: null };
+        await prisma.validationResult.upsert({ where: { reportId: latest.id }, create: data, update: data });
+      }
+      await writeAppSetting(prisma, `validation_details:${latest.id}`, JSON.stringify(validation));
+    } catch {
+      console.warn("Unable to save valuation verification; returning computed result");
+      return { validation, peers: legacy.peers, hasHistory: history.length > 0, aiEnabled: true, journalSaved: false };
+    }
+  }
   return {validation,peers:legacy.peers,hasHistory:history.length>0,aiEnabled:true,attributionPending:check.diffRate!==null&&check.diffRate>=20};
 }

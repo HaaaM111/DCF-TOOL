@@ -1,7 +1,20 @@
+import { tickerSchema } from "@/lib/validation";
+/**
+ * iFinD 数据代理路由（统一入口，分流模式）
+ * GET /api/ifind/quote?ticker=xxx       —— 最新行情（东财 → iFinD → mock）
+ * GET /api/ifind/financials?ticker=xxx  —— 财务数据（iFinD → 东财 → mock）
+ * GET /api/ifind/company?ticker=xxx     —— 行情+财务合并（新增标的用）
+ * GET /api/ifind/history?ticker=xxx&start=YYYY-MM-DD&end=YYYY-MM-DD  —— 历史行情（东财 → iFinD → 空）
+ *
+ * 响应统一带 source（ifind | eastmoney | mock）与 mock 布尔标记；
+ * 财务数据兜底不完整时带 incomplete 标记。
+ *
+ * 安全：Token 仅在服务端使用，绝不返回前端；所有外部响应经 Zod 校验后再返回。
+ */
 import { NextRequest } from "next/server";
 import { guardRequest, jsonError, jsonOk } from "@/lib/api";
-import { prisma } from "@/lib/prisma";
 import { getAuthenticatedUserId, isAdministrator } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
 import {
   resolveQuote,
   resolveFinancials,
@@ -25,7 +38,7 @@ export async function GET(req: NextRequest) {
   const action = url.pathname.split("/").pop() ?? "";
   const ticker = getTicker(req);
 
-  if (!ticker) {
+  if (!tickerSchema.safeParse(ticker).success) {
     return jsonError("缺少 ticker 参数", 400, "MISSING_TICKER");
   }
 
@@ -72,11 +85,15 @@ export async function GET(req: NextRequest) {
         return jsonError(`未知操作: ${action}`, 404, "UNKNOWN_ACTION");
     }
   } catch (err) {
+    // 不向前端透出内部错误细节（可能含接口地址/凭据信息），仅记录服务端日志
     console.error("[ifind] 请求失败:", err);
     return jsonError("数据服务暂不可用，请稍后重试", 502, "IFIND_ERROR");
   }
 }
 
+/**
+ * 将历史行情批量写入 PriceSnapshot（UPSERT，同一 ticker+date 去重）
+ */
 async function saveHistory(
   ticker: string,
   bars: HistoryBar[],
@@ -85,24 +102,23 @@ async function saveHistory(
 ) {
   if (!bars.length) return;
 
+  // 查找对应 companyId（仅当前账号，管理员可跨账号）
   const company = await prisma.company.findFirst({
     where: { ticker, ...(isAdmin ? {} : { userId }) },
     select: { id: true },
   });
+  if (!company) return;
 
   for (const bar of bars) {
-    // 同一交易日只保留一条快照：开盘/盘中/收盘多次同步都会落到同一个自然日，
-    // 否则走势图会出现同日多点、K 线状抖动。
-    const day = new Date(`${bar.date.slice(0, 10)}T00:00:00.000Z`);
     await prisma.priceSnapshot.upsert({
-      where: { ticker_date: { ticker, date: day } },
-      update: { close: bar.close, volume: bar.volume ?? 0, companyId: company?.id },
+      where: { ticker_date: { ticker, date: new Date(bar.date) } },
+      update: { close: bar.close, volume: bar.volume ?? 0 },
       create: {
         ticker,
-        date: day,
+        date: new Date(bar.date),
         close: bar.close,
         volume: bar.volume ?? 0,
-        companyId: company?.id,
+        companyId: company.id,
       },
     });
   }

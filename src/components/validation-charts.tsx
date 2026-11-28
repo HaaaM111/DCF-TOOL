@@ -1,68 +1,50 @@
 "use client";
 
-import { memo, useMemo } from "react";
-import ReactECharts from "echarts-for-react";
+import ReactECharts from "@/components/terminal-chart";
 import type { SensitivityHeatmapCell } from "@/lib/valuation-validation";
 
-interface ValidationSummary {
-  currentPe: number;
-  currentPb: number;
-  currentPs: number;
-  industryPeMean: number;
-  industryPbMean: number;
-  industryPsMean: number;
-  pePercentile: number;
-  pbPercentile: number;
-  psPercentile: number;
-  premiumDiscount: number;
-}
-
-export const PeerCompareChart = memo(function PeerCompareChart({ data }: { data: ValidationSummary }) {
-  const option = useMemo(() => ({
+export function PeerCompareChart({ methods }: {
+  methods: { name: string; count: number; current: number | null; mean: number | null; median: number | null }[];
+}) {
+  const comparable = ["P/E", "P/B", "P/S"].map((name) => methods.find((method) => method.name === name));
+  const series = [
+    { name: "本公司", key: "current", color: "#3b82f6" },
+    { name: "同行中位数", key: "median", color: "#10b981" },
+    { name: "同行均值", key: "mean", color: "#94a3b8" },
+  ] as const;
+  const option = {
     tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
-    legend: { top: 0, data: ["本公司", "行业均值"] },
+    legend: { top: 0 },
     grid: { left: 60, right: 30, top: 40, bottom: 30 },
     xAxis: { type: "category", data: ["PE", "PB", "PS"] },
     yAxis: { type: "value" },
-    series: [
-      {
-        name: "本公司",
-        type: "bar",
-        data: [
-          { value: +data.currentPe.toFixed(2), itemStyle: { color: "#244334" } },
-          { value: +data.currentPb.toFixed(2), itemStyle: { color: "#244334" } },
-          { value: +data.currentPs.toFixed(2), itemStyle: { color: "#244334" } },
-        ],
-        barWidth: 28,
-        label: { show: true, position: "top" },
-      },
-      {
-        name: "行业均值",
-        type: "bar",
-        data: [
-          { value: +data.industryPeMean.toFixed(2), itemStyle: { color: "#a8b0ab" } },
-          { value: +data.industryPbMean.toFixed(2), itemStyle: { color: "#a8b0ab" } },
-          { value: +data.industryPsMean.toFixed(2), itemStyle: { color: "#a8b0ab" } },
-        ],
-        barWidth: 28,
-        label: { show: true, position: "top" },
-      },
-    ],
-  }), [data]);
-  return <ReactECharts option={option} style={{ height: 280 }} notMerge lazyUpdate />;
-});
+    series: series.map(({ name, key, color }) => ({
+      name, type: "bar", itemStyle: { color }, barMaxWidth: 24,
+      data: comparable.map((method) => {
+        const value = method && (key === "current" || method.count >= 3) ? method[key] : null;
+        return value == null ? null : Number(value.toFixed(2));
+      }),
+    })),
+  };
+  return <ReactECharts option={option} style={{ height: 280 }} />;
+}
 
-export const ValidationGauge = memo(function ValidationGauge({
+/**
+ * 绝对 vs 相对 估值差异仪表盘
+ * 用进度条直观展示 DCF 估值与相对估值的差异率
+ */
+export function ValidationGauge({
   absoluteValue,
   relativeValue,
   diffRate,
   conclusion,
 }: {
-  absoluteValue: number;
-  relativeValue: number;
-  diffRate: number;
+  absoluteValue: number | null;
+  relativeValue: number | null;
+  diffRate: number | null;
   conclusion: string;
 }) {
+  if(diffRate === null || absoluteValue === null || relativeValue === null) return <div role="status">交叉验证需要同一估值日、币种及有效同行数据。</div>;
   const isDeviating = diffRate >= 20;
   const maxVal = Math.max(absoluteValue, relativeValue) * 1.1 || 1;
   const absPct = (absoluteValue / maxVal) * 100;
@@ -72,15 +54,15 @@ export const ValidationGauge = memo(function ValidationGauge({
     <div className="space-y-4">
       <div>
         <div className="flex justify-between text-sm mb-1">
-          <span style={{ color: "#244334" }}>DCF 绝对估值</span>
-          <span style={{ color: "#244334", fontWeight: 600 }}>{absoluteValue.toFixed(1)} 亿</span>
+          <span style={{ color: "#3b82f6" }}>DCF 绝对估值</span>
+          <span style={{ color: "#3b82f6", fontWeight: 600 }}>{absoluteValue.toFixed(1)} 亿</span>
         </div>
-        <div style={{ height: 22, background: "#f1f3f0", borderRadius: 11, overflow: "hidden" }}>
+        <div style={{ height: 22, background: "#f1f5f9", borderRadius: 11, overflow: "hidden" }}>
           <div
             style={{
               width: `${absPct}%`,
               height: "100%",
-              background: "#244334",
+              background: "#3b82f6",
               borderRadius: 11,
               transition: "width 0.5s",
             }}
@@ -89,15 +71,15 @@ export const ValidationGauge = memo(function ValidationGauge({
       </div>
       <div>
         <div className="flex justify-between text-sm mb-1">
-          <span style={{ color: "#8a938d" }}>相对估值（PE/PB/PS 中位数法）</span>
-          <span style={{ color: "#8a938d", fontWeight: 600 }}>{relativeValue.toFixed(1)} 亿</span>
+          <span style={{ color: "#0EA5E9" }}>相对估值（有效倍数估值中位数）</span>
+          <span style={{ color: "#0EA5E9", fontWeight: 600 }}>{relativeValue.toFixed(1)} 亿</span>
         </div>
-        <div style={{ height: 22, background: "#f1f3f0", borderRadius: 11, overflow: "hidden" }}>
+        <div style={{ height: 22, background: "#f1f5f9", borderRadius: 11, overflow: "hidden" }}>
           <div
             style={{
               width: `${relPct}%`,
               height: "100%",
-              background: "#8a938d",
+              background: "#0EA5E9",
               borderRadius: 11,
               transition: "width 0.5s",
             }}
@@ -108,52 +90,71 @@ export const ValidationGauge = memo(function ValidationGauge({
         style={{
           padding: "10px 14px",
           borderRadius: 8,
-          background: isDeviating ? "#f1f3f0" : "#f1f3f0",
-          border: `1px solid ${isDeviating ? "#c9b896" : "#9fb3a7"}`,
+          background: isDeviating ? "#FFF7ED" : "#F0FDF4",
+          border: `1px solid ${isDeviating ? "#FDBA74" : "#86EFAC"}`,
           textAlign: "center",
         }}
       >
-        <div style={{ fontSize: 13, color: "#77817a" }}>差异率</div>
-        <div style={{ fontSize: 28, fontWeight: 700, color: isDeviating ? "#9c5a4e" : "#315e49" }}>
+        <div style={{ fontSize: 13, color: "#64748B" }}>差异率</div>
+        <div style={{ fontSize: 28, fontWeight: 700, color: isDeviating ? "#EA580C" : "#16A34A" }}>
           {diffRate.toFixed(1)}%
         </div>
-        <div style={{ fontSize: 13, color: isDeviating ? "#9c5a4e" : "#315e49", marginTop: 4 }}>
+        <div style={{ fontSize: 13, color: isDeviating ? "#EA580C" : "#16A34A", marginTop: 4 }}>
           {conclusion}（阈值 20%）
         </div>
       </div>
     </div>
   );
-});
+}
 
-export const SensitivityHeatmap = memo(function SensitivityHeatmap({ matrix }: { matrix: SensitivityHeatmapCell[] }) {
-  const option = useMemo(() => {
-    if (!Array.isArray(matrix) || matrix.length === 0) return null;
+/**
+ * 敏感性热力图：Ke × 永续 g
+ * 颜色越绿估值越高，越红估值越低
+ */
+export function SensitivityHeatmap({
+  matrix, rateLabel = "Ke", currency = "CNY", base,
+}: {
+  matrix: SensitivityHeatmapCell[];
+  rateLabel?: string;
+  currency?: string;
+  base?: { wacc: number; g: number; price: number };
+}) {
+  if (!Array.isArray(matrix) || matrix.length === 0) {
+    return <div style={{ height: 360, display: "flex", alignItems: "center", justifyContent: "center", color: "#94a3b8" }}>暂无热力图数据</div>;
+  }
+  const waccValues = Array.from(new Set(matrix.map((c) => c.wacc))).sort((a, b) => a - b);
+  const gValues = Array.from(new Set(matrix.map((c) => c.g))).sort((a, b) => a - b);
 
-    const waccValues = Array.from(new Set(matrix.map((c) => c.wacc))).sort((a, b) => a - b);
-    const gValues = Array.from(new Set(matrix.map((c) => c.g))).sort((a, b) => a - b);
+  const prices = matrix.flatMap(({ targetPrice }) => targetPrice === null || !Number.isFinite(targetPrice) ? [] : [targetPrice]);
+  const minP = prices.length ? Math.min(...prices) : 0;
+  const maxP = prices.length ? Math.max(...prices) : 1;
+  const rate = (value: number) => `${Number((value * 100).toFixed(4))}%`;
 
-    const prices = matrix.map((c) => c.targetPrice).filter((v) => v > 0);
-    const minP = prices.length ? Math.min(...prices) : 0;
-    const maxP = prices.length ? Math.max(...prices) : 1;
+  const data = matrix.flatMap((c) => {
+    if (c.targetPrice === null || !Number.isFinite(c.targetPrice)) return [];
+    const x = gValues.indexOf(c.g);
+    const y = waccValues.indexOf(c.wacc);
+    const isBase = base?.wacc === c.wacc && base.g === c.g;
+    return [{ value: [x, y, c.targetPrice], itemStyle: isBase ? { borderWidth: 2, borderColor: "#17231e" } : undefined }];
+  });
+  const invalid = matrix.flatMap((c) => c.targetPrice === null || !Number.isFinite(c.targetPrice)
+    ? [[gValues.indexOf(c.g), waccValues.indexOf(c.wacc), 0]] : []);
 
-    const data = matrix.map((c) => {
-      const x = gValues.indexOf(c.g);
-      const y = waccValues.indexOf(c.wacc);
-      return [x, y, +c.targetPrice.toFixed(2)];
-    });
-
-    return {
+  const option = {
     tooltip: {
       position: "top",
-      formatter: (p: { value: number[] }) => {
+      formatter: (p: { value: number[]; seriesIndex: number }) => {
         const [x, y, v] = p.value;
-        return `WACC=${(waccValues[y] * 100).toFixed(0)}%<br/>永续g=${(gValues[x] * 100).toFixed(0)}%<br/>目标价=¥${v}`;
+        const axes = `${rateLabel}=${rate(waccValues[y])}<br/>永续 g=${rate(gValues[x])}`;
+        if (p.seriesIndex === 1) return `${axes}<br/>超出模型范围或不满足利率条件`;
+        const isBase = base && waccValues[y] === base.wacc && gValues[x] === base.g;
+        return `${axes}<br/>${isBase ? "基准 · " : ""}每股价值=${v.toFixed(2)} ${currency}`;
       },
     },
     grid: { height: "60%", top: "10%", left: 60, right: 30 },
     xAxis: {
       type: "category",
-      data: gValues.map((g) => `${(g * 100).toFixed(0)}%`),
+      data: gValues.map(rate),
       splitArea: { show: true },
       name: "永续增长率 g",
       nameLocation: "middle",
@@ -161,38 +162,48 @@ export const SensitivityHeatmap = memo(function SensitivityHeatmap({ matrix }: {
     },
     yAxis: {
       type: "category",
-      data: waccValues.map((w) => `${(w * 100).toFixed(0)}%`),
+      data: waccValues.map(rate),
       splitArea: { show: true },
-      name: "WACC",
+      name: rateLabel,
+      inverse: true,
       nameLocation: "middle",
       nameGap: 40,
     },
-    visualMap: {
+    visualMap: [{
       min: minP,
-      max: maxP,
+      max: maxP > minP ? maxP : minP + 1,
+      seriesIndex: 0,
       calculable: true,
       orient: "horizontal",
       left: "center",
       bottom: "5%",
       inRange: {
-        color: ["#9c5a4e", "#c3b59a", "#315e49"], // 砖红→卡其→机构绿
+        color: ["#DC2626", "#F59E0B", "#10B981"], // 红→黄→绿
       },
-    },
+    }, { show: false, min: 0, max: 1, seriesIndex: 1, inRange: { color: ["#a5aaa6", "#a5aaa6"] } }],
     series: [
       {
         name: "目标价",
         type: "heatmap",
         data,
-        label: { show: true, fontSize: 11, color: "#202c26" },
+        label: { show: true, fontSize: 10, color: "#000", formatter: (p: { value: number[] }) => p.value[2].toFixed(2) },
         emphasis: { itemStyle: { shadowBlur: 10, shadowColor: "rgba(0,0,0,0.5)" } },
       },
+      {
+        name: "不可用组合",
+        type: "heatmap",
+        data: invalid,
+        itemStyle: { color: "#a5aaa6", opacity: 0.32 },
+        label: { show: true, color: "#434843", formatter: "—" },
+      },
     ],
-    };
-  }, [matrix]);
+  };
 
-  if (!option) {
-    return <div style={{ height: 360, display: "flex", alignItems: "center", justifyContent: "center", color: "#77817a" }}>暂无热力图数据</div>;
-  }
-
-  return <ReactECharts option={option} style={{ width: "100%", height: 360 }} notMerge lazyUpdate />;
-});
+  return <>
+    {base && <p className="mb-1 text-xs text-terminal-muted">
+      基准：{rateLabel} {rate(base.wacc)} · 永续 g {rate(base.g)} · {base.price.toFixed(2)} {currency}/股（图中描边）
+    </p>}
+    <ReactECharts option={option} style={{ width: "100%", height: 360 }} notMerge lazyUpdate />
+    {invalid.length > 0 && <p className="text-xs text-terminal-muted">灰格「—」为不可用组合，不计入色阶。</p>}
+  </>;
+}
